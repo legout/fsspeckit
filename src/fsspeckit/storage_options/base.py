@@ -102,8 +102,18 @@ class BaseStorageOptions(msgspec.Struct):
         with fs.open(path, "w") as f:
             yaml.safe_dump(data, f)
 
-    def to_filesystem(self) -> AbstractFileSystem:
+    def to_filesystem(
+        self,
+        use_listings_cache: bool = True,
+        skip_instance_cache: bool = False,
+        **kwargs: Any,
+    ) -> AbstractFileSystem:
         """Create fsspec filesystem instance from options.
+
+        Args:
+            use_listings_cache: Whether to enable the fsspec listings cache.
+            skip_instance_cache: Whether to skip fsspec's instance cache.
+            **kwargs: Additional arguments forwarded to ``fsspec.filesystem``.
 
         Returns:
             AbstractFileSystem: Configured filesystem instance
@@ -113,7 +123,31 @@ class BaseStorageOptions(msgspec.Struct):
             >>> fs = options.to_filesystem()
             >>> files = fs.ls("/path/to/data")
         """
-        return fsspec_filesystem(**self.to_dict(with_protocol=True))
+
+        fsspec_kwargs: dict[str, Any]
+        if hasattr(self, "to_fsspec_kwargs"):
+            to_kwargs = getattr(self, "to_fsspec_kwargs")
+            try:
+                fsspec_kwargs = to_kwargs(
+                    use_listings_cache=use_listings_cache,
+                    skip_instance_cache=skip_instance_cache,
+                )
+            except TypeError:
+                fsspec_kwargs = to_kwargs()
+        else:
+            fsspec_kwargs = self.to_dict(with_protocol=False)
+
+        merged_kwargs: dict[str, Any] = {}
+        if fsspec_kwargs:
+            merged_kwargs.update(fsspec_kwargs)
+
+        merged_kwargs.setdefault("use_listings_cache", use_listings_cache)
+        merged_kwargs.setdefault("skip_instance_cache", skip_instance_cache)
+        merged_kwargs.update({k: v for k, v in kwargs.items() if v is not None})
+
+        filtered_kwargs = {k: v for k, v in merged_kwargs.items() if v is not None}
+
+        return fsspec_filesystem(self.protocol, **filtered_kwargs)
 
     def update(self, **kwargs: Any) -> "BaseStorageOptions":
         """Update storage options with new values.

@@ -415,7 +415,12 @@ class StorageOptions(msgspec.Struct):
         storage_options = from_env(protocol)
         return cls(storage_options=storage_options)
 
-    def to_filesystem(self) -> AbstractFileSystem:
+    def to_filesystem(
+        self,
+        use_listings_cache: bool = True,
+        skip_instance_cache: bool = False,
+        **kwargs: Any,
+    ) -> AbstractFileSystem:
         """Create fsspec filesystem instance.
 
         Returns:
@@ -426,7 +431,11 @@ class StorageOptions(msgspec.Struct):
             >>> fs = options.to_filesystem()
             >>> files = fs.ls("/data")
         """
-        return self.storage_options.to_filesystem()
+        return self.storage_options.to_filesystem(
+            use_listings_cache=use_listings_cache,
+            skip_instance_cache=skip_instance_cache,
+            **kwargs,
+        )
 
     def to_dict(self, with_protocol: bool = False) -> dict:
         """Convert storage options to dictionary.
