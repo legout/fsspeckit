@@ -309,6 +309,355 @@ filtered_df = df.filter(expr)
 - Between operator: `BETWEEN x AND y`
 - Null checks: `IS NULL`, `IS NOT NULL`
 
+## DuckDB Parquet Handler
+
+### `DuckDBParquetHandler`
+
+High-performance parquet dataset operations using DuckDB with fsspec integration for local and remote storage.
+
+#### Basic Usage
+
+```python
+from fsspeckit.utils import DuckDBParquetHandler
+import pyarrow as pa
+
+# Create sample data
+table = pa.table({'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie']})
+
+# Write and read parquet files
+with DuckDBParquetHandler() as handler:
+    handler.write_parquet(table, "/tmp/data.parquet")
+    result = handler.read_parquet("/tmp/data.parquet")
+```
+
+#### Dataset Write Operations
+
+Write to parquet datasets with automatic unique filenames:
+
+```python
+# Basic dataset write
+with DuckDBParquetHandler() as handler:
+    handler.write_parquet_dataset(table, "/data/sales/")
+    # Creates: /data/sales/part-a1b2c3d4.parquet
+```
+
+**Append Mode (Incremental Updates)**
+
+```python
+# Day 1 - initial load
+handler.write_parquet_dataset(batch1, "/data/sales/", mode="append")
+
+# Day 2 - add new data (preserves Day 1 file)
+handler.write_parquet_dataset(batch2, "/data/sales/", mode="append")
+
+# Read combined dataset
+all_data = handler.read_parquet("/data/sales/")
+```
+
+**Overwrite Mode (Replace Dataset)**
+
+```python
+# Replace entire dataset
+handler.write_parquet_dataset(
+    new_data,
+    "/data/sales/",
+    mode="overwrite"  # Deletes existing parquet files
+)
+```
+
+**Split Large Tables**
+
+```python
+# Split into multiple files with max 100k rows each
+handler.write_parquet_dataset(
+    large_table,
+    "/data/sales/",
+    max_rows_per_file=100000
+)
+```
+
+**Custom Filename Templates**
+
+```python
+# Custom filename pattern
+handler.write_parquet_dataset(
+    table,
+    "/data/sales/",
+    basename_template="sales_{}.parquet"
+)
+# Creates: sales_a1b2c3d4.parquet
+```
+
+#### Dataset Merge Operations
+
+Intelligently merge parquet datasets with multiple strategies for CDC, incremental loads, and synchronization:
+
+**Basic UPSERT (Change Data Capture)**
+
+```python
+with DuckDBParquetHandler() as handler:
+    # Initial data
+    initial = pa.table({
+        'customer_id': [1, 2, 3],
+        'name': ['Alice', 'Bob', 'Charlie'],
+        'balance': [100, 200, 300]
+    })
+    handler.write_parquet_dataset(initial, "/data/customers/")
+    
+    # CDC changes: Update customer 2, add customer 4
+    changes = pa.table({
+        'customer_id': [2, 4],
+        'name': ['Bob', 'Diana'],
+        'balance': [250, 400]
+    })
+    
+    # Merge with UPSERT strategy
+    stats = handler.merge_parquet_dataset(
+        source=changes,
+        target_path="/data/customers/",
+        key_columns="customer_id",
+        strategy="upsert"
+    )
+    
+    print(stats)
+    # {'inserted': 1, 'updated': 1, 'deleted': 0, 'total': 4}
+```
+
+**Available Merge Strategies**
+
+1. **UPSERT** - Insert new records and update existing ones (default for CDC)
+   ```python
+   # Best for: Change data capture, general updates
+   handler.merge_parquet_dataset(
+       source=changes,
+       target_path="/data/",
+       key_columns="id",
+       strategy="upsert"
+   )
+   ```
+
+2. **INSERT** - Add only new records, ignore existing (append-only)
+   ```python
+   # Best for: Event logs, audit trails, immutable data
+   handler.merge_parquet_dataset(
+       source=new_events,
+       target_path="/data/events/",
+       key_columns="event_id",
+       strategy="insert"
+   )
+   ```
+
+3. **UPDATE** - Update only existing records, ignore new ones
+   ```python
+   # Best for: Dimension table updates (SCD Type 1)
+   handler.merge_parquet_dataset(
+       source=updates,
+       target_path="/data/products/",
+       key_columns="product_id",
+       strategy="update"
+   )
+   ```
+
+4. **FULL_MERGE** - Complete synchronization (insert, update, delete)
+   ```python
+   # Best for: Full snapshots, complete syncs
+   handler.merge_parquet_dataset(
+       source=fresh_snapshot,
+       target_path="/data/inventory/",
+       key_columns="sku",
+       strategy="full_merge"
+   )
+   ```
+
+5. **DEDUPLICATE** - Remove duplicates, keeping most recent
+   ```python
+   # Best for: Deduplication, handling duplicate records
+   handler.merge_parquet_dataset(
+       source=data_with_duplicates,
+       target_path="/data/transactions/",
+       key_columns="transaction_id",
+       strategy="deduplicate",
+       dedup_order_by=["timestamp"]  # Keep highest timestamp
+   )
+   ```
+
+**Composite Key Support**
+
+Merge on multiple columns for complex uniqueness requirements:
+
+```python
+# Merge on user + date combination
+handler.merge_parquet_dataset(
+    source=daily_metrics,
+    target_path="/data/user_metrics/",
+    key_columns=["user_id", "date"],  # Composite key
+    strategy="upsert"
+)
+```
+
+**Source from Path or Table**
+
+```python
+# Source as PyArrow table
+handler.merge_parquet_dataset(
+    source=pa_table,
+    target_path="/data/target/",
+    key_columns="id",
+    strategy="upsert"
+)
+
+# Source as path to dataset
+handler.merge_parquet_dataset(
+    source="/data/source/",  # Path to parquet dataset
+    target_path="/data/target/",
+    key_columns="id",
+    strategy="upsert"
+)
+```
+
+**Merge with Compression**
+
+```python
+# Merge and recompress with better algorithm
+handler.merge_parquet_dataset(
+    source=new_data,
+    target_path="/data/",
+    key_columns="id",
+    strategy="upsert",
+    compression="zstd"  # High compression ratio
+)
+```
+
+**Merge Statistics**
+
+All merge operations return detailed statistics:
+
+```python
+stats = handler.merge_parquet_dataset(...)
+
+print(f"Inserted: {stats['inserted']}")  # New records added
+print(f"Updated: {stats['updated']}")    # Existing records updated
+print(f"Deleted: {stats['deleted']}")    # Records removed (FULL_MERGE only)
+print(f"Total: {stats['total']}")        # Final record count
+```
+
+**Validation and Error Handling**
+
+The merge operation performs comprehensive validation:
+
+```python
+try:
+    handler.merge_parquet_dataset(
+        source=data,
+        target_path="/data/",
+        key_columns="id",
+        strategy="upsert"
+    )
+except ValueError as e:
+    # Handles: Missing key columns, NULL keys, schema mismatches
+    print(f"Merge validation failed: {e}")
+except TypeError as e:
+    # Handles: Column type mismatches
+    print(f"Type error: {e}")
+```
+
+**Best Practices for Merging**
+
+1. **Choose the right strategy** - UPSERT for CDC, INSERT for events, UPDATE for dimensions
+2. **Use composite keys** - When uniqueness depends on multiple columns
+3. **Validate schemas first** - Ensure source and target schemas match
+4. **Monitor statistics** - Track inserted/updated/deleted counts
+5. **Handle NULL keys** - Key columns must not contain NULL values
+6. **Test with small datasets** - Verify merge logic before production
+7. **Use DEDUPLICATE** - Clean data before merging if duplicates exist
+8. **Optimize with QUALIFY** - DuckDB's QUALIFY clause optimizes deduplication
+
+**Performance Characteristics**
+
+| Strategy | Time Complexity | Best For | Deletes Data |
+|----------|----------------|----------|--------------|
+| UPSERT | O(n + m) | CDC, general updates | No |
+| INSERT | O(n + m) | Append-only loads | No |
+| UPDATE | O(n + m) | Dimension updates | No |
+| FULL_MERGE | O(n + m) | Full synchronization | Yes |
+| DEDUPLICATE | O(n + m) | Duplicate removal | Yes |
+
+*n = target rows, m = source rows*
+
+See `examples/duckdb/duckdb_merge_example.py` for comprehensive examples of all strategies.
+
+#### SQL Query Execution
+
+Execute SQL queries on parquet data:
+
+```python
+with DuckDBParquetHandler() as handler:
+    handler.write_parquet(table, "/tmp/data.parquet")
+    
+    # Simple query
+    result = handler.execute_sql(
+        "SELECT * FROM parquet_scan('/tmp/data.parquet') WHERE id > 1"
+    )
+    
+    # Parameterized query
+    result = handler.execute_sql(
+        "SELECT * FROM parquet_scan('/tmp/data.parquet') WHERE id BETWEEN ? AND ?",
+        parameters=[1, 3]
+    )
+    
+    # Aggregation
+    result = handler.execute_sql("""
+        SELECT name, COUNT(*) as count
+        FROM parquet_scan('/tmp/data.parquet')
+        GROUP BY name
+    """)
+```
+
+#### Remote Storage Integration
+
+Works seamlessly with S3, GCS, Azure through fsspec:
+
+```python
+from fsspeckit.storage_options import AwsStorageOptions
+
+options = AwsStorageOptions(
+    access_key_id="YOUR_KEY",
+    secret_access_key="YOUR_SECRET",
+    region="us-east-1"
+)
+
+with DuckDBParquetHandler(storage_options=options) as handler:
+    # Write to S3
+    handler.write_parquet_dataset(table, "s3://bucket/data/")
+    
+    # Read from S3
+    result = handler.read_parquet("s3://bucket/data/")
+    
+    # Query S3 data
+    result = handler.execute_sql(
+        "SELECT * FROM parquet_scan('s3://bucket/data/*.parquet')"
+    )
+```
+
+#### Key Features
+
+- **Unique Filenames**: UUID-based generation prevents collisions
+- **Write Modes**: Append (default) or overwrite
+- **File Splitting**: Control file size with `max_rows_per_file`
+- **Compression**: Support for snappy, gzip, zstd, lz4, brotli
+- **Column Selection**: Read only needed columns for efficiency
+- **SQL Analytics**: Full DuckDB SQL capabilities on parquet data
+
+#### Best Practices
+
+1. **Use append mode for incremental updates** - Safer default, no accidental data loss
+2. **Keep files reasonably sized** - 10-100 MB per file using `max_rows_per_file`
+3. **Organize hierarchically** - Use year/month/day directory structure
+4. **Choose appropriate compression** - 'snappy' for speed, 'zstd' for better compression
+5. **Periodic compaction** - Consolidate many small files when using append mode
+
+See `examples/duckdb/duckdb_dataset_write_example.py` for comprehensive examples.
+
 ## Dependency Checking
 
 ### `check_optional_dependency`

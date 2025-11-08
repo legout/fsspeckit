@@ -50,6 +50,7 @@ dependencies = [
     "orjson>=3.11.0",
     "sqlglot>=27.16.3",
     "obstore>=0.8.2",
+    "duckdb>=1.0.0",
 ]
 
 [project.optional-dependencies]

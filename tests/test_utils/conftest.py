@@ -5,6 +5,13 @@ import pyarrow as pa
 import polars as pl
 import pandas as pd
 from datetime import datetime, timezone
+from fsspec.implementations.local import LocalFileSystem
+
+
+@pytest.fixture
+def local_filesystem():
+    """Create a local filesystem instance for testing."""
+    return LocalFileSystem()
 
 
 @pytest.fixture

@@ -1,5 +1,6 @@
 """Utility modules for fsspec-utils."""
 
+from .duckdb import DuckDBParquetHandler
 from .logging import setup_logging
 from .misc import get_partitions_from_path, run_parallel, sync_dir, sync_files
 from .polars import opt_dtype as opt_dtype_pl
@@ -22,4 +23,5 @@ __all__ = [
     "pl",
     "sync_dir",
     "sync_files",
+    "DuckDBParquetHandler",
 ]
