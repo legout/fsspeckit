@@ -17,7 +17,7 @@ This function analyzes each column and converts it to the most appropriate data 
 | `shrink_numerics` | `bool` | If True, numeric columns will be downcasted to smaller data types if possible without losing precision. |
 | `allow_unsigned` | `bool` | If True, unsigned integer types will be considered for numeric column optimization. |
 | `allow_null` | `bool` | If True, columns containing only null values will be cast to the Null type. |
-| `sample_size` | `int` or `None` | Maximum number of cleaned values inspected during regex-based inference (`1024` by default). |
+| `sample_size` | `int` or `None` | Maximum number of cleaned values inspected during regex-based inference (`1024` by default). The inferred schema is based solely on this sample before casting the full column. |
 | `sample_method` | `str` | Which subset to inspect (`"first"` or `"random"`) when sampling values for inference. |
 | `strict` | `bool` | If True, an error will be raised if any column cannot be optimized (e.g., due to type inference issues). |
 

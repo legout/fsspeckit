@@ -1,7 +1,7 @@
 import concurrent.futures
 from collections import defaultdict
 import random
-from typing import Literal
+from typing import Callable, Literal
 
 import numpy as np
 import polars as pl
@@ -141,16 +141,22 @@ def dominant_timezone_per_column(
 
 def standardize_schema_timezones_by_majority(
     schemas: list[pa.Schema],
-) -> list[pa.Schema]:
+) -> pa.Schema:
     """
     For each timestamp column (by name) across all schemas, set the timezone to the most frequent (with tie-breaking).
     Returns a new list of schemas with updated timestamp timezones.
     """
     dom = dominant_timezone_per_column(schemas)
-    new_schemas = []
+    if not schemas:
+        return pa.schema([])
+
+    seen: set[str] = set()
+    fields: list[pa.Field] = []
     for schema in schemas:
-        fields = []
         for field in schema:
+            if field.name in seen:
+                continue
+            seen.add(field.name)
             if pa.types.is_timestamp(field.type) and field.name in dom:
                 unit, tz = dom[field.name]
                 fields.append(
@@ -163,13 +169,12 @@ def standardize_schema_timezones_by_majority(
                 )
             else:
                 fields.append(field)
-        new_schemas.append(pa.schema(fields, schema.metadata))
-    return new_schemas
+    return pa.schema(fields, schemas[0].metadata)
 
 
 def standardize_schema_timezones(
-    schemas: list[pa.Schema], timezone: str | None = None
-) -> list[pa.Schema]:
+    schemas: pa.Schema | list[pa.Schema], timezone: str | None = None
+) -> pa.Schema | list[pa.Schema]:
     """
     Standardize timezone info for all timestamp columns in a list of PyArrow schemas.
 
@@ -182,11 +187,14 @@ def standardize_schema_timezones(
     Returns:
         list of pa.Schema: New schemas with standardized timezone info.
     """
+    single_input = isinstance(schemas, pa.Schema)
+    schema_list = [schemas] if single_input else schemas
     if timezone == "auto":
-        # Use the most frequent timezone for each column
-        return standardize_schema_timezones_by_majority(schemas)
+        majority_schema = standardize_schema_timezones_by_majority(schema_list)
+        result_list = [majority_schema for _ in schema_list]
+        return majority_schema if single_input else result_list
     new_schemas = []
-    for schema in schemas:
+    for schema in schema_list:
         fields = []
         for field in schema:
             if pa.types.is_timestamp(field.type):
@@ -201,7 +209,7 @@ def standardize_schema_timezones(
             else:
                 fields.append(field)
         new_schemas.append(pa.schema(fields, schema.metadata))
-    return new_schemas
+    return new_schemas[0] if single_input else new_schemas
 
 
 def _is_type_compatible(type1: pa.DataType, type2: pa.DataType) -> bool:
@@ -806,11 +814,13 @@ def cast_schema(table: pa.Table, schema: pa.Schema) -> pa.Table:
     Returns:
         pa.Table: A new PyArrow table with the specified schema.
     """
-    # Filter schema fields to only those present in the table
     table_columns = set(table.schema.names)
-    filtered_fields = [field for field in schema if field.name in table_columns]
-    updated_schema = pa.schema(filtered_fields)
-    return table.select(updated_schema.names).cast(updated_schema)
+    for field in schema:
+        if field.name not in table_columns:
+            table = table.append_column(
+                field.name, pa.nulls(table.num_rows, type=field.type)
+            )
+    return table.cast(schema)
 
 
 NULL_LIKE_STRINGS = {
@@ -924,6 +934,27 @@ def _sample_values(
     return values[:sample_size]
 
 
+def _convert_full_list(
+    cleaned_list: list[str | None],
+    converter: Callable[[str], object],
+    target_type: pa.DataType,
+    strict: bool,
+) -> pa.Array:
+    """Convert every value in the cleaned list with resilience to conversion failures."""
+    converted: list[object | None] = []
+    for value in cleaned_list:
+        if value is None:
+            converted.append(None)
+            continue
+        try:
+            converted.append(converter(value))
+        except Exception:
+            if strict:
+                raise
+            converted.append(None)
+    return pa.array(converted, type=target_type)
+
+
 def _clean_string_array(array: pa.Array) -> pa.Array:
     """Trimmt Strings und ersetzt definierte Platzhalter durch Null (Python-basiert, robust)."""
     if len(array) == 0:
@@ -931,7 +962,8 @@ def _clean_string_array(array: pa.Array) -> pa.Array:
     # pc.utf8_trim_whitespace kann fehlen / unterschiedlich sein → fallback
     py = [None if v is None else str(v).strip() for v in array.to_pylist()]
     cleaned_list = [None if (v is None or v in NULL_LIKE_STRINGS) else v for v in py]
-    return pa.array(cleaned_list, type=pa.string())
+    target_type = array.type if pa.types.is_string(array.type) or pa.types.is_large_string(array.type) else pa.string()
+    return pa.array(cleaned_list, type=target_type)
 
 
 def _can_downcast_to_float32(array: pa.Array) -> bool:
@@ -982,11 +1014,13 @@ def _optimize_numeric_array(
     Returns the optimal dtype.
     """
 
-    if not shrink or len(array) == 0 or array.null_count == len(array):
+    if len(array) == 0 or array.null_count == len(array):
         if allow_null:
             return pa.null()
-        else:
-            return array.type
+        return array.type
+
+    if not shrink:
+        return array.type
 
     if pa.types.is_floating(array.type):
         if array.type == pa.float64() and _can_downcast_to_float32(array):
@@ -1036,124 +1070,132 @@ def _optimize_string_array(
     Die Regex-Heuristik arbeitet auf einer Stichprobe (sample_size/sample_method).
     """
     if len(array) == 0 or array.null_count == len(array):
-        return array, (pa.null() if allow_null else array.type)
+        if allow_null:
+            return pa.nulls(len(array), type=pa.null()), pa.null()
+        return array, array.type
 
     cleaned_array = _clean_string_array(array)
+    cleaned_list = cleaned_array.to_pylist()
 
     # Werte für Erkennung: nur nicht-null
-    non_null_list = [v for v in cleaned_array.to_pylist() if v is not None]
+    non_null_list = [v for v in cleaned_list if v is not None]
     if not non_null_list:
-        return cleaned_array, (pa.null() if allow_null else array.type)
+        if allow_null:
+            return pa.nulls(len(cleaned_list), type=pa.null()), pa.null()
+        return cleaned_array, array.type
     sample_list = _sample_values(non_null_list, sample_size, sample_method)
     sample_array = pa.array(sample_list, type=pa.string())
 
     try:
-        # Boolean
-        if _all_match_regex(sample_array, BOOLEAN_REGEX):
-            bool_values = [
-                True if re.match(BOOLEAN_TRUE_REGEX, v, re.IGNORECASE) else False
-                for v in non_null_list
-            ]
-            # Rekonstruiere vollständige Länge unter Erhalt der Nulls
-            it = iter(bool_values)
-            casted_full = [
-                next(it) if v is not None else None for v in cleaned_array.to_pylist()
-            ]
-            return pa.array(casted_full, type=pa.bool_()), pa.bool_()
+        if (not shrink_numerics) and _all_match_regex(sample_array, BOOLEAN_REGEX):
+            def to_bool(value: str) -> bool:
+                if not re.match(BOOLEAN_REGEX, value, re.IGNORECASE):
+                    raise ValueError
+                return bool(re.match(BOOLEAN_TRUE_REGEX, value, re.IGNORECASE))
+
+            converted = _convert_full_list(cleaned_list, to_bool, pa.bool_(), strict)
+            return converted, pa.bool_()
+
+        # Datetime
+        if _all_match_regex(sample_array, DATETIME_REGEX):
+            pl_series = pl.Series(col_name, cleaned_array)
+            sample_series = (
+                pl.Series(col_name, sample_list) if sample_list else pl.Series(col_name, [])
+            )
+
+            has_tz = sample_series.str.contains(r"(Z|UTC|[+-]\d{2}:\d{2}|[+-]\d{4})$").any()
+            normalized_series = pl_series.map_elements(
+                _normalize_datetime_string, return_dtype=pl.String
+            )
+
+            if has_tz:
+                if force_timezone is not None:
+                    dt_series = normalized_series.str.to_datetime(
+                        time_zone=force_timezone, time_unit="us", strict=strict
+                    )
+                else:
+                    detected_tz = _detect_timezone_from_sample(sample_series)
+                    if detected_tz is not None:
+                        dt_series = normalized_series.str.to_datetime(
+                            time_zone=detected_tz, time_unit="us", strict=strict
+                        )
+                    else:
+                        dt_series = normalized_series.str.to_datetime(
+                            time_unit="us", strict=strict
+                        )
+
+                converted = dt_series
+            else:
+                if force_timezone is not None:
+                    converted = normalized_series.str.to_datetime(
+                        time_zone=force_timezone, time_unit="us", strict=strict
+                    )
+                else:
+                    converted = normalized_series.str.to_datetime(
+                        time_unit="us", strict=strict
+                    )
+
+            return converted.to_arrow(), converted.to_arrow().type
 
         # Integer
         if _all_match_regex(sample_array, INTEGER_REGEX):
             try:
-                int_values = [int(v) for v in non_null_list]
-            except ValueError as exc:
+                sample_ints = [int(v) for v in sample_list]
+            except ValueError:
                 if strict:
                     raise
-                return cleaned_array, pa.string()
-            optimized_type = (
-                _get_optimal_int_type(
-                    pa.array(int_values, type=pa.int64()), allow_unsigned, allow_null
-                )
-                if shrink_numerics
-                else pa.int64()
+                return cleaned_array, array.type
+
+            sample_min = min(sample_ints) if sample_ints else None
+            use_unsigned = (
+                allow_unsigned
+                and shrink_numerics
+                and (sample_min is None or sample_min >= 0)
             )
-            it = iter(int_values)
-            casted_full = [
-                next(it) if v is not None else None for v in cleaned_array.to_pylist()
-            ]
-            return pa.array(casted_full, type=optimized_type), optimized_type
+            if use_unsigned and sample_ints:
+                sample_arr = pa.array(sample_ints, type=pa.int64())
+                optimized_type = _get_optimal_int_type(
+                    sample_arr, True, allow_null=False
+                )
+            elif shrink_numerics and sample_ints:
+                sample_arr = pa.array(sample_ints, type=pa.int64())
+                optimized_type = _get_optimal_int_type(
+                    sample_arr, False, allow_null=False
+                )
+            elif use_unsigned:
+                optimized_type = pa.uint64()
+            else:
+                optimized_type = pa.int64()
+
+            converted = _convert_full_list(
+                cleaned_list, lambda v: int(v), optimized_type, strict
+            )
+            return converted, optimized_type
 
         # Float
         if _all_match_regex(sample_array, FLOAT_REGEX):
             try:
-                float_values = [float(v.replace(",", ".")) for v in non_null_list]
+                sample_floats = [float(v.replace(",", ".")) for v in sample_list]
             except ValueError:
                 if strict:
                     raise
-                return cleaned_array, pa.string()
-            base_arr = pa.array(float_values, type=pa.float64())
+                return cleaned_array, array.type
+            base_arr = pa.array(sample_floats, type=pa.float64())
             target_type = pa.float64()
             if shrink_numerics and _can_downcast_to_float32(base_arr):
                 target_type = pa.float32()
-            it = iter(float_values)
-            casted_full = [
-                next(it) if v is not None else None for v in cleaned_array.to_pylist()
-            ]
-            return pa.array(casted_full, type=target_type), target_type
+            converted = _convert_full_list(
+                cleaned_list, lambda v: float(v.replace(",", ".")), target_type, strict
+            )
+            return converted, target_type
 
-        # Datetime
-        if _all_match_regex(sample_array, DATETIME_REGEX):
-            # Nutzung Polars für tolerant parsing mit erweiterter Format-Unterstützung
-            pl_series = pl.Series(col_name, cleaned_array)
-
-            # Prüfe ob gemischte Zeitzonen vorhanden sind
-            has_tz = pl_series.str.contains(r"(Z|UTC|[+-]\d{2}:\d{2}|[+-]\d{4})$").any()
-
-            if has_tz:
-                # Bei gemischten Zeitzonen, verwende eager parsing auf Series-Ebene
-                normalized_series = pl_series.map_elements(
-                    _normalize_datetime_string, return_dtype=pl.String
-                )
-
-                if force_timezone is not None:
-                    dt_series = normalized_series.str.to_datetime(
-                        time_zone=force_timezone, time_unit="us"
-                    )
-                else:
-                    detected_tz = _detect_timezone_from_sample(pl_series)
-                    if detected_tz is not None:
-                        dt_series = normalized_series.str.to_datetime(
-                            time_zone=detected_tz, time_unit="us"
-                        )
-                    else:
-                        dt_series = normalized_series.str.to_datetime(time_unit="us")
-
-                converted = dt_series
-            else:
-                # Bei konsistenten Zeitzonen, verwende Polars' eingebaute Format-Erkennung
-                if force_timezone is not None:
-                    converted = pl_series.str.to_datetime(
-                        time_zone=force_timezone, time_unit="us"
-                    )
-                else:
-                    # Prüfe ob Zeitzonen vorhanden sind
-                    has_any_tz = pl_series.str.contains(
-                        r"(Z|UTC|[+-]\d{2}:\d{2}|[+-]\d{4})$"
-                    ).any()
-                    if has_any_tz:
-                        # Automatische Zeitzonenerkennung
-                        converted = pl_series.str.to_datetime(time_unit="us")
-                    else:
-                        # Ohne Zeitzonen
-                        converted = pl_series.str.to_datetime(time_unit="us")
-
-            return converted.to_arrow(), converted.to_arrow().type
     except Exception:  # pragma: no cover
         if strict:
             raise
     if strict:
         raise ValueError(f"Could not infer dtype for column {col_name}")
     # Kein Cast
-    return cleaned_array, pa.string()
+    return cleaned_array, cleaned_array.type
 
 
 def _process_column(
@@ -1161,6 +1203,7 @@ def _process_column(
     col_name: str,
     shrink_numerics: bool,
     allow_unsigned: bool,
+    allow_null: bool,
     time_zone: str | None = None,
     force_timezone: str | None = None,
     sample_size: int | None = 1024,
@@ -1185,7 +1228,7 @@ def _process_column(
             shrink_numerics,
             time_zone,
             allow_unsigned=allow_unsigned,
-            allow_null=True,
+            allow_null=allow_null,
             force_timezone=force_timezone,
             sample_size=sample_size,
             sample_method=sample_method,
@@ -1219,6 +1262,7 @@ def _process_column_for_opt_dtype(args):
                 col_name,
                 shrink_numerics,
                 allow_unsigned,
+                allow_null,
                 time_zone,
                 force_timezone,
                 sample_size,
@@ -1321,6 +1365,6 @@ def opt_dtype(
     arrays = [array for _, _, array in results]
 
     schema = pa.schema(fields)
-    if use_large_dtypes:
+    if not use_large_dtypes:
         schema = convert_large_types_to_normal(schema)
     return pa.Table.from_arrays(arrays, schema=schema)

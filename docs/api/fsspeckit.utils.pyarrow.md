@@ -161,7 +161,7 @@ Optimize data types of a PyArrow Table for performance and memory efficiency.
 | `use_large_dtypes` | `bool` | |
 | `strict` | `bool` | |
 | `allow_null` | `bool` | If False, columns that only hold null-like values will not be converted to pyarrow.null(). |
-| `sample_size` | `int` or `None` | Maximum number of cleaned values inspected during regex-based inference (`1024` by default). |
+| `sample_size` | `int` or `None` | Maximum number of cleaned values inspected during regex-based inference (`1024` by default). The inferred schema is derived solely from the samples before casting the complete column. |
 | `sample_method` | `str` | Sampling strategy (`"first"` or `"random"`) for the inference subset. |
 
 **Returns:**

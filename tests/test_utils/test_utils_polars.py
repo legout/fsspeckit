@@ -201,6 +201,14 @@ class TestOptDtype:
         assert result_collected.schema["int_col"] == pl.Int64
         assert result_collected.schema["float_col"] == pl.Float64
 
+    def test_sample_inference_applied_to_full_column(self):
+        """Sample-driven schema should dictate casting for entire column."""
+        df = pl.DataFrame({"value": ["1", "2", "foo", "bar"]})
+        result = opt_dtype(df, sample_size=2, sample_method="first")
+
+        assert result.schema["value"] == pl.Int64
+        assert result["value"].to_list() == [1, 2, None, None]
+
     def test_sampling_controls(self):
         """Ensure sampling parameters are accepted while keeping default inference."""
         df = pl.DataFrame({"value": ["1", "2", "3"]})

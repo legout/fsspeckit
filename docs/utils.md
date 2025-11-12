@@ -216,7 +216,7 @@ optimized = opt_dtype_pl(df)
 df_opt = df.opt_dtype  # Custom extension method
 ```
 
-You can tune `sample_size` and `sample_method` when calling `opt_dtype_pl` (or `df.opt_dtype`) to keep the regex heuristics bounded. The defaults (1024 rows, `sample_method="first"`) provide a good balance between inference accuracy and memory usage.
+You can tune `sample_size` and `sample_method` when calling `opt_dtype_pl` (or `df.opt_dtype`) to keep the regex heuristics bounded. The defaults (1024 rows, `sample_method="first"`) provide a good balance between inference accuracy and memory usage, and the inferred schema is based solely on the sampled rows before the full column is cast.
 
 **Optimizations include:**
 - Int64 → Int32 when range fits
@@ -236,7 +236,7 @@ table = pa.table({"id": [1, 2, 3], "count": [100, 200, 300]})
 optimized = opt_dtype_pa(table)
 ```
 
-The PyArrow helper exposes the same `sample_size`/`sample_method` knobs so you can limit the inference subset before the full table is cast.
+The PyArrow helper exposes the same `sample_size`/`sample_method` knobs so you can limit the inference subset before the full table is cast, with the schema derived entirely from the sampled values.
 
 ## Schema Utilities
 

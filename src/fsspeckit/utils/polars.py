@@ -3,6 +3,7 @@ import polars as pl
 import polars.selectors as cs
 import re
 from typing import Literal
+from polars.exceptions import InvalidOperationError
 
 from .datetime import get_timedelta_str, get_timestamp_column
 
@@ -221,6 +222,18 @@ def _sample_series(
     return series.head(sample_size)
 
 
+def _cast_expression(expr: pl.Expr, dtype: pl.DataType, strict: bool, col_name: str) -> pl.Expr:
+    """
+    Cast an expression to a dtype using the desired strictness, falling back to lenient casting when allowed.
+    """
+    try:
+        return expr.cast(dtype, strict=strict).alias(col_name)
+    except InvalidOperationError:
+        if strict:
+            raise
+        return expr.cast(dtype, strict=False).alias(col_name)
+
+
 def _optimize_string_column(
     series: pl.Series,
     shrink_numerics: bool,
@@ -288,11 +301,19 @@ def _optimize_string_column(
     compact_datetime_pattern = r"^(?:19|20)\d{6}$"
     is_compact_datetime = sample_values.str.contains(compact_datetime_pattern).all()
 
+    # Boolean-Erkennung (nur ohne numerisches Shrinking)
+    if (not shrink_numerics) and sample_lower.str.contains(BOOLEAN_REGEX).all():
+        return (
+            cleaned_expr.str.to_lowercase()
+            .str.contains(BOOLEAN_TRUE_REGEX)
+            .alias(col_name)
+        )
+
     # Datetime-Erkennung mit Polars' eingebauter Format-Erkennung
     if sample_values.str.contains(DATETIME_REGEX).all():
         try:
-            # Prüfe ob gemischte Zeitzonen vorhanden sind
-            has_tz = series.str.contains(r"(Z|UTC|[+-]\d{2}:\d{2}|[+-]\d{4})$").any()
+            # Prüfe ob gemischte Zeitzonen im Sample vorhanden sind
+            has_tz = sample_values.str.contains(r"(Z|UTC|[+-]\d{2}:\d{2}|[+-]\d{4})$").any()
 
             if has_tz:
                 # Bei gemischten Zeitzonen, verwende eager parsing auf Series-Ebene
@@ -331,7 +352,7 @@ def _optimize_string_column(
                     )
                 else:
                     # Erkenne die häufigste Zeitzone
-                    detected_tz = _detect_timezone_from_sample(series)
+                    detected_tz = _detect_timezone_from_sample(sample_values)
                     if detected_tz is not None:
                         dt_series = normalized_series.str.to_datetime(
                             time_zone=detected_tz, time_unit="us"
@@ -367,47 +388,41 @@ def _optimize_string_column(
     # Integer-Erkennung
     if sample_values.str.contains(INTEGER_REGEX).all():
         try:
-            int_series = detector_values.cast(pl.Int64)
-        except pl.exceptions.InvalidOperationError:
+            sample_ints = sample_values.cast(pl.Int64)
+        except InvalidOperationError:
             if strict:
                 raise
             return pl.col(col_name)
 
-        if allow_unsigned and shrink_numerics:
-            int_min = int_series.min()
-            if int_min is not None and int_min >= 0:
-                target_dtype = int_series.cast(pl.UInt64).shrink_dtype().dtype
-                return cleaned_expr.cast(target_dtype).alias(col_name)
+        sample_min = sample_ints.min()
+        use_unsigned = (
+            allow_unsigned and shrink_numerics and (sample_min is None or sample_min >= 0)
+        )
 
-        if shrink_numerics:
-            target_dtype = int_series.shrink_dtype().dtype
-            return cleaned_expr.cast(target_dtype).alias(col_name)
+        if use_unsigned:
+            target_dtype = sample_ints.cast(pl.UInt64).shrink_dtype().dtype
+        elif shrink_numerics:
+            target_dtype = sample_ints.shrink_dtype().dtype
+        else:
+            target_dtype = pl.Int64
 
-        return cleaned_expr.cast(pl.Int64).alias(col_name)
+        return _cast_expression(cleaned_expr, target_dtype, strict, col_name)
 
     # Float-Erkennung
     if sample_values.str.contains(FLOAT_REGEX).all():
         float_base = cleaned_expr.str.replace_all(",", ".")
-        normalized = detector_values.str.replace_all(",", ".")
+        normalized_sample = sample_values.str.replace_all(",", ".")
         try:
-            float_series = normalized.cast(pl.Float64)
-        except pl.exceptions.InvalidOperationError:
+            sample_floats = normalized_sample.cast(pl.Float64)
+        except InvalidOperationError:
             if strict:
                 raise
             return pl.col(col_name)
 
-        float_expr = float_base.cast(pl.Float64)
-        if shrink_numerics and _can_downcast_to_float32(float_series):
-            return float_base.cast(pl.Float32).alias(col_name)
-        return float_expr.alias(col_name)
-
-    # Boolean-Erkennung
-    if sample_lower.str.contains(BOOLEAN_REGEX).all():
-        return (
-            cleaned_expr.str.to_lowercase()
-            .str.contains(BOOLEAN_TRUE_REGEX)
-            .alias(col_name)
-        )
+        target_dtype: pl.DataType = pl.Float64
+        if shrink_numerics and _can_downcast_to_float32(sample_floats):
+            target_dtype = pl.Float32
+        return _cast_expression(float_base, target_dtype, strict, col_name)
 
     if strict:
         raise ValueError(f"Could not infer dtype for column {col_name}")

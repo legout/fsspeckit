@@ -132,7 +132,7 @@ class TestOptDtype:
         # Don't allow unsigned (with shrinking)
         result = opt_dtype(table, allow_unsigned=False, shrink_numerics=True)
         assert result.schema.field("positive").type == pa.int8()
-        assert result.schema.field("mixed").type == pa.int64()
+        assert result.schema.field("mixed").type == pa.int8()
 
     def test_null_handling(self):
         """Test null-like value handling."""
@@ -188,6 +188,14 @@ class TestOptDtype:
         # Strict mode
         with pytest.raises(Exception):
             opt_dtype(table, strict=True)
+
+    def test_sample_inference_applies_schema(self):
+        """Sample should dictate schema and casting for remainder of column."""
+        table = pa.Table.from_pydict({"value": ["1", "2", "foo", "bar"]})
+        result = opt_dtype(table, sample_size=2, sample_method="first")
+
+        assert result.schema.field("value").type == pa.int64()
+        assert result.column("value").to_pylist() == [1, 2, None, None]
 
     def test_sampling_controls(self):
         """Custom sampling parameters should still accept the defaults."""
