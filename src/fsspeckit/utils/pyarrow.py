@@ -1,5 +1,7 @@
 import concurrent.futures
 from collections import defaultdict
+import random
+from typing import Literal
 
 import numpy as np
 import polars as pl
@@ -9,7 +11,7 @@ import re
 
 # Pre-compiled regex patterns (identical to original)
 INTEGER_REGEX = r"^[-+]?\d+$"
-FLOAT_REGEX = r"^[-+]?(?:\d*[.,])?\d+(?:[eE][-+]?\d+)?$"
+FLOAT_REGEX = r"^(?:[-+]?(?:\d*[.,])?\d+(?:[eE][-+]?\d+)?|[-+]?(?:inf|nan))$"
 BOOLEAN_REGEX = r"^(true|false|1|0|yes|ja|no|nein|t|f|y|j|n|ok|nok)$"
 BOOLEAN_TRUE_REGEX = r"^(true|1|yes|ja|t|y|j|ok)$"
 DATETIME_REGEX = (
@@ -840,6 +842,14 @@ def _normalize_datetime_string(s: str) -> str:
         str: Normalized datetime string without timezone
     """
     s = str(s).strip()
+    if re.match(r"^\d{2}/\d{2}/\d{4}$", s):
+        month, day, year = s.split("/")
+        s = f"{year}-{month}-{day}"
+    if re.match(r"^\d{2}\.\d{2}\.\d{4}$", s):
+        day, month, year = s.split(".")
+        s = f"{year}-{month}-{day}"
+    if re.match(r"^\d{8}$", s):
+        s = f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
     s = re.sub(r"Z$", "", s)
     s = re.sub(r"UTC$", "", s)
     s = re.sub(r"([+-]\d{2}:\d{2})$", "", s)
@@ -857,8 +867,6 @@ def _detect_timezone_from_sample(series: pl.Series) -> str | None:
     Returns:
         str or None: Most common timezone found, or None if no timezone detected
     """
-    import random
-
     # Sample up to 1000 values for performance
     sample_size = min(1000, len(series))
     if sample_size == 0:
@@ -898,6 +906,22 @@ def _detect_timezone_from_sample(series: pl.Series) -> str | None:
 
     # Return most common timezone
     return tz_counts.most_common(1)[0][0]
+
+
+SampleMethod = Literal["first", "random"]
+
+
+def _sample_values(
+    values: list[str], sample_size: int | None, sample_method: SampleMethod
+) -> list[str]:
+    """Limit the list of values used for regex inference."""
+    if sample_size is None or sample_size <= 0 or len(values) <= sample_size:
+        return values
+    if sample_method not in ("first", "random"):
+        raise ValueError("sample_method must be 'first' or 'random'")
+    if sample_method == "random":
+        return random.sample(values, sample_size)
+    return values[:sample_size]
 
 
 def _clean_string_array(array: pa.Array) -> pa.Array:
@@ -1001,11 +1025,15 @@ def _optimize_string_array(
     allow_unsigned: bool = True,
     allow_null: bool = True,
     force_timezone: str | None = None,
+    sample_size: int | None = 1024,
+    sample_method: SampleMethod = "first",
+    strict: bool = False,
 ) -> tuple[pa.Array, pa.DataType]:
     """Analysiere String-Array und bestimme Ziel-Datentyp.
 
     Rückgabe: (bereinigtes_array, ziel_datentyp)
     Platzhalter-/Leerwerte blockieren keine Erkennung mehr.
+    Die Regex-Heuristik arbeitet auf einer Stichprobe (sample_size/sample_method).
     """
     if len(array) == 0 or array.null_count == len(array):
         return array, (pa.null() if allow_null else array.type)
@@ -1016,11 +1044,12 @@ def _optimize_string_array(
     non_null_list = [v for v in cleaned_array.to_pylist() if v is not None]
     if not non_null_list:
         return cleaned_array, (pa.null() if allow_null else array.type)
-    non_null = pa.array(non_null_list, type=pa.string())
+    sample_list = _sample_values(non_null_list, sample_size, sample_method)
+    sample_array = pa.array(sample_list, type=pa.string())
 
     try:
         # Boolean
-        if _all_match_regex(non_null, BOOLEAN_REGEX):
+        if _all_match_regex(sample_array, BOOLEAN_REGEX):
             bool_values = [
                 True if re.match(BOOLEAN_TRUE_REGEX, v, re.IGNORECASE) else False
                 for v in non_null_list
@@ -1033,10 +1062,19 @@ def _optimize_string_array(
             return pa.array(casted_full, type=pa.bool_()), pa.bool_()
 
         # Integer
-        if _all_match_regex(non_null, INTEGER_REGEX):
-            int_values = [int(v) for v in non_null_list]
-            optimized_type = _get_optimal_int_type(
-                pa.array(int_values, type=pa.int64()), allow_unsigned, allow_null
+        if _all_match_regex(sample_array, INTEGER_REGEX):
+            try:
+                int_values = [int(v) for v in non_null_list]
+            except ValueError as exc:
+                if strict:
+                    raise
+                return cleaned_array, pa.string()
+            optimized_type = (
+                _get_optimal_int_type(
+                    pa.array(int_values, type=pa.int64()), allow_unsigned, allow_null
+                )
+                if shrink_numerics
+                else pa.int64()
             )
             it = iter(int_values)
             casted_full = [
@@ -1045,8 +1083,13 @@ def _optimize_string_array(
             return pa.array(casted_full, type=optimized_type), optimized_type
 
         # Float
-        if _all_match_regex(non_null, FLOAT_REGEX):
-            float_values = [float(v.replace(",", ".")) for v in non_null_list]
+        if _all_match_regex(sample_array, FLOAT_REGEX):
+            try:
+                float_values = [float(v.replace(",", ".")) for v in non_null_list]
+            except ValueError:
+                if strict:
+                    raise
+                return cleaned_array, pa.string()
             base_arr = pa.array(float_values, type=pa.float64())
             target_type = pa.float64()
             if shrink_numerics and _can_downcast_to_float32(base_arr):
@@ -1058,7 +1101,7 @@ def _optimize_string_array(
             return pa.array(casted_full, type=target_type), target_type
 
         # Datetime
-        if _all_match_regex(non_null, DATETIME_REGEX):
+        if _all_match_regex(sample_array, DATETIME_REGEX):
             # Nutzung Polars für tolerant parsing mit erweiterter Format-Unterstützung
             pl_series = pl.Series(col_name, cleaned_array)
 
@@ -1105,8 +1148,10 @@ def _optimize_string_array(
 
             return converted.to_arrow(), converted.to_arrow().type
     except Exception:  # pragma: no cover
-        pass
-
+        if strict:
+            raise
+    if strict:
+        raise ValueError(f"Could not infer dtype for column {col_name}")
     # Kein Cast
     return cleaned_array, pa.string()
 
@@ -1118,6 +1163,9 @@ def _process_column(
     allow_unsigned: bool,
     time_zone: str | None = None,
     force_timezone: str | None = None,
+    sample_size: int | None = 1024,
+    sample_method: SampleMethod = "first",
+    strict: bool = False,
 ) -> tuple[pa.Field, pa.Array]:
     """
     Process a single column for type optimization.
@@ -1139,6 +1187,9 @@ def _process_column(
             allow_unsigned=allow_unsigned,
             allow_null=True,
             force_timezone=force_timezone,
+            sample_size=sample_size,
+            sample_method=sample_method,
+            strict=strict,
         )
         return pa.field(
             col_name, dtype, nullable=casted_array.null_count > 0
@@ -1158,6 +1209,8 @@ def _process_column_for_opt_dtype(args):
         strict,
         allow_null,
         force_timezone,
+        sample_size,
+        sample_method,
     ) = args
     try:
         if col_name in cols_to_process:
@@ -1168,6 +1221,9 @@ def _process_column_for_opt_dtype(args):
                 allow_unsigned,
                 time_zone,
                 force_timezone,
+                sample_size,
+                sample_method,
+                strict=strict,
             )
             if pa.types.is_null(field.type):
                 if allow_null:
@@ -1195,11 +1251,13 @@ def opt_dtype(
     include: str | list[str] | None = None,
     exclude: str | list[str] | None = None,
     time_zone: str | None = None,
-    shrink_numerics: bool = True,
+    shrink_numerics: bool = False,
     allow_unsigned: bool = True,
     use_large_dtypes: bool = False,
     strict: bool = False,
     allow_null: bool = True,
+    sample_size: int | None = 1024,
+    sample_method: SampleMethod = "first",
     *,
     force_timezone: str | None = None,
 ) -> pa.Table:
@@ -1217,8 +1275,13 @@ def opt_dtype(
         use_large_dtypes: If True, keep large types like large_string.
         strict: If True, will raise an error if any column cannot be optimized.
         allow_null: If False, columns that only hold null-like values will not be converted to pyarrow.null().
+        sample_size: Maximum number of cleaned values to inspect during regex inference (None to inspect all).
+        sample_method: Sampling strategy (`"first"` or `"random"`) for the inference subset.
         force_timezone: If set, ensure all parsed datetime columns end up with this timezone.
     """
+    if sample_method not in ("first", "random"):
+        raise ValueError("sample_method must be 'first' or 'random'")
+
     if isinstance(include, str):
         include = [include]
     if isinstance(exclude, str):
@@ -1242,6 +1305,8 @@ def opt_dtype(
             strict,
             allow_null,
             force_timezone,
+            sample_size,
+            sample_method,
         )
         for col_name in table.column_names
     ]

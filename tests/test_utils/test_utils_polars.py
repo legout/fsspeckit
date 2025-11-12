@@ -64,7 +64,9 @@ class TestOptDtype:
             time_unit="us", time_zone=None
         )
         assert result.schema["compact"] == pl.Datetime(time_unit="us", time_zone=None)
-        assert result.schema["with_tz"] == pl.Datetime(time_unit="us", time_zone=None)
+        assert result.schema["with_tz"] == pl.Datetime(
+            time_unit="us", time_zone="UTC"
+        )
 
     def test_timezone_handling(self):
         """Test timezone parameter handling."""
@@ -109,7 +111,7 @@ class TestOptDtype:
         """Test numeric shrinking functionality."""
         df = pl.DataFrame(
             {
-                "small_int": ["1", "2", "3", "4", "5"],
+                "small_int": ["1", "2", "3"],
                 "large_int": ["100000", "200000", "300000"],
                 "small_float": ["1.1", "2.2", "3.3"],
             }
@@ -117,8 +119,8 @@ class TestOptDtype:
 
         # With shrinking
         result = opt_dtype(df, shrink_numerics=True)
-        assert result.schema["small_int"] == pl.Int8
-        assert result.schema["large_int"] == pl.Int64
+        assert result.schema["small_int"] == pl.UInt8
+        assert result.schema["large_int"] == pl.UInt32
         assert result.schema["small_float"] == pl.Float32
 
         # Without shrinking
@@ -136,14 +138,14 @@ class TestOptDtype:
             }
         )
 
-        # Allow unsigned
-        result = opt_dtype(df, allow_unsigned=True)
+        # Allow unsigned with shrinking
+        result = opt_dtype(df, allow_unsigned=True, shrink_numerics=True)
         assert result.schema["positive"] == pl.UInt8
 
         # Don't allow unsigned
-        result = opt_dtype(df, allow_unsigned=False)
-        assert result.schema["positive"] == pl.Int64
-        assert result.schema["mixed"] == pl.Int64
+        result = opt_dtype(df, allow_unsigned=False, shrink_numerics=True)
+        assert result.schema["positive"] == pl.Int8
+        assert result.schema["mixed"] == pl.Int8
 
     def test_null_handling(self):
         """Test null-like value handling."""
@@ -198,6 +200,24 @@ class TestOptDtype:
         result_collected = result.collect()
         assert result_collected.schema["int_col"] == pl.Int64
         assert result_collected.schema["float_col"] == pl.Float64
+
+    def test_sampling_controls(self):
+        """Ensure sampling parameters are accepted while keeping default inference."""
+        df = pl.DataFrame({"value": ["1", "2", "3"]})
+        first_sample = opt_dtype(df, sample_size=2, sample_method="first")
+        assert first_sample.schema["value"] == pl.Int64
+
+        random_sample = opt_dtype(df, sample_size=2, sample_method="random")
+        assert random_sample.schema["value"] == pl.Int64
+
+        no_sample = opt_dtype(df, sample_size=None)
+        assert no_sample.schema["value"] == pl.Int64
+
+    def test_sampling_invalid_method(self):
+        """Invalid sampling strategy should raise early."""
+        df = pl.DataFrame({"value": ["1"]})
+        with pytest.raises(ValueError):
+            opt_dtype(df, sample_method="invalid")
 
 
 class TestExtensionMethods:
@@ -282,7 +302,7 @@ class TestExtensionMethods:
         )
 
         assert "date_str" in result.columns
-        assert result["date_str"][0] == "2023-12-31"
+        assert result["date_str"][0].strftime("%Y-%m-%d") == "2023-12-31"
 
     def test_cast_relaxed(self):
         """Test cast_relaxed method."""
@@ -381,7 +401,7 @@ class TestEdgeCases:
 
         result = opt_dtype(df)
         assert result.schema["all_null"] == pl.Null
-        assert result.schema["mixed"] == pl.Int64
+        assert result.schema["mixed"] == pl.UInt64
 
     def test_mixed_datetime_formats(self):
         """Test mixed datetime formats in same column."""

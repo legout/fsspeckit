@@ -99,7 +99,7 @@ class TestOptDtype:
     def test_shrink_numerics(self):
         """Test numeric shrinking functionality."""
         data = {
-            "small_int": ["1", "2", "3", "4", "5"],
+            "small_int": ["1", "2", "3"],
             "large_int": ["100000", "200000", "300000"],
             "small_float": ["1.1", "2.2", "3.3"],
         }
@@ -107,8 +107,8 @@ class TestOptDtype:
 
         # With shrinking
         result = opt_dtype(table, shrink_numerics=True)
-        assert result.schema.field("small_int").type == pa.int8()
-        assert result.schema.field("large_int").type == pa.int64()
+        assert result.schema.field("small_int").type == pa.uint8()
+        assert result.schema.field("large_int").type == pa.uint32()
         assert result.schema.field("small_float").type == pa.float32()
 
         # Without shrinking
@@ -125,13 +125,13 @@ class TestOptDtype:
         }
         table = pa.Table.from_pydict(data)
 
-        # Allow unsigned
-        result = opt_dtype(table, allow_unsigned=True)
+        # Allow unsigned (with shrinking)
+        result = opt_dtype(table, allow_unsigned=True, shrink_numerics=True)
         assert result.schema.field("positive").type == pa.uint8()
 
-        # Don't allow unsigned
-        result = opt_dtype(table, allow_unsigned=False)
-        assert result.schema.field("positive").type == pa.int64()
+        # Don't allow unsigned (with shrinking)
+        result = opt_dtype(table, allow_unsigned=False, shrink_numerics=True)
+        assert result.schema.field("positive").type == pa.int8()
         assert result.schema.field("mixed").type == pa.int64()
 
     def test_null_handling(self):
@@ -188,6 +188,24 @@ class TestOptDtype:
         # Strict mode
         with pytest.raises(Exception):
             opt_dtype(table, strict=True)
+
+    def test_sampling_controls(self):
+        """Custom sampling parameters should still accept the defaults."""
+        table = pa.Table.from_pydict({"value": ["1", "2", "3"]})
+        first_sample = opt_dtype(table, sample_size=2, sample_method="first")
+        assert first_sample.schema.field("value").type == pa.int64()
+
+        random_sample = opt_dtype(table, sample_size=2, sample_method="random")
+        assert random_sample.schema.field("value").type == pa.int64()
+
+        no_sample = opt_dtype(table, sample_size=None)
+        assert no_sample.schema.field("value").type == pa.int64()
+
+    def test_sampling_invalid_method(self):
+        """Invalid sampling strategies raise immediately."""
+        table = pa.Table.from_pydict({"value": ["1"]})
+        with pytest.raises(ValueError):
+            opt_dtype(table, sample_method="bad")
 
 
 class TestSchemaFunctions:

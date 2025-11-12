@@ -2,12 +2,13 @@ import numpy as np
 import polars as pl
 import polars.selectors as cs
 import re
+from typing import Literal
 
 from .datetime import get_timedelta_str, get_timestamp_column
 
 # Pre-compiled regex patterns (identical to original)
 INTEGER_REGEX = r"^[-+]?\d+$"
-FLOAT_REGEX = r"^[-+]?(?:\d*[.,])?\d+(?:[eE][-+]?\d+)?$"
+FLOAT_REGEX = r"^(?:[-+]?(?:\d*[.,])?\d+(?:[eE][-+]?\d+)?|[-+]?(?:inf|nan))$"
 BOOLEAN_REGEX = r"^(true|false|1|0|yes|ja|no|nein|t|f|y|j|n|ok|nok)$"
 BOOLEAN_TRUE_REGEX = r"^(true|1|yes|ja|t|y|j|ok)$"
 # Make 8-digit pattern more restrictive to exclude obvious non-dates
@@ -199,6 +200,27 @@ def _detect_timezone_from_sample(
     return "UTC"
 
 
+SampleMethod = Literal["first", "random"]
+
+
+def _sample_series(
+    series: pl.Series,
+    sample_size: int | None = None,
+    sample_method: SampleMethod = "first",
+) -> pl.Series:
+    """Return at most `sample_size` values according to the requested strategy."""
+    if sample_size is None or sample_size <= 0:
+        return series
+    if sample_method not in ("first", "random"):
+        raise ValueError("sample_method must be 'first' or 'random'")
+    length = len(series)
+    if length <= sample_size:
+        return series
+    if sample_method == "random":
+        return series.sample(sample_size, with_replacement=False)
+    return series.head(sample_size)
+
+
 def _optimize_string_column(
     series: pl.Series,
     shrink_numerics: bool,
@@ -206,8 +228,14 @@ def _optimize_string_column(
     allow_null: bool = True,
     allow_unsigned: bool = True,
     force_timezone: str | None = None,
+    sample_size: int | None = 1024,
+    sample_method: SampleMethod = "first",
+    strict: bool = False,
 ) -> pl.Expr:
-    """Convert string column to appropriate type based on content analysis.
+    """Convert string column to an appropriate type based on content analysis.
+
+    Sampling limits (`sample_size`, `sample_method`) keep the regex heuristics
+    bounded while the conversion still validates the full column before casting.
 
     Änderung:
     Platzhalter-/Null-ähnliche Werte ("", "-", "None", "NaN", "null", usw.)
@@ -255,52 +283,13 @@ def _optimize_string_column(
             return pl.col(col_name).cast(pl.Null())
         return pl.col(col_name)
 
-    lower_detector = detector_values.str.to_lowercase()
-
-    # Integer-Erkennung (vor Datetime, um 8-stellige Zahlen zu erfassen)
-    if detector_values.str.contains(INTEGER_REGEX).all():
-        # Cast to Int64 first to ensure valid conversion
-        int_expr = cleaned_expr.cast(pl.Int64)
-
-        # Check if we should use unsigned integers
-        if allow_unsigned:
-            # Check if all original string values are non-negative
-            # (excluding null-like values that were cleaned)
-            if detector_values.min() is not None and detector_values.min() >= "0":
-                # Convert to UInt64 first, then shrink if needed
-                uint_expr = int_expr.cast(pl.UInt64)
-                if shrink_numerics:
-                    return uint_expr.shrink_dtype().alias(col_name)
-                return uint_expr.alias(col_name)
-
-        # Fall back to signed integers
-        if shrink_numerics:
-            return int_expr.shrink_dtype().alias(col_name)
-        return int_expr.alias(col_name)
-
-    # Float-Erkennung
-    if detector_values.str.contains(FLOAT_REGEX).all():
-        float_expr = (
-            cleaned_expr.str.replace_all(",", ".").cast(pl.Float64).alias(col_name)
-        )
-        if shrink_numerics:
-            temp_floats = detector_values.str.replace_all(",", ".").cast(
-                pl.Float64, strict=False
-            )
-            if _can_downcast_to_float32(temp_floats):
-                return float_expr.shrink_dtype().alias(col_name)
-        return float_expr
-
-    # Boolean-Erkennung
-    if lower_detector.str.contains(BOOLEAN_REGEX).all():
-        return (
-            cleaned_expr.str.to_lowercase()
-            .str.contains(BOOLEAN_TRUE_REGEX)
-            .alias(col_name)
-        )
+    sample_values = _sample_series(detector_values, sample_size, sample_method)
+    sample_lower = sample_values.str.to_lowercase()
+    compact_datetime_pattern = r"^(?:19|20)\d{6}$"
+    is_compact_datetime = sample_values.str.contains(compact_datetime_pattern).all()
 
     # Datetime-Erkennung mit Polars' eingebauter Format-Erkennung
-    if detector_values.str.contains(DATETIME_REGEX).all():
+    if sample_values.str.contains(DATETIME_REGEX).all():
         try:
             # Prüfe ob gemischte Zeitzonen vorhanden sind
             has_tz = series.str.contains(r"(Z|UTC|[+-]\d{2}:\d{2}|[+-]\d{4})$").any()
@@ -315,6 +304,14 @@ def _optimize_string_column(
                         return s
 
                     s = str(s).strip()
+                    if re.match(r"^\d{2}/\d{2}/\d{4}$", s):
+                        month, day, year = s.split("/")
+                        s = f"{year}-{month}-{day}"
+                    if re.match(r"^\d{2}\.\d{2}\.\d{4}$", s):
+                        day, month, year = s.split(".")
+                        s = f"{year}-{month}-{day}"
+                    if re.match(r"^\d{8}$", s):
+                        s = f"{s[0:4]}-{s[4:6]}-{s[6:8]}"
                     # Entferne Zeitzonen-Informationen, da Polars diese nicht gemischt verarbeiten kann
                     s = re.sub(r"Z$", "", s)
                     s = re.sub(r"UTC$", "", s)
@@ -346,7 +343,14 @@ def _optimize_string_column(
                 return pl.lit(dt_series).alias(col_name)
             else:
                 # Keine gemischten Zeitzonen - normales expression-basiertes Parsen
-                dt_expr = cleaned_expr.str.to_datetime(strict=False, time_unit="us")
+                if is_compact_datetime:
+                    dt_expr = cleaned_expr.str.strptime(
+                        pl.Datetime(time_unit="us"),
+                        format="%Y%m%d",
+                        strict=False,
+                    )
+                else:
+                    dt_expr = cleaned_expr.str.to_datetime(strict=False, time_unit="us")
 
                 # Wende force_timezone an falls angegeben
                 if force_timezone is not None:
@@ -360,18 +364,67 @@ def _optimize_string_column(
             logging.debug(f"Datetime parsing failed for column {col_name}: {e}")
             pass
 
-    # Kein Cast → Original behalten
+    # Integer-Erkennung
+    if sample_values.str.contains(INTEGER_REGEX).all():
+        try:
+            int_series = detector_values.cast(pl.Int64)
+        except pl.exceptions.InvalidOperationError:
+            if strict:
+                raise
+            return pl.col(col_name)
+
+        if allow_unsigned and shrink_numerics:
+            int_min = int_series.min()
+            if int_min is not None and int_min >= 0:
+                target_dtype = int_series.cast(pl.UInt64).shrink_dtype().dtype
+                return cleaned_expr.cast(target_dtype).alias(col_name)
+
+        if shrink_numerics:
+            target_dtype = int_series.shrink_dtype().dtype
+            return cleaned_expr.cast(target_dtype).alias(col_name)
+
+        return cleaned_expr.cast(pl.Int64).alias(col_name)
+
+    # Float-Erkennung
+    if sample_values.str.contains(FLOAT_REGEX).all():
+        float_base = cleaned_expr.str.replace_all(",", ".")
+        normalized = detector_values.str.replace_all(",", ".")
+        try:
+            float_series = normalized.cast(pl.Float64)
+        except pl.exceptions.InvalidOperationError:
+            if strict:
+                raise
+            return pl.col(col_name)
+
+        float_expr = float_base.cast(pl.Float64)
+        if shrink_numerics and _can_downcast_to_float32(float_series):
+            return float_base.cast(pl.Float32).alias(col_name)
+        return float_expr.alias(col_name)
+
+    # Boolean-Erkennung
+    if sample_lower.str.contains(BOOLEAN_REGEX).all():
+        return (
+            cleaned_expr.str.to_lowercase()
+            .str.contains(BOOLEAN_TRUE_REGEX)
+            .alias(col_name)
+        )
+
+    if strict:
+        raise ValueError(f"Could not infer dtype for column {col_name}")
     return pl.col(col_name)
 
 
 def _get_column_expr(
     df: pl.DataFrame,
     col_name: str,
-    shrink_numerics: bool = True,
+    shrink_numerics: bool = False,
     allow_unsigned: bool = True,
     allow_null: bool = True,
     time_zone: str | None = None,
     force_timezone: str | None = None,
+    sample_size: int | None = 1024,
+    sample_method: SampleMethod = "first",
+    strict: bool = False,
 ) -> pl.Expr:
     """Generate optimization expression for a single column."""
     series = df[col_name]
@@ -396,6 +449,9 @@ def _get_column_expr(
             allow_null,
             allow_unsigned,
             force_timezone,
+            sample_size,
+            sample_method,
+            strict,
         )
 
     # Keep original for other types
@@ -407,9 +463,11 @@ def opt_dtype(
     include: str | list[str] | None = None,
     exclude: str | list[str] | None = None,
     time_zone: str | None = None,
-    shrink_numerics: bool = True,
+    shrink_numerics: bool = False,
     allow_unsigned: bool = True,
     allow_null: bool = True,
+    sample_size: int | None = 1024,
+    sample_method: SampleMethod = "first",
     strict: bool = False,
     *,
     force_timezone: str | None = None,
@@ -429,12 +487,32 @@ def opt_dtype(
         shrink_numerics: Whether to downcast numeric types when possible.
         allow_unsigned: Whether to allow unsigned integer types.
         allow_null: Whether to allow columns with all null values to be cast to Null type.
+        sample_size: Maximum number of cleaned values to inspect for regex-based inference. Use None to inspect the entire column.
+        sample_method: Which subset to inspect (`"first"` or `"random"`).
         strict: If True, will raise an error if any column cannot be optimized.
         force_timezone: If set, ensure all parsed datetime columns end up with this timezone.
 
     Returns:
         DataFrame with optimized data types.
     """
+    if sample_method not in ("first", "random"):
+        raise ValueError("sample_method must be 'first' or 'random'")
+
+    if isinstance(df, pl.LazyFrame):
+        return opt_dtype(
+            df.collect(),
+            include=include,
+            exclude=exclude,
+            time_zone=time_zone,
+            shrink_numerics=shrink_numerics,
+            allow_unsigned=allow_unsigned,
+            allow_null=allow_null,
+            sample_size=sample_size,
+            sample_method=sample_method,
+            strict=strict,
+            force_timezone=force_timezone,
+        ).lazy()
+
     # Normalize include/exclude parameters
     if isinstance(include, str):
         include = [include]
@@ -461,6 +539,9 @@ def opt_dtype(
                     allow_null,
                     time_zone,
                     force_timezone,
+                    sample_size,
+                    sample_method,
+                    strict,
                 )
             )
         except Exception as e:
