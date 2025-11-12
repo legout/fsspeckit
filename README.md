@@ -67,6 +67,11 @@ from fsspeckit.storage_options import AwsStorageOptions
 # Load from environment variables
 options = AwsStorageOptions.from_env()
 fs = filesystem("s3", storage_options=options)
+
+# Load with anonymous access from environment
+# Set AWS_S3_ANONYMOUS=true in environment
+options = AwsStorageOptions.from_env()
+fs = filesystem("s3", storage_options=options)
 ```
 
 ### Multiple Cloud Providers
@@ -116,6 +121,9 @@ options = AwsStorageOptions(
     secret_access_key="minioadmin",
     allow_http=True
 )
+
+# Anonymous access for public buckets
+options = AwsStorageOptions(anonymous=True)
 ```
 
 ### Google Cloud Storage
