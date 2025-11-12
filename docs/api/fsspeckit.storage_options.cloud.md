@@ -268,6 +268,7 @@ Provides comprehensive configuration for S3 access with support for:
 - Custom endpoints for S3-compatible services
 - Region configuration
 - SSL/TLS settings
+- Anonymous access for public buckets
 
 **Attributes:**
 
@@ -279,6 +280,7 @@ Provides comprehensive configuration for S3 access with support for:
 *   `region` (`str`): AWS region name
 *   `allow_invalid_certificates` (`bool`): Skip SSL certificate validation
 *   `allow_http` (`bool`): Allow unencrypted HTTP connections
+*   `anonymous` (`bool`): Use anonymous (unsigned) S3 access
 
 **Example:**
 
@@ -300,6 +302,9 @@ options = AwsStorageOptions(
     secret_access_key="minioadmin",
     allow_http=True
 )
+
+# Anonymous access for public buckets
+options = AwsStorageOptions(anonymous=True)
 ```
 
 ### `create()`
@@ -316,6 +321,7 @@ Creates an `AwsStorageOptions` instance, handling aliases and profile loading.
 | `region` | `str | None` | AWS region name. |
 | `allow_invalid_certificates` | `bool | None` | Skip SSL certificate validation. |
 | `allow_http` | `bool | None` | Allow unencrypted HTTP connections. |
+| `anonymous` | `bool | None` | Use anonymous (unsigned) S3 access. |
 | `key` | `str | None` | Alias for `access_key_id`. |
 | `secret` | `str | None` | Alias for `secret_access_key`. |
 | `token` | `str | None` | Alias for `session_token`. |
@@ -337,6 +343,7 @@ Loads credentials from `~/.aws/credentials` and `~/.aws/config` files.
 | `profile` | `str` | AWS credentials profile name |
 | `allow_invalid_certificates` | `bool` | Skip SSL certificate validation |
 | `allow_http` | `bool` | Allow unencrypted HTTP connections |
+| `anonymous` | `bool` | Use anonymous (unsigned) S3 access |
 
 | Returns | Type | Description |
 | :------ | :--- | :---------- |
@@ -370,6 +377,7 @@ Reads standard AWS environment variables:
 - `AWS_DEFAULT_REGION`
 - `ALLOW_INVALID_CERTIFICATE`
 - `AWS_ALLOW_HTTP`
+- `AWS_S3_ANONYMOUS`
 
 | Returns | Type | Description |
 | :------ | :--- | :---------- |

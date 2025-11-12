@@ -93,6 +93,11 @@ def from_dict(protocol: str, storage_options: dict) -> BaseStorageOptions:
         'AwsStorageOptions'
     """
     if protocol == "s3":
+        # Handle anon -> anonymous parameter translation
+        if "anon" in storage_options:
+            storage_options = storage_options.copy()
+            storage_options["anonymous"] = storage_options.pop("anon")
+
         if (
             "profile" in storage_options
             or "key" in storage_options

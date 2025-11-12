@@ -153,8 +153,8 @@ class AzureStorageOptions(BaseStorageOptions):
             "AZURE_CLIENT_SECRET": self.client_secret,
             "AZURE_STORAGE_SAS_TOKEN": self.sas_token,
         }
-        env = {k: v for k, v in env.items() if v is not None}
-        os.environ.update(env)
+        env = {k: str(v) for k, v in env.items() if v is not None}
+        os.environ.update(env)  # type: ignore[arg-type]
 
     def to_fsspec_kwargs(self) -> dict:
         """Convert options to Azure-compatible fsspec kwargs."""
@@ -272,8 +272,8 @@ class GcsStorageOptions(BaseStorageOptions):
             "STORAGE_EMULATOR_HOST": self.endpoint_url,
             "GCS_OAUTH_TOKEN": self.access_token,
         }
-        env = {k: v for k, v in env.items() if v is not None}
-        os.environ.update(env)
+        env = {k: str(v) for k, v in env.items() if v is not None}
+        os.environ.update(env)  # type: ignore[arg-type]
 
     def to_fsspec_kwargs(self) -> dict:
         """Convert options to fsspec filesystem arguments.
@@ -308,6 +308,7 @@ class AwsStorageOptions(BaseStorageOptions):
     - Custom endpoints for S3-compatible services
     - Region configuration
     - SSL/TLS settings
+    - Anonymous access for public buckets
 
     Attributes:
         protocol (str): Always "s3" for S3 storage
@@ -318,6 +319,7 @@ class AwsStorageOptions(BaseStorageOptions):
         region (str): AWS region name
         allow_invalid_certificates (bool): Skip SSL certificate validation
         allow_http (bool): Allow unencrypted HTTP connections
+        anonymous (bool): Use anonymous (unsigned) S3 access
 
     Example:
         >>> # Basic credentials
@@ -337,6 +339,9 @@ class AwsStorageOptions(BaseStorageOptions):
         ...     secret_access_key="minioadmin",
         ...     allow_http=True
         ... )
+        >>>
+        >>> # Anonymous access for public buckets
+        >>> options = AwsStorageOptions(anonymous=True)
     """
 
     protocol: str = "s3"
@@ -348,6 +353,7 @@ class AwsStorageOptions(BaseStorageOptions):
     allow_invalid_certificates: bool | None = None
     allow_invalid_certs: bool | None = None
     allow_http: bool | None = None
+    anonymous: bool | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "protocol", "s3")
@@ -368,10 +374,12 @@ class AwsStorageOptions(BaseStorageOptions):
             canonical_allow_invalid = alias_value
 
         allow_http = _parse_bool(self.allow_http)
+        anonymous = _parse_bool(self.anonymous)
 
         object.__setattr__(self, "allow_invalid_certificates", canonical_allow_invalid)
         object.__setattr__(self, "allow_invalid_certs", None)
         object.__setattr__(self, "allow_http", allow_http)
+        object.__setattr__(self, "anonymous", anonymous)
 
     @classmethod
     def create(
@@ -385,6 +393,7 @@ class AwsStorageOptions(BaseStorageOptions):
         allow_invalid_certificates: bool | str | None = None,
         allow_invalid_certs: bool | str | None = None,
         allow_http: bool | str | None = None,
+        anonymous: bool | str | None = None,
         # Alias and loading params
         key: str | None = None,
         secret: str | None = None,
@@ -402,6 +411,7 @@ class AwsStorageOptions(BaseStorageOptions):
             region: AWS region name.
             allow_invalid_certificates: Skip SSL certificate validation.
             allow_http: Allow unencrypted HTTP connections.
+            anonymous: Use anonymous (unsigned) S3 access.
             key: Alias for access_key_id.
             secret: Alias for secret_access_key.
             token: Alias for session_token.
@@ -417,6 +427,7 @@ class AwsStorageOptions(BaseStorageOptions):
             canonical_allow_invalid = alias_allow_invalid
 
         allow_http_flag = _parse_bool(allow_http)
+        anonymous_flag = _parse_bool(anonymous)
 
         # Initial values from explicit args or their aliases
         args = {
@@ -431,6 +442,7 @@ class AwsStorageOptions(BaseStorageOptions):
             "allow_invalid_certificates": canonical_allow_invalid,
             "allow_invalid_certs": None,
             "allow_http": allow_http_flag,
+            "anonymous": anonymous_flag,
         }
 
         if profile is not None:
@@ -438,6 +450,7 @@ class AwsStorageOptions(BaseStorageOptions):
                 profile=profile,
                 allow_invalid_certificates=args["allow_invalid_certificates"],
                 allow_http=args["allow_http"],
+                anonymous=args["anonymous"],
             )
             # Fill in missing values from profile if not already set by direct/aliased args
             if args["access_key_id"] is None:
@@ -464,7 +477,7 @@ class AwsStorageOptions(BaseStorageOptions):
         if args["protocol"] is None:
             args["protocol"] = "s3"
 
-        return cls(**args)
+        return cls(**args)  # type: ignore[arg-type]
 
     @classmethod
     def from_aws_credentials(
@@ -473,6 +486,7 @@ class AwsStorageOptions(BaseStorageOptions):
         allow_invalid_certificates: bool | str | None = None,
         allow_invalid_certs: bool | str | None = None,
         allow_http: bool | str | None = None,
+        anonymous: bool | str | None = None,
     ) -> "AwsStorageOptions":
         """Create storage options from AWS credentials file.
 
@@ -483,6 +497,7 @@ class AwsStorageOptions(BaseStorageOptions):
             allow_invalid_certificates: Skip SSL certificate validation
             allow_invalid_certs: Skip SSL certificate validation (deprecated, use allow_invalid_certificates)
             allow_http: Allow unencrypted HTTP connections
+            anonymous: Use anonymous (unsigned) S3 access
 
         Returns:
             AwsStorageOptions: Configured storage options
@@ -510,6 +525,7 @@ class AwsStorageOptions(BaseStorageOptions):
             canonical_allow_invalid = alias_allow_invalid
 
         allow_http_flag = _parse_bool(allow_http)
+        anonymous_flag = _parse_bool(anonymous)
 
         return cls(
             protocol="s3",
@@ -529,6 +545,7 @@ class AwsStorageOptions(BaseStorageOptions):
             allow_invalid_certificates=canonical_allow_invalid,
             allow_invalid_certs=None,
             allow_http=allow_http_flag,
+            anonymous=anonymous_flag,
         )
 
     @classmethod
@@ -543,6 +560,7 @@ class AwsStorageOptions(BaseStorageOptions):
         - AWS_DEFAULT_REGION
         - ALLOW_INVALID_CERTIFICATES
         - AWS_ALLOW_HTTP
+        - AWS_S3_ANONYMOUS
 
         Returns:
             AwsStorageOptions: Configured storage options
@@ -564,6 +582,7 @@ class AwsStorageOptions(BaseStorageOptions):
             ),
             allow_invalid_certs=None,
             allow_http=_parse_bool(os.getenv("AWS_ALLOW_HTTP")),
+            anonymous=_parse_bool(os.getenv("AWS_S3_ANONYMOUS")),
         )
 
     def to_fsspec_kwargs(
@@ -589,15 +608,25 @@ class AwsStorageOptions(BaseStorageOptions):
             >>> kwargs = options.to_fsspec_kwargs()
             >>> fs = filesystem("s3", **kwargs)
         """
-        fsspec_kwargs = {
-            "key": self.access_key_id,
-            "secret": self.secret_access_key,
-            "token": self.session_token,
+        fsspec_kwargs: dict[str, Any] = {
             "endpoint_url": self.endpoint_url,
-            "client_kwargs": None,
             "use_listings_cache": use_listings_cache,
             "skip_instance_cache": skip_instance_cache,
         }
+
+        # Handle anonymous access
+        if self.anonymous:
+            fsspec_kwargs["anon"] = True
+        else:
+            # Include credentials only if not anonymous
+            fsspec_kwargs.update(
+                {
+                    "key": self.access_key_id,
+                    "secret": self.secret_access_key,
+                    "token": self.session_token,
+                }
+            )
+
         verify_value = (
             None
             if self.allow_invalid_certificates is None
@@ -659,17 +688,24 @@ class AwsStorageOptions(BaseStorageOptions):
         client_options: dict | None = None,
         **kwargs,
     ) -> dict:
-        obstore_kwargs = {
+        obstore_kwargs: dict[str, Any] = {
             "bucket": bucket,
             "prefix": prefix,
-            "access_key_id": self.access_key_id,
-            "secret_access_key": self.secret_access_key,
-            "session_token": self.session_token,
             "endpoint": self.endpoint_url,
             "conditional_put": conditional_put,
             "region": self.region,
-            "client_options": None,
         }
+
+        # Handle anonymous access
+        if not self.anonymous:
+            obstore_kwargs.update(
+                {
+                    "access_key_id": self.access_key_id,
+                    "secret_access_key": self.secret_access_key,
+                    "session_token": self.session_token,
+                }
+            )
+
         merged_client_options = {
             "allow_invalid_certificates": self.allow_invalid_certificates,
             "allow_http": self.allow_http,
@@ -681,7 +717,7 @@ class AwsStorageOptions(BaseStorageOptions):
         if merged_client_options:
             obstore_kwargs["client_options"] = merged_client_options
 
-        obstore_kwargs.update(kwargs)
+        obstore_kwargs.update(kwargs)  # type: ignore[arg-type]
         return {k: v for k, v in obstore_kwargs.items() if v is not None}
 
     def to_env(self) -> None:
@@ -707,13 +743,10 @@ class AwsStorageOptions(BaseStorageOptions):
             "AWS_DEFAULT_REGION": self.region,
             "ALLOW_INVALID_CERTIFICATES": self.allow_invalid_certificates,
             "AWS_ALLOW_HTTP": self.allow_http,
+            "AWS_S3_ANONYMOUS": self.anonymous,
         }
-        env = {
-            k: (str(v) if isinstance(v, bool) else v)
-            for k, v in env.items()
-            if v is not None
-        }
-        os.environ.update(env)
+        env = {k: str(v) for k, v in env.items() if v is not None}
+        os.environ.update(env)  # type: ignore[arg-type]
 
     def to_fsspec_fs(
         self, use_listings_cache: bool = True, skip_instance_cache: bool = False
