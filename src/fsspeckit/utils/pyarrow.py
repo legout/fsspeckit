@@ -574,8 +574,8 @@ def dominant_timezone_per_column(
     """
     from collections import Counter, defaultdict
 
-    tz_counts = defaultdict(Counter)
-    units = {}
+    tz_counts: defaultdict[str, Counter[str | None]] = defaultdict(Counter)
+    units: dict[str, str | None] = {}
 
     for schema in schemas:
         for field in schema:
@@ -652,8 +652,12 @@ def standardize_schema_timezones(
     Returns:
         list of pa.Schema: New schemas with standardized timezone info.
     """
-    single_input = isinstance(schemas, pa.Schema)
-    schema_list = [schemas] if single_input else schemas
+    if isinstance(schemas, pa.Schema):
+        single_input = True
+        schema_list: list[pa.Schema] = [schemas]
+    else:
+        single_input = False
+        schema_list = list(schemas)
     if timezone == "auto":
         majority_schema = standardize_schema_timezones_by_majority(schema_list)
         result_list = [majority_schema for _ in schema_list]

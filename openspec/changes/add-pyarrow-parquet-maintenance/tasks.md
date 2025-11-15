@@ -38,7 +38,7 @@
 
 ## 2. Testing
 
-- [ ] 2.1 Add tests to `tests/test_utils/test_utils_pyarrow.py` (or a new
+- [x] 2.1 Add tests to `tests/test_utils/test_utils_pyarrow.py` (or a new
         `test_pyarrow_dataset_maintenance.py`) to cover:
         - Compaction reduces file count while preserving row count and schema.
         - Compaction with both `target_mb_per_file` and
@@ -49,7 +49,7 @@
           `zorder_columns` within each output file.
         - Partition filters restrict the scope of maintenance to matching
           prefixes.
-- [ ] 2.2 Add tests that simulate larger datasets by many small files and
+- [x] 2.2 Add tests that simulate larger datasets by many small files and
         verify that:
         - Maintenance operations complete successfully.
         - Peak memory usage stays bounded by group sizes (implicitly tested by
@@ -57,18 +57,16 @@
 
 ## 3. Documentation
 
-- [ ] 3.1 Extend `docs/utils.md` with a “PyArrow Parquet Maintenance” section:
+- [x] 3.1 Extend `docs/utils.md` with a “PyArrow Parquet Maintenance” section:
         - Describe compaction and optimization use cases.
         - Show examples of dry-run and live execution.
         - Call out memory characteristics (group-based processing).
-- [ ] 3.2 Optionally add small example scripts under `examples/pyarrow/` to
+- [x] 3.2 Optionally add small example scripts under `examples/pyarrow/` to
         mirror the DuckDB maintenance examples but using PyArrow.
 
-## 4. Validation
-
-- [ ] 4.1 Run targeted tests:
+- [x] 4.1 Run targeted tests:
         `pytest tests/test_utils/test_utils_pyarrow.py -k \"compact or optimize\"`.
-- [ ] 4.2 Run `ruff check src/fsspeckit/utils/pyarrow.py`.
-- [ ] 4.3 Run `mypy --ignore-missing-imports src/fsspeckit/utils/pyarrow.py`.
-- [ ] 4.4 Validate OpenSpec:
+- [x] 4.2 Run `ruff check src/fsspeckit/utils/pyarrow.py`.
+- [x] 4.3 Run `mypy --ignore-missing-imports src/fsspeckit/utils/pyarrow.py`.
+- [x] 4.4 Validate OpenSpec:
         `openspec validate add-pyarrow-parquet-maintenance --strict`.
