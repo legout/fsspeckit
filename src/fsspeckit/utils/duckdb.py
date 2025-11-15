@@ -1046,7 +1046,7 @@ class DuckDBParquetHandler:
             raise FileNotFoundError(f"Dataset path '{path}' does not exist")
         # Recursive discovery of parquet files
         try:
-            entries = self._filesystem.ls(path, detail=False)
+            self._filesystem.ls(path, detail=False)
         except Exception as e:
             raise Exception(f"Failed listing dataset path '{path}': {e}") from e
         parquet_files: list[str] = []
@@ -1057,14 +1057,14 @@ class DuckDBParquetHandler:
                 cur_entries = self._filesystem.ls(current_dir, detail=False)
             except Exception:
                 continue
-            for e in cur_entries:
-                if e.endswith('.parquet'):
-                    parquet_files.append(e)
+            for entry in cur_entries:
+                if entry.endswith('.parquet'):
+                    parquet_files.append(entry)
                 else:
                     # Heuristic: treat as directory if it exists and is not a parquet
                     try:
-                        if self._filesystem.isdir(e):
-                            stack.append(e)
+                        if self._filesystem.isdir(entry):
+                            stack.append(entry)
                     except Exception:
                         pass
         if partition_filter:
@@ -1138,6 +1138,9 @@ class DuckDBParquetHandler:
             raise ValueError("target_mb_per_file must be > 0")
         if target_rows_per_file is not None and target_rows_per_file <= 0:
             raise ValueError("target_rows_per_file must be > 0")
+        if self._filesystem is None:
+            raise FileNotFoundError("Filesystem not initialized for compaction")
+        filesystem = self._filesystem
         stats_before = self._collect_dataset_stats(path, partition_filter)
         files = stats_before["files"]
         before_file_count = len(files)
@@ -1212,7 +1215,7 @@ class DuckDBParquetHandler:
                 import pyarrow.parquet as pq
                 tables = []
                 for p in paths:
-                    with self._filesystem.open(p, 'rb') as fh:
+                    with filesystem.open(p, 'rb') as fh:
                         tables.append(pq.read_table(fh))
                 table = pa.concat_tables(tables)
             out_name = self._generate_unique_filename("compact-{}.parquet")
@@ -1222,7 +1225,7 @@ class DuckDBParquetHandler:
             # Remove originals
             for f in paths:
                 try:
-                    self._filesystem.rm(f)
+                    filesystem.rm(f)
                 except Exception as e:
                     print(f"Warning: failed to delete '{f}': {e}")
         # Recompute stats after write
@@ -1267,6 +1270,9 @@ class DuckDBParquetHandler:
         """
         if not zorder_columns:
             raise ValueError("zorder_columns must be a non-empty list")
+        if self._filesystem is None:
+            raise FileNotFoundError("Filesystem not initialized for optimization")
+        filesystem = self._filesystem
         stats_before = self._collect_dataset_stats(path, partition_filter)
         files = stats_before["files"]
         before_file_count = len(files)
@@ -1319,10 +1325,14 @@ class DuckDBParquetHandler:
         all_paths_sql = ",".join([f"'{fi['path']}'" for fi in files])
         # ORDER BY columns with NULL handling
         order_clause_parts = []
+        def _quote_identifier(identifier: str) -> str:
+            escaped = identifier.replace('"', '""')
+            return f'"{escaped}"'
         for col in zorder_columns:
             # Put NULLs last
-            order_clause_parts.append(f"({col} IS NULL) ASC")
-            order_clause_parts.append(f"{col} ASC")
+            quoted = _quote_identifier(col)
+            order_clause_parts.append(f"({quoted} IS NULL) ASC")
+            order_clause_parts.append(f"{quoted} ASC")
         order_clause = ", ".join(order_clause_parts)
         query = f"SELECT * FROM parquet_scan([{all_paths_sql}]) ORDER BY {order_clause}"  # simple composite ordering
         ordered_table = conn.execute(query).arrow()
@@ -1355,11 +1365,11 @@ class DuckDBParquetHandler:
         # Delete original filtered files
         for fi in files:
             try:
-                self._filesystem.rm(fi["path"])
+                filesystem.rm(fi["path"])
             except Exception:
                 pass
-        for chunk in chunks:
-            filename = self._generate_unique_filename("optimized-{}.parquet")
+        for idx, chunk in enumerate(chunks):
+            filename = f"optimized-{idx:05d}.parquet"
             out_path = str(Path(path) / filename)
             self.write_parquet(chunk, out_path, compression=compression_codec)
             written_paths.append(out_path)

@@ -5,4 +5,4 @@
 - [x] Extend the Polars and PyArrow unit tests to cover the sampling parameters and mis-inference fallbacks.
 
 ## 2. Validation
-- [ ] Run the Polars/pyarrow dtype utility tests (ideally using Python 3.11+) to ensure the new parameters and fallback code behave as expected.
+- [x] Run the Polars/pyarrow dtype utility tests (ideally using Python 3.11+) to ensure the new parameters and fallback code behave as expected.

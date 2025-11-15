@@ -55,7 +55,7 @@
 - [x] 4.4 Verify test coverage above 80%
 - [x] 4.5 Run merge example script
 - [x] 4.6 Validate OpenSpec: `openspec validate add-duckdb-dataset-merge --strict`
-- [ ] 4.7 Performance test with large datasets
+- [x] 4.7 Performance test with large datasets
 - [x] 4.8 Validate merge statistics accuracy across strategies
 
 ## 5. Examples and Use Cases

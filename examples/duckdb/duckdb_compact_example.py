@@ -46,17 +46,18 @@ def run_compaction_example() -> None:
                 dry_run=True,
             )
             print("\nDry-run preview:")
-            print(" before", dry_plan["before"])
-            print(" first plan entry", dry_plan["plan"][0])
+            print(" before_file_count", dry_plan["before_file_count"])
+            print(" first planned group", dry_plan["planned_groups"][0])
 
             stats = handler.compact_parquet_dataset(
                 path=str(dataset_path),
                 target_rows_per_file=200,
                 compression="zstd",
-                max_files_per_group=4,
             )
             print("\nCompaction complete:")
-            print(stats["before"], "->", stats["after"])
+            print(
+                f"{stats['before_file_count']} files -> {stats['after_file_count']} files"
+            )
 
             recompute = handler.compact_parquet_dataset(
                 path=str(dataset_path),
@@ -64,7 +65,7 @@ def run_compaction_example() -> None:
                 dry_run=True,
                 partition_filter=None,
             )
-            assert recompute["before"]["file_count"] == stats["after"]["file_count"]
+            assert recompute["before_file_count"] == stats["after_file_count"]
             print("\nVerification dry-run confirms stabilized file count.")
 
 if __name__ == "__main__":

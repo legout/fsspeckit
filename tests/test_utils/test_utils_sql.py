@@ -3,7 +3,7 @@
 import pytest
 import pyarrow as pa
 import pyarrow.compute as pc
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 
 from fsspeckit.utils.sql import sql2pyarrow_filter
 
@@ -41,26 +41,32 @@ class TestSql2PyarrowFilter:
                 pa.array([True, False, True, False, True]),
                 pa.array(
                     [
-                        "2023-01-01T10:00:00",
-                        "2023-02-15T14:30:00",
-                        "2023-03-20T09:15:00",
-                        "2023-04-25T16:45:00",
-                        "2023-05-30T11:20:00",
+                        datetime(2023, 1, 1, 10, 0, tzinfo=timezone.utc),
+                        datetime(2023, 2, 15, 14, 30, tzinfo=timezone.utc),
+                        datetime(2023, 3, 20, 9, 15, tzinfo=timezone.utc),
+                        datetime(2023, 4, 25, 16, 45, tzinfo=timezone.utc),
+                        datetime(2023, 5, 30, 11, 20, tzinfo=timezone.utc),
                     ],
                     type=pa.timestamp("us", "UTC"),
                 ),
                 pa.array(
                     [
-                        "1998-01-15",
-                        "1993-05-20",
-                        "1988-11-30",
-                        "1983-07-10",
-                        "1978-03-25",
+                        date(1998, 1, 15),
+                        date(1993, 5, 20),
+                        date(1988, 11, 30),
+                        date(1983, 7, 10),
+                        date(1978, 3, 25),
                     ],
                     type=pa.date32(),
                 ),
                 pa.array(
-                    ["09:00:00", "14:30:00", "08:15:00", "16:45:00", "11:20:00"],
+                    [
+                        time(9, 0, 0),
+                        time(14, 30, 0),
+                        time(8, 15, 0),
+                        time(16, 45, 0),
+                        time(11, 20, 0),
+                    ],
                     type=pa.time64("us"),
                 ),
                 pa.array(["A", "B", "A", "C", "B"]),

@@ -38,11 +38,11 @@
 - [x] 3.6 Document dry-run safety recommendations
 
 ## 4. Validation
-- [ ] 4.1 Run full test suite
-- [ ] 4.2 Run mypy on modified file
-- [ ] 4.3 Run ruff if configured
-- [ ] 4.4 Validate change: `openspec validate add-duckdb-parquet-maintenance --strict`
-- [ ] 4.5 Manual inspection of example outputs
+- [x] 4.1 Run full test suite
+- [x] 4.2 Run mypy on modified file
+- [x] 4.3 Run ruff if configured
+- [x] 4.4 Validate change: `openspec validate add-duckdb-parquet-maintenance --strict`
+- [x] 4.5 Manual inspection of example outputs
 
 ## 5. Risks / Follow-ups
 - [x] 5.1 Note future enhancement: true partition-aware z-order at scale

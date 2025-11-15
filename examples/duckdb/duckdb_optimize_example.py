@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 import pyarrow as pa
+import pyarrow.compute as pc
 
 from fsspeckit.utils import DuckDBParquetHandler
 
@@ -28,14 +29,19 @@ def run_optimize_example() -> None:
         dataset_path = Path(temp_dir) / "events"
         with DuckDBParquetHandler() as handler:
             table = _build_events_table(seed=42)
-            handler.write_parquet_dataset(
-                table,
-                str(dataset_path),
-                max_rows_per_file=100,
-                basename_template="events-{}.parquet",
-            )
+            days = sorted(set(table.column("event_date").to_pylist()))[:3]
+            for day in days:
+                mask = pc.equal(table.column("event_date"), day)
+                subset = table.filter(mask)
+                handler.write_parquet_dataset(
+                    subset,
+                    str(dataset_path / f"event_date={day}"),
+                    mode="overwrite",
+                    max_rows_per_file=100,
+                    basename_template=f"events-{day}-{{}}.parquet",
+                )
 
-            print("Dataset seeded with", table.num_rows, "events")
+            print("Dataset seeded with", table.num_rows, "events across", len(days), "partitions")
 
             dry = handler.optimize_parquet_dataset(
                 path=str(dataset_path),
@@ -43,8 +49,17 @@ def run_optimize_example() -> None:
                 dry_run=True,
             )
             print("\nDry-run stats:")
-            print(" before", dry["before"])
-            print(" projected clustering sample", dry["plan"][0])
+            print(" before_file_count", dry["before_file_count"])
+            print(" projected clustering sample", dry["planned_groups"][0])
+
+            scoped = handler.optimize_parquet_dataset(
+                path=str(dataset_path),
+                zorder_columns=["user_id"],
+                partition_filter=[f"event_date={days[0]}"],
+                dry_run=True,
+            )
+            print("\nPartition-scoped dry-run:")
+            print(scoped["planned_groups"][:1])
 
             stats = handler.optimize_parquet_dataset(
                 path=str(dataset_path),
@@ -52,16 +67,9 @@ def run_optimize_example() -> None:
                 target_mb_per_file=8,
             )
             print("\nOptimization complete:")
-            print(stats["before"], "->", stats["after"])
-
-            scoped = handler.optimize_parquet_dataset(
-                path=str(dataset_path),
-                zorder_columns=["user_id"],
-                partition_filter=["event_date=2025-11-15"],
-                dry_run=True,
+            print(
+                f"{stats['before_file_count']} files -> {stats['after_file_count']} files"
             )
-            print("\nPartition-scoped dry-run:")
-            print(scoped["plan"][:1])
 
 if __name__ == "__main__":
     run_optimize_example()

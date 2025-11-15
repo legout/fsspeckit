@@ -34,9 +34,11 @@ def sql2pyarrow_filter(string: str, schema: pa.Schema) -> pc.Expression:
         if pa.types.is_timestamp(type_):
             return timestamp_from_string(val, tz=type_.tz)
         elif pa.types.is_date(type_):
-            return timestamp_from_string(val).date()
+            parsed = timestamp_from_string(val)
+            return parsed.date() if hasattr(parsed, "date") else parsed
         elif pa.types.is_time(type_):
-            return timestamp_from_string(val).time()
+            parsed = timestamp_from_string(val)
+            return parsed.time() if hasattr(parsed, "time") else parsed
 
         elif pa.types.is_integer(type_):
             return int(float(val.replace(",", ".")))
@@ -76,6 +78,9 @@ def sql2pyarrow_filter(string: str, schema: pa.Schema) -> pc.Expression:
                 return parse_value(val, field_type)
             return expr.this
 
+        elif isinstance(expr, exp.Boolean):
+            return bool(expr.this)
+
         elif isinstance(expr, exp.Null):
             return None
 
@@ -104,14 +109,16 @@ def sql2pyarrow_filter(string: str, schema: pa.Schema) -> pc.Expression:
             # IN operation
             context_type = _get_field_type_from_context(expr)
             left = _convert_expression(expr.this, context_type)
-            # Convert the IN list
-            if hasattr(expr, "expression") and hasattr(expr.expression, "expressions"):
-                right = [
-                    _convert_expression(e, context_type)
-                    for e in expr.expression.expressions
-                ]
-            else:
+            expressions = expr.args.get("expressions")
+            if expressions is None and getattr(expr, "expression", None) is not None:
+                expressions = getattr(expr.expression, "expressions", None)
+
+            if expressions is None:
                 right = _convert_expression(expr.expression, context_type)
+            else:
+                right = [
+                    _convert_expression(e, context_type) for e in expressions  # type: ignore[arg-type]
+                ]
             return left.isin(right)
 
         elif isinstance(expr, exp.Not):
@@ -121,15 +128,17 @@ def sql2pyarrow_filter(string: str, schema: pa.Schema) -> pc.Expression:
                 # NOT IN case
                 context_type = _get_field_type_from_context(inner)
                 left = _convert_expression(inner.this, context_type)
-                if hasattr(inner, "expression") and hasattr(
-                    inner.expression, "expressions"
-                ):
+                expressions = inner.args.get("expressions")
+                if expressions is None and getattr(inner, "expression", None) is not None:
+                    expressions = getattr(inner.expression, "expressions", None)
+
+                if expressions is None:
+                    right = _convert_expression(inner.expression, context_type)
+                else:
                     right = [
                         _convert_expression(e, context_type)
-                        for e in inner.expression.expressions
+                        for e in expressions  # type: ignore[arg-type]
                     ]
-                else:
-                    right = _convert_expression(inner.expression, context_type)
                 return ~left.isin(right)
             elif isinstance(inner, exp.Is):
                 # IS NOT NULL case
