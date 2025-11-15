@@ -1,13 +1,13 @@
 ## 1. Implementation
 
-- [ ] 1.1 Add a `collect_dataset_stats_pyarrow` helper to
+- [x] 1.1 Add a `collect_dataset_stats_pyarrow` helper to
         `src/fsspeckit/utils/pyarrow.py` that:
         - Uses fsspec to list files under a dataset path.
         - Optionally filters files by a list of partition prefixes.
         - Computes `size_bytes` from file metadata and `num_rows` using
           `pyarrow.parquet.ParquetFile` metadata or a minimal table scan.
         - Returns a dict with keys `files`, `total_bytes`, `total_rows`.
-- [ ] 1.2 Add `compact_parquet_dataset_pyarrow(path, target_mb_per_file=None,
+- [x] 1.2 Add `compact_parquet_dataset_pyarrow(path, target_mb_per_file=None,
         target_rows_per_file=None, partition_filter=None, compression=None,
         dry_run=False, filesystem=None)` that:
         - Validates thresholds (`> 0`) and raises on invalid inputs.
@@ -19,7 +19,7 @@
         - In live mode, reads each group’s files incrementally, concatenates
           them into a new table, writes new `compact-*.parquet` files, and then
           deletes the originals via fsspec.
-- [ ] 1.3 Add `optimize_parquet_dataset_pyarrow(path, zorder_columns,
+- [x] 1.3 Add `optimize_parquet_dataset_pyarrow(path, zorder_columns,
         target_mb_per_file=None, target_rows_per_file=None,
         partition_filter=None, compression=None, dry_run=False,
         filesystem=None)` that:
@@ -30,7 +30,7 @@
           `zorder_columns` (with NULLs last) for the scope of each group, and
           writes `optimized-*.parquet` files while deleting original group
           files.
-- [ ] 1.4 Ensure both helpers avoid naive full-dataset materialization:
+- [x] 1.4 Ensure both helpers avoid naive full-dataset materialization:
         - Use per-file or per-group reads (e.g. `pq.read_table` on individual
           files) instead of `dataset.to_table()` on the entire dataset.
         - Use partition filtering where possible to minimize the number of files
@@ -72,4 +72,3 @@
 - [ ] 4.3 Run `mypy --ignore-missing-imports src/fsspeckit/utils/pyarrow.py`.
 - [ ] 4.4 Validate OpenSpec:
         `openspec validate add-pyarrow-parquet-maintenance --strict`.
-

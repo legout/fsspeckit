@@ -3,6 +3,7 @@
 import pytest
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.parquet as pq
 import polars as pl
 from datetime import datetime
 
@@ -14,6 +15,9 @@ from fsspeckit.utils.pyarrow import (
     standardize_schema_timezones,
     standardize_schema_timezones_by_majority,
     dominant_timezone_per_column,
+    collect_dataset_stats_pyarrow,
+    compact_parquet_dataset_pyarrow,
+    optimize_parquet_dataset_pyarrow,
 )
 
 
@@ -271,6 +275,225 @@ class TestSchemaFunctions:
         assert converted.field("str_col").type == pa.string()
         assert converted.field("bin_col").type == pa.binary()
         assert converted.field("list_col").type == pa.list_(pa.int64())
+
+
+class TestParquetDatasetMaintenance:
+    """Tests for PyArrow-based parquet dataset maintenance helpers."""
+
+    def test_collect_dataset_stats_pyarrow_local(self, tmp_path):
+        """collect_dataset_stats_pyarrow should see files and basic stats."""
+        path = tmp_path / "dataset"
+        path.mkdir()
+        table = pa.table({"id": [1, 2, 3]})
+        file1 = path / "part-0.parquet"
+        file2 = path / "nested" / "part-1.parquet"
+        file2.parent.mkdir()
+        pq.write_table(table, file1)
+        pq.write_table(table, file2)
+
+        from fsspeckit.utils.pyarrow import collect_dataset_stats_pyarrow
+
+        stats = collect_dataset_stats_pyarrow(str(path))
+        assert stats["total_rows"] == 6
+        assert stats["total_bytes"] > 0
+        assert len(stats["files"]) == 2
+
+    def test_compact_parquet_dataset_pyarrow_dry_run_and_live(self, tmp_path):
+        """compact_parquet_dataset_pyarrow should reduce file count while preserving rows."""
+        path = tmp_path / "dataset"
+        path.mkdir()
+        table = pa.table({"id": list(range(10))})
+        # Create four small files
+        for i in range(4):
+            pq.write_table(table, path / f"part-{i}.parquet")
+
+        from fsspeckit.utils.pyarrow import compact_parquet_dataset_pyarrow
+
+        files_before = sorted(p.name for p in path.glob("*.parquet"))
+        dry = compact_parquet_dataset_pyarrow(
+            str(path), target_rows_per_file=25, dry_run=True
+        )
+        assert dry["before_file_count"] == 4
+        assert dry["after_file_count"] <= 4
+        assert dry["dry_run"] is True
+        assert dry["planned_groups"]
+        assert sorted(p.name for p in path.glob("*.parquet")) == files_before
+
+        live = compact_parquet_dataset_pyarrow(
+            str(path), target_rows_per_file=25, dry_run=False
+        )
+        assert live["dry_run"] is False
+        # Still 40 rows total
+        stats_after = collect_dataset_stats_pyarrow(str(path))
+        assert stats_after["total_rows"] == 40
+        assert live["after_file_count"] <= 4
+
+    def test_optimize_parquet_dataset_pyarrow_dry_run(self, tmp_path):
+        """optimize_parquet_dataset_pyarrow dry-run should return a plan."""
+        path = tmp_path / "dataset"
+        path.mkdir()
+        table = pa.table(
+            {
+                "group": [1, 2, 1, 2],
+                "id": [3, 4, 1, 2],
+            }
+        )
+        pq.write_table(table, path / "part-0.parquet")
+
+        from fsspeckit.utils.pyarrow import optimize_parquet_dataset_pyarrow
+
+        files_before = sorted(p.name for p in path.glob("*.parquet"))
+        dry = optimize_parquet_dataset_pyarrow(
+            str(path),
+            zorder_columns=["group", "id"],
+            target_rows_per_file=2,
+            dry_run=True,
+        )
+        assert dry["before_file_count"] == 1
+        assert dry["after_file_count"] >= 1
+        assert dry["dry_run"] is True
+        assert dry["zorder_columns"] == ["group", "id"]
+        assert dry["planned_groups"]
+        assert sorted(p.name for p in path.glob("*.parquet")) == files_before
+
+    def test_optimize_parquet_dataset_pyarrow_live(self, tmp_path):
+        """optimize_parquet_dataset_pyarrow should rewrite clustered files."""
+        path = tmp_path / "dataset"
+        path.mkdir()
+        table = pa.table(
+            {
+                "group": [2, 1, 2, 1],
+                "id": [4, 1, 3, 2],
+            }
+        )
+        pq.write_table(table, path / "part-0.parquet")
+
+        from fsspeckit.utils.pyarrow import (
+            optimize_parquet_dataset_pyarrow,
+            collect_dataset_stats_pyarrow,
+        )
+
+        result = optimize_parquet_dataset_pyarrow(
+            str(path),
+            zorder_columns=["group", "id"],
+            target_rows_per_file=2,
+            dry_run=False,
+        )
+        assert result["dry_run"] is False
+        stats = collect_dataset_stats_pyarrow(str(path))
+        assert stats["total_rows"] == 4
+
+    def test_compact_parquet_dataset_pyarrow_with_dual_thresholds(self, tmp_path):
+        """Compaction should respect both target MB and row thresholds simultaneously."""
+        path = tmp_path / "dataset"
+        path.mkdir()
+        payload = "x" * 2048  # ~2 KB per value keeps files small but non-trivial
+        rows_per_file = 40
+        for idx in range(5):
+            table = pa.table(
+                {
+                    "id": list(range(idx * rows_per_file, (idx + 1) * rows_per_file)),
+                    "payload": [payload] * rows_per_file,
+                }
+            )
+            pq.write_table(table, path / f"chunk-{idx}.parquet")
+
+        stats = collect_dataset_stats_pyarrow(str(path))
+        info_by_path = {str(info["path"]): info for info in stats["files"]}
+
+        threshold_mb = 2
+        dry = compact_parquet_dataset_pyarrow(
+            str(path),
+            target_mb_per_file=threshold_mb,
+            target_rows_per_file=80,
+            dry_run=True,
+        )
+
+        assert dry["planned_groups"], "Expected planned compaction groups"
+        bytes_threshold = threshold_mb * 1024 * 1024
+        for group in dry["planned_groups"]:
+            group_rows = sum(int(info_by_path[file]["num_rows"]) for file in group)
+            group_bytes = sum(int(info_by_path[file]["size_bytes"]) for file in group)
+            assert group_rows <= 80
+            assert group_bytes <= bytes_threshold
+
+    def test_compact_parquet_dataset_pyarrow_partition_filter(self, tmp_path):
+        """Partition filters must restrict compaction scope to matching prefixes."""
+        base = tmp_path / "dataset"
+        for partition in ("date=2025-11-14", "date=2025-11-15"):
+            part_dir = base / partition
+            part_dir.mkdir(parents=True, exist_ok=True)
+            for idx in range(3):
+                table = pa.table(
+                    {
+                        "date": [partition.split("=")[1]] * 5,
+                        "value": list(range(idx * 5, idx * 5 + 5)),
+                    }
+                )
+                pq.write_table(table, part_dir / f"part-{idx}.parquet")
+
+        untouched_partition = base / "date=2025-11-15"
+        before_other = sorted(p.name for p in untouched_partition.glob("*.parquet"))
+
+        live = compact_parquet_dataset_pyarrow(
+            str(base),
+            target_rows_per_file=10,
+            partition_filter=["date=2025-11-14"],
+            dry_run=False,
+        )
+
+        assert live["dry_run"] is False
+        assert sorted(p.name for p in untouched_partition.glob("*.parquet")) == before_other
+        compacted = list(base.glob("compact-*.parquet"))
+        assert compacted, "Filtered partition should receive rewritten files"
+
+        stats = collect_dataset_stats_pyarrow(str(base))
+        assert stats["total_rows"] == 2 * 3 * 5
+
+    def test_compact_parquet_dataset_pyarrow_many_small_files(self, tmp_path):
+        """Compaction should handle many tiny files without exhausting memory."""
+        path = tmp_path / "dataset"
+        path.mkdir()
+        total_rows = 0
+        for idx in range(24):
+            table = pa.table({"id": list(range(idx * 4, idx * 4 + 4))})
+            pq.write_table(table, path / f"part-{idx:03d}.parquet")
+            total_rows += table.num_rows
+
+        result = compact_parquet_dataset_pyarrow(
+            str(path), target_rows_per_file=20, dry_run=False
+        )
+
+        assert result["after_file_count"] < result["before_file_count"]
+        stats = collect_dataset_stats_pyarrow(str(path))
+        assert stats["total_rows"] == total_rows
+
+    def test_optimize_parquet_dataset_pyarrow_enforces_order(self, tmp_path):
+        """Each optimized file should be ordered by the provided z-order columns."""
+        path = tmp_path / "dataset"
+        path.mkdir()
+        tables = [
+            pa.table({"group": [2, 1], "value": [4, 3]}),
+            pa.table({"group": [1, 2], "value": [2, 5]}),
+            pa.table({"group": [3, 1], "value": [8, 1]}),
+            pa.table({"group": [2, 3], "value": [7, 6]}),
+        ]
+        for idx, table in enumerate(tables):
+            pq.write_table(table, path / f"part-{idx}.parquet")
+
+        result = optimize_parquet_dataset_pyarrow(
+            str(path),
+            zorder_columns=["group", "value"],
+            target_rows_per_file=2,
+        )
+
+        assert result["dry_run"] is False
+        optimized_files = sorted(path.glob("optimized-*.parquet"))
+        assert optimized_files, "Optimizer should rewrite dataset"
+        for file_path in optimized_files:
+            table = pq.read_table(file_path)
+            pairs = list(zip(table.column("group").to_pylist(), table.column("value").to_pylist()))
+            assert pairs == sorted(pairs)
 
     def test_dominant_timezone_per_column(self):
         """Test dominant timezone detection."""

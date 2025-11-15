@@ -678,6 +678,76 @@ Both helpers return metrics that make it easy to alert/monitor:
 
 See `examples/duckdb/duckdb_compact_example.py` and `examples/duckdb/duckdb_optimize_example.py` for end-to-end scripts that mirror production workflows.
 
+#### PyArrow Parquet Maintenance
+
+Some deployments cannot bundle DuckDB but still need dataset maintenance. The
+PyArrow helpers mirror the DuckDB behavior while working directly with
+`pyarrow` + `fsspec`:
+
+- `collect_dataset_stats_pyarrow` — metadata-only scan that returns file sizes
+  and row counts (optionally filtered by partition prefixes).
+- `compact_parquet_dataset_pyarrow` — rewrites groups of small files into
+  right-sized `compact-*.parquet` outputs.
+- `optimize_parquet_dataset_pyarrow` — reclusters files ordered by
+  `zorder_columns`, optionally combined with compaction thresholds.
+
+```python
+from fsspeckit.utils.pyarrow import (
+    collect_dataset_stats_pyarrow,
+    compact_parquet_dataset_pyarrow,
+    optimize_parquet_dataset_pyarrow,
+)
+
+# Keep stats/maintenance scoped via partition prefixes so we never materialize
+# an entire dataset with dataset.to_table()
+stats = collect_dataset_stats_pyarrow(
+    "s3://bucket/events/",
+    partition_filter=["date=2025-11-15"],
+)
+
+plan = compact_parquet_dataset_pyarrow(
+    "s3://bucket/events/",
+    target_rows_per_file=250_000,
+    partition_filter=["date=2025-11-15"],
+    dry_run=True,
+)
+print("Planned compaction groups:", plan["planned_groups"])
+
+optimize = optimize_parquet_dataset_pyarrow(
+    "s3://bucket/events/",
+    zorder_columns=["user_id", "event_ts"],
+    target_mb_per_file=256,
+    partition_filter=["date=2025-11-15"],
+)
+print("Optimization rewrote", optimize["compacted_file_count"], "files")
+```
+
+Pair maintenance with filtered materialization when you need to inspect the
+results:
+
+```python
+import pyarrow.dataset as ds
+
+dataset = ds.dataset("s3://bucket/events/")
+hot_partition = dataset.to_table(filter=ds.field("date") == "2025-11-15")
+print("Materialized rows for hot partition:", hot_partition.num_rows)
+```
+
+**Best Practices**
+
+1. Always set `partition_filter` (or `pyarrow.dataset` filters) so the helpers
+   only touch relevant directories.
+2. Avoid calling `dataset.to_table()` without a filter—large datasets will not
+   fit in memory.
+3. Use `dry_run=True` inside CI/CD to capture planned groups and metrics before
+   writing.
+4. Prefer a z-order optimization pass prior to compaction when you need better
+   predicate locality.
+
+See `examples/pyarrow/pyarrow_compact_example.py` and
+`examples/pyarrow/pyarrow_optimize_example.py` for runnable scripts mirroring
+production workflows without DuckDB.
+
 #### SQL Query Execution
 
 Execute SQL queries on parquet data:
