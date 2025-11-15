@@ -37,8 +37,8 @@
 
 ## 4. Validation
 
-- [ ] 4.1 Run targeted storage option tests (e.g.
+- [x] 4.1 Run targeted storage option tests (e.g.
         `pytest tests/test_storage_options -k aws`).
-- [ ] 4.2 Run `ruff check src/fsspeckit/storage_options/cloud.py`.
-- [ ] 4.3 Run `mypy src/fsspeckit/storage_options/cloud.py`.
-- [ ] 4.4 Validate OpenSpec: `openspec validate add-s3-anonymous-access --strict`.
+- [x] 4.2 Run `ruff check src/fsspeckit/storage_options/cloud.py`.
+- [x] 4.3 Run `mypy src/fsspeckit/storage_options/cloud.py`.
+- [x] 4.4 Validate OpenSpec: `openspec validate add-s3-anonymous-access --strict`.
