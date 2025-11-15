@@ -30,12 +30,12 @@
 - [x] 2.12 Integration test query performance improvement (approximate: fewer files scanned)
 
 ## 3. Documentation
-- [ ] 3.1 Add maintenance section to `docs/utils.md`
-- [ ] 3.2 Example script `duckdb_compact_example.py`
-- [ ] 3.3 Example script `duckdb_optimize_example.py`
-- [ ] 3.4 Add usage to README quickstart snippet (optional)
-- [ ] 3.5 Document z-order limitations (approximation, not true Morton code)
-- [ ] 3.6 Document dry-run safety recommendations
+- [x] 3.1 Add maintenance section to `docs/utils.md`
+- [x] 3.2 Example script `duckdb_compact_example.py`
+- [x] 3.3 Example script `duckdb_optimize_example.py`
+- [x] 3.4 Add usage to README quickstart snippet (optional)
+- [x] 3.5 Document z-order limitations (approximation, not true Morton code)
+- [x] 3.6 Document dry-run safety recommendations
 
 ## 4. Validation
 - [ ] 4.1 Run full test suite
@@ -45,5 +45,5 @@
 - [ ] 4.5 Manual inspection of example outputs
 
 ## 5. Risks / Follow-ups
-- [ ] 5.1 Note future enhancement: true partition-aware z-order at scale
-- [ ] 5.2 Note future enhancement: adaptive target file sizing by row group stats
+- [x] 5.1 Note future enhancement: true partition-aware z-order at scale
+- [x] 5.2 Note future enhancement: adaptive target file sizing by row group stats

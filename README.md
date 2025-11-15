@@ -74,6 +74,34 @@ options = AwsStorageOptions.from_env()
 fs = filesystem("s3", storage_options=options)
 ```
 
+### DuckDB Parquet Maintenance
+
+```python
+from fsspeckit.utils import DuckDBParquetHandler
+
+with DuckDBParquetHandler() as handler:
+    # Inspect fragmentation without writing
+    dry_stats = handler.compact_parquet_dataset(
+        path="/data/events/",
+        target_mb_per_file=256,
+        dry_run=True,
+    )
+
+    # Compact tiny files and recompress with zstd
+    handler.compact_parquet_dataset(
+        path="/data/events/",
+        target_rows_per_file=500_000,
+        compression="zstd",
+    )
+
+    # Recluster partitions with z-order style ordering
+    handler.optimize_parquet_dataset(
+        path="/data/events/",
+        zorder_columns=["user_id", "event_date"],
+        partition_filter=["date=2025-11-10"],
+    )
+```
+
 ### Multiple Cloud Providers
 
 ```python
@@ -289,5 +317,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
-
 

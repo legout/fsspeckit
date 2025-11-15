@@ -590,6 +590,94 @@ except TypeError as e:
 
 See `examples/duckdb/duckdb_merge_example.py` for comprehensive examples of all strategies.
 
+#### Dataset Maintenance Operations
+
+Large parquet datasets inevitably accumulate many tiny files or become poorly clustered for selective queries. `DuckDBParquetHandler` ships two maintenance helpers that operate directly against your dataset directory without leaving behind temporary SQLite/Delta assets:
+
+1. `compact_parquet_dataset` — consolidates small files into right-sized chunks while preserving schema, statistics, and (optionally) recompressing the output.
+2. `optimize_parquet_dataset` — rewrites the dataset ordered by a multi-column z-order style key to improve predicate pushdown locality.
+
+**Inspect Current Fragmentation**
+
+```python
+with DuckDBParquetHandler(storage_options=options) as handler:
+    stats = handler.compact_parquet_dataset(
+        path="s3://bucket/events/",
+        target_mb_per_file=128,
+        dry_run=True,  # no writes, just inspection
+    )
+
+print(stats["before"]["file_count"], "files before compaction")
+print(stats["plan"][0])  # proposed merge groups
+```
+
+`dry_run=True` returns a dictionary with `before`, `after`, and `plan` keys so you can review the intended merges inside CI/CD before touching storage.
+
+**Compact a Dataset**
+
+```python
+with DuckDBParquetHandler() as handler:
+    stats = handler.compact_parquet_dataset(
+        path="/data/sales/",
+        target_mb_per_file=256,
+        compression="zstd",  # optional recompression
+        max_files_per_group=32,
+    )
+
+print(f"Reduced files from {stats['before']['file_count']} to {stats['after']['file_count']}")
+```
+
+**Optimize with Z-Order Style Ordering**
+
+```python
+with DuckDBParquetHandler() as handler:
+    stats = handler.optimize_parquet_dataset(
+        path="/data/events/",
+        zorder_columns=["user_id", "event_date"],
+        target_mb_per_file=256,
+        partition_filter=["date=2025-11-10"],
+    )
+
+print(f"Clustered {stats['after']['file_count']} files covering filtered partitions")
+```
+
+The optimizer rewrites files ordered by the provided columns using a lexicographic interleave approximation (not a full Morton curve). For write-after-read safety, it always writes into a temporary staging area, validates row counts, and then swaps the files in place.
+
+**Dry-Run Safety + Partition Filters**
+
+- Pass `dry_run=True` to either method to inspect their impact.
+- Provide `partition_filter=["date=2025-11-04"]` to limit work to specific partitions without scanning unrelated data.
+- `max_files_per_group` and `target_rows_per_file` let you bound resource use when compaction happens during active ingestion.
+
+**Returned Statistics**
+
+Both helpers return metrics that make it easy to alert/monitor:
+
+```python
+{
+    "before": {"file_count": 147, "total_rows": 9_800_000, "total_bytes": 24_000_000_000},
+    "after": {"file_count": 32, "total_rows": 9_800_000, "total_bytes": 22_000_000_000},
+    "plan": [
+        {"group_id": 1, "inputs": ["part-0001.parquet", ...], "output": "part-compact-0001.parquet"}
+    ],
+}
+```
+
+**Best Practices**
+
+1. **Always dry-run in CI** before letting automation rewrite production buckets.
+2. **Set realistic thresholds** (`target_mb_per_file` or `target_rows_per_file`) that align with your downstream query engines.
+3. **Use partition filters** to keep compaction scoped to “hot” partitions during live ingestion.
+4. **Recompress during maintenance** if your historic data still uses gzip/snappy and you prefer zstd.
+5. **Alternate optimize + compact** — run optimization first to recluster, then compaction to materialize polished files.
+
+**Limitations & Future Work**
+
+- Current z-ordering uses a deterministic interleave approximation and does not yet adapt to partition cardinality; true partition-aware curves are on the roadmap.
+- File sizing relies on static thresholds; adaptive sizing driven by per-row-group statistics is a future enhancement.
+
+See `examples/duckdb/duckdb_compact_example.py` and `examples/duckdb/duckdb_optimize_example.py` for end-to-end scripts that mirror production workflows.
+
 #### SQL Query Execution
 
 Execute SQL queries on parquet data:
