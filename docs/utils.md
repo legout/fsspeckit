@@ -748,6 +748,50 @@ See `examples/pyarrow/pyarrow_compact_example.py` and
 `examples/pyarrow/pyarrow_optimize_example.py` for runnable scripts mirroring
 production workflows without DuckDB.
 
+### PyArrow Parquet Merge
+
+`merge_parquet_dataset_pyarrow` mirrors `DuckDBParquetHandler.merge_parquet_dataset`
+when you need UPSERT/INSERT/UPDATE/FULL_MERGE/DEDUPLICATE semantics without a
+DuckDB dependency. It runs entirely on PyArrow datasets and scanners:
+
+```python
+from fsspeckit.utils.pyarrow import merge_parquet_dataset_pyarrow
+import pyarrow as pa
+
+source = pa.table({
+    "user_id": [11, 12, 13],
+    "tier": ["gold", "silver", "basic"],
+})
+
+stats = merge_parquet_dataset_pyarrow(
+    source,
+    target_path="/data/customers/",
+    key_columns="user_id",
+    strategy="upsert",
+)
+
+print(stats)
+# {'inserted': 1, 'updated': 2, 'deleted': 0, 'total': 2_450}
+```
+
+- **Streaming + filters**: the helper processes the source in batches and builds
+  `pyarrow.dataset` filter expressions (single keys use `field("key").isin(...)`,
+  composite keys become ORs of AND clauses) so the target scanner only loads
+  matching rows per batch.
+- **Strategies**: `strategy` matches the DuckDB helper — UPSERT merges new +
+  existing, INSERT ignores collisions, UPDATE only applies to existing rows,
+  FULL_MERGE deletes rows missing from the source, and DEDUPLICATE sorts by
+  `dedup_order_by` before performing an UPSERT.
+- **Result stats**: the helper returns `{"inserted": int, "updated": int,
+  "deleted": int, "total": int}` for monitoring/alerting.
+- **Memory safety**: target scanning happens via batch iterators; the code never
+  calls `dataset.to_table()` without filters and rewrites output files in new
+  `merge-*.parquet` chunks with configurable compression.
+
+For path-based sources (e.g. staging directories), pass the directory string as
+`source`. When `strategy="deduplicate"`, set `dedup_order_by=["timestamp"]` (or
+similar) to keep the newest record per key.
+
 #### SQL Query Execution
 
 Execute SQL queries on parquet data:

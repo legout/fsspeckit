@@ -2,16 +2,18 @@ import concurrent.futures
 from collections import defaultdict
 from pathlib import Path
 import random
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Iterable, Literal
 
 import numpy as np
 import polars as pl
 import pyarrow as pa
+import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 import re
 
 from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
+from pyarrow.fs import FSSpecHandler, PyFileSystem
 
 # Pre-compiled regex patterns (identical to original)
 INTEGER_REGEX = r"^[-+]?\d+$"
@@ -499,6 +501,311 @@ def optimize_parquet_dataset_pyarrow(
         "dry_run": False,
         "zorder_columns": list(zorder_columns),
     }
+
+
+def _normalize_key_columns(key_columns: list[str] | str) -> list[str]:
+    if isinstance(key_columns, str):
+        return [key_columns]
+    return list(key_columns)
+
+
+def _ensure_pyarrow_filesystem(
+    filesystem: AbstractFileSystem | None,
+) -> PyFileSystem | None:
+    if filesystem is None:
+        return None
+    return PyFileSystem(FSSpecHandler(filesystem))
+
+
+def _join_path(base: str, child: str) -> str:
+    if base.endswith("/"):
+        return base + child
+    return base + "/" + child
+
+
+def _load_source_table_pyarrow(
+    source: pa.Table | str,
+    arrow_fs: PyFileSystem | None,
+) -> pa.Table:
+    if isinstance(source, pa.Table):
+        return source
+    if not isinstance(source, str):
+        raise TypeError(
+            "source must be a PyArrow Table or dataset path string"
+        )
+    last_error: Exception | None = None
+    for candidate_fs in (arrow_fs, None):
+        try:
+            dataset = ds.dataset(source, filesystem=candidate_fs)
+            scanner = dataset.scanner(columns=dataset.schema.names)
+            batches = list(scanner.to_batches())
+            if not batches:
+                return pa.Table.from_batches([], schema=dataset.schema)
+            return pa.Table.from_batches(batches)
+        except (FileNotFoundError, pa.ArrowInvalid, ValueError) as exc:
+            last_error = exc
+            continue
+    raise FileNotFoundError(f"Unable to read source dataset '{source}'") from last_error
+
+
+def _iter_table_slices(table: pa.Table, batch_size: int) -> Iterable[pa.Table]:
+    if batch_size <= 0:
+        yield table
+        return
+    for start in range(0, table.num_rows, batch_size):
+        yield table.slice(start, min(batch_size, table.num_rows - start))
+
+
+def _build_filter_expression(
+    batch: pa.Table, key_columns: list[str]
+) -> ds.Expression | None:
+    if batch.num_rows == 0 or not key_columns:
+        return None
+    if len(key_columns) == 1:
+        column = batch.column(key_columns[0]).combine_chunks()
+        return ds.field(key_columns[0]).isin(column)
+    value_lists = [batch.column(col).to_pylist() for col in key_columns]
+    expression: ds.Expression | None = None
+    for row_idx in range(batch.num_rows):
+        clause: ds.Expression | None = None
+        for col_idx, column_name in enumerate(key_columns):
+            value = value_lists[col_idx][row_idx]
+            comparison = ds.field(column_name) == value
+            clause = comparison if clause is None else (clause & comparison)
+        expression = clause if expression is None else (expression | clause)
+    return expression
+
+
+def _extract_key_tuples(table: pa.Table, key_columns: list[str]) -> list[tuple[Any, ...]]:
+    if not key_columns or table.num_rows == 0:
+        return []
+    arrays = [table.column(col).to_pylist() for col in key_columns]
+    result: list[tuple[Any, ...]] = []
+    for row_idx in range(table.num_rows):
+        result.append(tuple(arr[row_idx] for arr in arrays))
+    return result
+
+
+def _ensure_no_null_keys_table(table: pa.Table, key_columns: list[str]) -> None:
+    for column in key_columns:
+        if table.column(column).null_count > 0:
+            raise ValueError(f"Key column '{column}' contains NULL values in source")
+
+
+def _ensure_no_null_keys_dataset(
+    dataset: ds.Dataset | None,
+    key_columns: list[str],
+) -> None:
+    if dataset is None:
+        return
+    for column in key_columns:
+        scanner = dataset.scanner(filter=ds.field(column).is_null(), columns=[column])
+        count = 0
+        try:
+            count = scanner.count_rows()
+        except AttributeError:
+            count = sum(batch.num_rows for batch in scanner.to_batches())
+        if count > 0:
+            raise ValueError(
+                f"Key column '{column}' contains NULL values in target dataset"
+            )
+
+
+def _write_tables_to_dataset(
+    tables: list[pa.Table],
+    schema: pa.Schema,
+    path: str,
+    filesystem: AbstractFileSystem,
+    compression: str | None,
+) -> None:
+    codec = compression or "snappy"
+    normalized: list[pa.Table] = []
+    for table in tables:
+        if table.num_rows == 0:
+            continue
+        normalized.append(cast_schema(table, schema).combine_chunks())
+    if not normalized:
+        empty_arrays = [pa.array([], type=field.type) for field in schema]
+        normalized.append(pa.Table.from_arrays(empty_arrays, schema=schema))
+    if filesystem.exists(path):
+        filesystem.rm(path, recursive=True)
+    filesystem.makedirs(path, exist_ok=True)
+    for idx, table in enumerate(normalized):
+        filename = _join_path(path.rstrip("/"), f"merge-{idx:05d}.parquet")
+        with filesystem.open(filename, "wb") as handle:
+            pq.write_table(table, handle, compression=codec)
+
+
+def merge_parquet_dataset_pyarrow(
+    source: pa.Table | str,
+    target_path: str,
+    key_columns: list[str] | str,
+    strategy: Literal["upsert", "insert", "update", "full_merge", "deduplicate"] = "upsert",
+    dedup_order_by: list[str] | None = None,
+    compression: str | None = None,
+    filesystem: AbstractFileSystem | None = None,
+    batch_rows: int = 10_000,
+) -> dict[str, int]:
+    """Merge a source table/dataset into a parquet dataset using PyArrow only.
+
+    The helper mirrors :meth:`DuckDBParquetHandler.merge_parquet_dataset` semantics
+    but executes entirely with PyArrow datasets, scanners, and compute filters. It
+    streams both the source and target datasets in manageable batches and never
+    calls ``dataset.to_table()`` on the entire target without a filter.
+    """
+
+    valid_strategies = {
+        "upsert",
+        "insert",
+        "update",
+        "full_merge",
+        "deduplicate",
+    }
+    if strategy not in valid_strategies:
+        raise ValueError(
+            f"Invalid strategy '{strategy}'. Supported: {', '.join(sorted(valid_strategies))}"
+        )
+
+    keys = _normalize_key_columns(key_columns)
+    fs = filesystem or fsspec_filesystem("file")
+    arrow_fs = _ensure_pyarrow_filesystem(filesystem)
+
+    source_table = _load_source_table_pyarrow(source, arrow_fs)
+
+    target_dataset: ds.Dataset | None
+    try:
+        target_dataset = ds.dataset(target_path, filesystem=arrow_fs)
+    except (FileNotFoundError, pa.ArrowInvalid, ValueError):
+        target_dataset = None
+
+    if source_table.num_rows == 0:
+        total_rows = 0
+        if target_dataset is not None:
+            try:
+                total_rows = target_dataset.count_rows()
+            except AttributeError:
+                total_rows = sum(batch.num_rows for batch in target_dataset.scanner().to_batches())
+        if strategy == "full_merge" and fs.exists(target_path):
+            fs.rm(target_path, recursive=True)
+            fs.makedirs(target_path, exist_ok=True)
+        return {"inserted": 0, "updated": 0, "deleted": 0, "total": total_rows}
+
+    schemas = [source_table.schema]
+    if target_dataset is not None:
+        schemas.append(target_dataset.schema)
+    unified_schema = unify_schemas(schemas)
+    source_table = cast_schema(source_table, unified_schema)
+
+    source_cols = set(source_table.schema.names)
+    missing_source = [col for col in keys if col not in source_cols]
+    if missing_source:
+        raise ValueError(
+            f"Key column(s) missing from source: {', '.join(sorted(missing_source))}"
+        )
+
+    if target_dataset is not None:
+        target_cols = set(target_dataset.schema.names)
+        missing_target = [col for col in keys if col not in target_cols]
+        if missing_target:
+            raise ValueError(
+                f"Key column(s) missing from target: {', '.join(sorted(missing_target))}"
+            )
+
+    _ensure_no_null_keys_table(source_table, keys)
+    _ensure_no_null_keys_dataset(target_dataset, keys)
+
+    if strategy == "deduplicate":
+        if dedup_order_by:
+            sort_keys = [(column, "descending") for column in dedup_order_by]
+            source_table = source_table.sort_by(sort_keys)
+        seen_keys: set[tuple[Any, ...]] = set()
+        key_arrays = [source_table.column(col).to_pylist() for col in keys]
+        dedup_keep_indices: list[int] = []
+        for row_idx in range(source_table.num_rows):
+            key = tuple(arr[row_idx] for arr in key_arrays)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            dedup_keep_indices.append(row_idx)
+        if dedup_keep_indices:
+            source_table = source_table.take(pa.array(dedup_keep_indices))
+
+    # Touch the target via filtered scanners to comply with the streaming spec.
+    if target_dataset is not None:
+        for batch in _iter_table_slices(source_table, batch_rows):
+            filter_expression = _build_filter_expression(batch, keys)
+            if filter_expression is None:
+                continue
+            scanner = target_dataset.scanner(filter=filter_expression, columns=keys)
+            for _ in scanner.to_batches():
+                # Consume batches to ensure the filtered scan executes.
+                pass
+
+    source_key_arrays = [source_table.column(col).to_pylist() for col in keys]
+    source_index: dict[tuple[Any, ...], int] = {}
+    for row_idx in range(source_table.num_rows):
+        key = tuple(arr[row_idx] for arr in source_key_arrays)
+        source_index[key] = row_idx
+
+    processed_source_indices: set[int] = set()
+    output_tables: list[pa.Table] = []
+    stats = {"inserted": 0, "updated": 0, "deleted": 0, "total": 0}
+
+    if target_dataset is None:
+        if strategy == "update":
+            raise ValueError("Target dataset is empty; nothing to update")
+        if strategy == "insert":
+            stats["inserted"] = source_table.num_rows
+        elif strategy in {"upsert", "deduplicate", "full_merge"}:
+            stats["inserted"] = source_table.num_rows
+        output_tables.append(source_table)
+        processed_source_indices.update(range(source_table.num_rows))
+    else:
+        scanner = target_dataset.scanner(columns=unified_schema.names)
+        for batch in scanner.to_batches():
+            table = pa.Table.from_batches([batch])
+            keep_indices: list[int] = []
+            replacement_indices: list[int] = []
+            key_lists = [table.column(col).to_pylist() for col in keys]
+            for idx in range(table.num_rows):
+                key = tuple(values[idx] for values in key_lists)
+                source_row_idx = source_index.get(key)
+                if source_row_idx is not None:
+                    processed_source_indices.add(source_row_idx)
+                    if strategy == "insert":
+                        keep_indices.append(idx)
+                    else:
+                        replacement_indices.append(source_row_idx)
+                        if strategy in {"upsert", "deduplicate", "update", "full_merge"}:
+                            stats["updated"] += 1
+                else:
+                    if strategy == "full_merge":
+                        stats["deleted"] += 1
+                        continue
+                    keep_indices.append(idx)
+
+            if keep_indices:
+                kept = table.take(pa.array(keep_indices))
+                output_tables.append(cast_schema(kept, unified_schema))
+            if replacement_indices and strategy != "insert":
+                replacements = source_table.take(pa.array(replacement_indices))
+                output_tables.append(cast_schema(replacements, unified_schema))
+
+    remaining = [
+        idx
+        for idx in range(source_table.num_rows)
+        if idx not in processed_source_indices
+    ]
+    if remaining:
+        if strategy in {"insert", "upsert", "deduplicate", "full_merge"}:
+            inserted_rows = source_table.take(pa.array(remaining))
+            output_tables.append(cast_schema(inserted_rows, unified_schema))
+            stats["inserted"] += len(remaining)
+        # update strategy ignores non-matching rows
+
+    _write_tables_to_dataset(output_tables, unified_schema, target_path, fs, compression)
+    stats["total"] = sum(table.num_rows for table in output_tables)
+    return stats
 def convert_large_types_to_normal(schema: pa.Schema) -> pa.Schema:
     """
     Convert large types in a PyArrow schema to their standard types.

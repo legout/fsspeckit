@@ -144,6 +144,49 @@ Convert large types in a PyArrow schema to their standard types.
 
 - `pyarrow.Schema`: A new PyArrow schema with large types converted to standard types.
 
+## `merge_parquet_dataset_pyarrow()`
+
+Merge a source PyArrow table or parquet dataset into a target parquet dataset directory using PyArrow-only primitives.
+
+**Parameters:**
+
+| Name | Type | Description |
+|:---|:---|:---|
+| `source` | `pyarrow.Table` or `str` | In-memory table or path to a parquet dataset containing new data. |
+| `target_path` | `str` | Directory containing the parquet dataset to update. |
+| `key_columns` | `list[str]` or `str` | Column(s) that uniquely identify rows. |
+| `strategy` | `Literal["upsert", "insert", "update", "full_merge", "deduplicate"]` | Merge strategy mirroring the DuckDB helper semantics. |
+| `dedup_order_by` | `list[str]`, optional | Columns to sort by (descending) before deduplicating the source when `strategy="deduplicate"`. |
+| `compression` | `str`, optional | Compression codec for rewritten parquet files (`"snappy"` by default). |
+| `filesystem` | `fsspec.AbstractFileSystem`, optional | Filesystem implementation for both source (if path) and target datasets. |
+| `batch_rows` | `int`, optional | Number of source rows per batch when building filtered target scanners (default: `10_000`). |
+
+**Example:**
+
+```python
+from fsspeckit.utils.pyarrow import merge_parquet_dataset_pyarrow
+import pyarrow as pa
+
+source = pa.table({
+    "user_id": [101, 102],
+    "value": ["gold", "silver"],
+})
+
+stats = merge_parquet_dataset_pyarrow(
+    source,
+    target_path="/data/customers/",
+    key_columns="user_id",
+    strategy="upsert",
+)
+
+print(stats)
+# {'inserted': 1, 'updated': 1, 'deleted': 0, 'total': 42}
+```
+
+**Returns:**
+
+- `dict[str, int]`: Merge statistics with keys `inserted`, `updated`, `deleted`, and final `total` rows.
+
 ## `opt_dtype()`
 
 Optimize data types of a PyArrow Table for performance and memory efficiency.

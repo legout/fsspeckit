@@ -3,6 +3,7 @@
 import pytest
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 import polars as pl
 from datetime import datetime
@@ -18,6 +19,7 @@ from fsspeckit.utils.pyarrow import (
     collect_dataset_stats_pyarrow,
     compact_parquet_dataset_pyarrow,
     optimize_parquet_dataset_pyarrow,
+    merge_parquet_dataset_pyarrow,
 )
 
 
@@ -494,6 +496,28 @@ class TestParquetDatasetMaintenance:
             table = pq.read_table(file_path)
             pairs = list(zip(table.column("group").to_pylist(), table.column("value").to_pylist()))
             assert pairs == sorted(pairs)
+
+    def test_merge_parquet_dataset_pyarrow_simple(self, tmp_path):
+        """merge_parquet_dataset_pyarrow should upsert rows with minimal input."""
+        path = tmp_path / "merge-target"
+        path.mkdir()
+        pq.write_table(pa.table({"id": [1], "value": ["base"]}), path / "part-0.parquet")
+        source = pa.table({"id": [1, 2], "value": ["new", "insert"]})
+
+        stats = merge_parquet_dataset_pyarrow(
+            source,
+            str(path),
+            key_columns="id",
+            strategy="upsert",
+        )
+
+        assert stats["inserted"] == 1
+        assert stats["updated"] == 1
+        table = ds.dataset(str(path)).to_table()
+        values = dict(
+            zip(table.column("id").to_pylist(), table.column("value").to_pylist())
+        )
+        assert values == {1: "new", 2: "insert"}
 
     def test_dominant_timezone_per_column(self):
         """Test dominant timezone detection."""
