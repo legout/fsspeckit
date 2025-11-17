@@ -1225,6 +1225,15 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#merge_parquet_dataset_pyarrow" class="md-nav__link">
+    <span class="md-ellipsis">
+      merge_parquet_dataset_pyarrow()
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#opt_dtype" class="md-nav__link">
     <span class="md-ellipsis">
       opt_dtype()
@@ -1566,6 +1575,99 @@
 <ul>
 <li><code>pyarrow.Schema</code>: A new PyArrow schema with large types converted to standard types.</li>
 </ul>
+<h2 id="merge_parquet_dataset_pyarrow"><code>merge_parquet_dataset_pyarrow()</code><a class="headerlink" href="#merge_parquet_dataset_pyarrow" title="Permanent link">&para;</a></h2>
+<p>Merge a source PyArrow table or parquet dataset into a target parquet dataset directory using PyArrow-only primitives.</p>
+<p><strong>Parameters:</strong></p>
+<table>
+<thead>
+<tr>
+<th style="text-align: left;">Name</th>
+<th style="text-align: left;">Type</th>
+<th style="text-align: left;">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: left;"><code>source</code></td>
+<td style="text-align: left;"><code>pyarrow.Table</code> or <code>str</code></td>
+<td style="text-align: left;">In-memory table or path to a parquet dataset containing new data.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>target_path</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;">Directory containing the parquet dataset to update.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>key_columns</code></td>
+<td style="text-align: left;"><code>list[str]</code> or <code>str</code></td>
+<td style="text-align: left;">Column(s) that uniquely identify rows.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>strategy</code></td>
+<td style="text-align: left;"><code>Literal["upsert", "insert", "update", "full_merge", "deduplicate"]</code></td>
+<td style="text-align: left;">Merge strategy mirroring the DuckDB helper semantics.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>dedup_order_by</code></td>
+<td style="text-align: left;"><code>list[str]</code>, optional</td>
+<td style="text-align: left;">Columns to sort by (descending) before deduplicating the source when <code>strategy="deduplicate"</code>.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>compression</code></td>
+<td style="text-align: left;"><code>str</code>, optional</td>
+<td style="text-align: left;">Compression codec for rewritten parquet files (<code>"snappy"</code> by default).</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>filesystem</code></td>
+<td style="text-align: left;"><code>fsspec.AbstractFileSystem</code>, optional</td>
+<td style="text-align: left;">Filesystem implementation for both source (if path) and target datasets.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>batch_rows</code></td>
+<td style="text-align: left;"><code>int</code>, optional</td>
+<td style="text-align: left;">Number of source rows per batch when building filtered target scanners (default: <code>10_000</code>).</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Example:</strong></p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-3-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-3-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-3-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-3-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-3-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-3-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-3-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-3-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-3-10">10</a></span>
+<span class="normal"><a href="#__codelineno-3-11">11</a></span>
+<span class="normal"><a href="#__codelineno-3-12">12</a></span>
+<span class="normal"><a href="#__codelineno-3-13">13</a></span>
+<span class="normal"><a href="#__codelineno-3-14">14</a></span>
+<span class="normal"><a href="#__codelineno-3-15">15</a></span>
+<span class="normal"><a href="#__codelineno-3-16">16</a></span>
+<span class="normal"><a href="#__codelineno-3-17">17</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.utils.pyarrow</span><span class="w"> </span><span class="kn">import</span> <span class="n">merge_parquet_dataset_pyarrow</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pyarrow</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pa</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3"></a>
+<a id="__codelineno-3-4" name="__codelineno-3-4"></a><span class="n">source</span> <span class="o">=</span> <span class="n">pa</span><span class="o">.</span><span class="n">table</span><span class="p">({</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5"></a>    <span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">101</span><span class="p">,</span> <span class="mi">102</span><span class="p">],</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6"></a>    <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;gold&quot;</span><span class="p">,</span> <span class="s2">&quot;silver&quot;</span><span class="p">],</span>
+<a id="__codelineno-3-7" name="__codelineno-3-7"></a><span class="p">})</span>
+<a id="__codelineno-3-8" name="__codelineno-3-8"></a>
+<a id="__codelineno-3-9" name="__codelineno-3-9"></a><span class="n">stats</span> <span class="o">=</span> <span class="n">merge_parquet_dataset_pyarrow</span><span class="p">(</span>
+<a id="__codelineno-3-10" name="__codelineno-3-10"></a>    <span class="n">source</span><span class="p">,</span>
+<a id="__codelineno-3-11" name="__codelineno-3-11"></a>    <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/customers/&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-12" name="__codelineno-3-12"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="s2">&quot;user_id&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-13" name="__codelineno-3-13"></a>    <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;upsert&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-14" name="__codelineno-3-14"></a><span class="p">)</span>
+<a id="__codelineno-3-15" name="__codelineno-3-15"></a>
+<a id="__codelineno-3-16" name="__codelineno-3-16"></a><span class="nb">print</span><span class="p">(</span><span class="n">stats</span><span class="p">)</span>
+<a id="__codelineno-3-17" name="__codelineno-3-17"></a><span class="c1"># {&#39;inserted&#39;: 1, &#39;updated&#39;: 1, &#39;deleted&#39;: 0, &#39;total&#39;: 42}</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Returns:</strong></p>
+<ul>
+<li><code>dict[str, int]</code>: Merge statistics with keys <code>inserted</code>, <code>updated</code>, <code>deleted</code>, and final <code>total</code> rows.</li>
+</ul>
 <h2 id="opt_dtype"><code>opt_dtype()</code><a class="headerlink" href="#opt_dtype" title="Permanent link">&para;</a></h2>
 <p>Optimize data types of a PyArrow Table for performance and memory efficiency.</p>
 <p><strong>Parameters:</strong></p>
@@ -1622,6 +1724,16 @@
 <td style="text-align: left;"><code>allow_null</code></td>
 <td style="text-align: left;"><code>bool</code></td>
 <td style="text-align: left;">If False, columns that only hold null-like values will not be converted to pyarrow.null().</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sample_size</code></td>
+<td style="text-align: left;"><code>int</code> or <code>None</code></td>
+<td style="text-align: left;">Maximum number of cleaned values inspected during regex-based inference (<code>1024</code> by default). The inferred schema is derived solely from the samples before casting the complete column.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sample_method</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;">Sampling strategy (<code>"first"</code> or <code>"random"</code>) for the inference subset.</td>
 </tr>
 </tbody>
 </table>

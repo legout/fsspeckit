@@ -1417,6 +1417,16 @@
 <td style="text-align: left;">If True, columns containing only null values will be cast to the Null type.</td>
 </tr>
 <tr>
+<td style="text-align: left;"><code>sample_size</code></td>
+<td style="text-align: left;"><code>int</code> or <code>None</code></td>
+<td style="text-align: left;">Maximum number of cleaned values inspected during regex-based inference (<code>1024</code> by default). The inferred schema is based solely on this sample before casting the full column.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>sample_method</code></td>
+<td style="text-align: left;"><code>str</code></td>
+<td style="text-align: left;">Which subset to inspect (<code>"first"</code> or <code>"random"</code>) when sampling values for inference.</td>
+</tr>
+<tr>
 <td style="text-align: left;"><code>strict</code></td>
 <td style="text-align: left;"><code>bool</code></td>
 <td style="text-align: left;">If True, an error will be raised if any column cannot be optimized (e.g., due to type inference issues).</td>

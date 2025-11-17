@@ -920,6 +920,132 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#duckdb-parquet-handler" class="md-nav__link">
+    <span class="md-ellipsis">
+      DuckDB Parquet Handler
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DuckDB Parquet Handler">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#duckdbparquethandler" class="md-nav__link">
+    <span class="md-ellipsis">
+      DuckDBParquetHandler
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="DuckDBParquetHandler">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#basic-usage" class="md-nav__link">
+    <span class="md-ellipsis">
+      Basic Usage
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dataset-write-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dataset Write Operations
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dataset-merge-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dataset Merge Operations
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dataset-maintenance-operations" class="md-nav__link">
+    <span class="md-ellipsis">
+      Dataset Maintenance Operations
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pyarrow-parquet-maintenance" class="md-nav__link">
+    <span class="md-ellipsis">
+      PyArrow Parquet Maintenance
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#pyarrow-parquet-merge" class="md-nav__link">
+    <span class="md-ellipsis">
+      PyArrow Parquet Merge
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="PyArrow Parquet Merge">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#sql-query-execution" class="md-nav__link">
+    <span class="md-ellipsis">
+      SQL Query Execution
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#remote-storage-integration" class="md-nav__link">
+    <span class="md-ellipsis">
+      Remote Storage Integration
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#key-features" class="md-nav__link">
+    <span class="md-ellipsis">
+      Key Features
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#best-practices" class="md-nav__link">
+    <span class="md-ellipsis">
+      Best Practices
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#dependency-checking" class="md-nav__link">
     <span class="md-ellipsis">
       Dependency Checking
@@ -1852,6 +1978,7 @@
 <a id="__codelineno-10-8" name="__codelineno-10-8"></a><span class="c1"># Or use as DataFrame extension:</span>
 <a id="__codelineno-10-9" name="__codelineno-10-9"></a><span class="n">df_opt</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">opt_dtype</span>  <span class="c1"># Custom extension method</span>
 </code></pre></div></td></tr></table></div>
+<p>You can tune <code>sample_size</code> and <code>sample_method</code> when calling <code>opt_dtype_pl</code> (or <code>df.opt_dtype</code>) to keep the regex heuristics bounded. The defaults (1024 rows, <code>sample_method="first"</code>) provide a good balance between inference accuracy and memory usage, and the inferred schema is based solely on the sampled rows before the full column is cast.</p>
 <p><strong>Optimizations include:</strong>
 - Int64 → Int32 when range fits
 - Float64 → Float32 when precision allows
@@ -1869,6 +1996,7 @@
 <a id="__codelineno-11-4" name="__codelineno-11-4"></a><span class="n">table</span> <span class="o">=</span> <span class="n">pa</span><span class="o">.</span><span class="n">table</span><span class="p">({</span><span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="s2">&quot;count&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">100</span><span class="p">,</span> <span class="mi">200</span><span class="p">,</span> <span class="mi">300</span><span class="p">]})</span>
 <a id="__codelineno-11-5" name="__codelineno-11-5"></a><span class="n">optimized</span> <span class="o">=</span> <span class="n">opt_dtype_pa</span><span class="p">(</span><span class="n">table</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
+<p>The PyArrow helper exposes the same <code>sample_size</code>/<code>sample_method</code> knobs so you can limit the inference subset before the full table is cast, with the schema derived entirely from the sampled values.</p>
 <h2 id="schema-utilities">Schema Utilities<a class="headerlink" href="#schema-utilities" title="Permanent link">&para;</a></h2>
 <h3 id="cast_schema"><code>cast_schema</code><a class="headerlink" href="#cast_schema" title="Permanent link">&para;</a></h3>
 <p>Unify schemas across multiple tables/dataframes:</p>
@@ -1898,7 +2026,7 @@
 </code></pre></div></td></tr></table></div>
 <h2 id="sql-to-expression-conversion">SQL-to-Expression Conversion<a class="headerlink" href="#sql-to-expression-conversion" title="Permanent link">&para;</a></h2>
 <h3 id="sql2pyarrow_filter"><code>sql2pyarrow_filter</code><a class="headerlink" href="#sql2pyarrow_filter" title="Permanent link">&para;</a></h3>
-<p>Convert SQL WHERE clause to PyArrow filter expression:</p>
+<p>Convert SQL WHERE clause to PyArrow filter expression for use with <code>pyarrow.dataset.Scanner</code>:</p>
 <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-14-1"> 1</a></span>
 <span class="normal"><a href="#__codelineno-14-2"> 2</a></span>
 <span class="normal"><a href="#__codelineno-14-3"> 3</a></span>
@@ -1916,25 +2044,47 @@
 <span class="normal"><a href="#__codelineno-14-15">15</a></span>
 <span class="normal"><a href="#__codelineno-14-16">16</a></span>
 <span class="normal"><a href="#__codelineno-14-17">17</a></span>
-<span class="normal"><a href="#__codelineno-14-18">18</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">sql2pyarrow_filter</span>
+<span class="normal"><a href="#__codelineno-14-18">18</a></span>
+<span class="normal"><a href="#__codelineno-14-19">19</a></span>
+<span class="normal"><a href="#__codelineno-14-20">20</a></span>
+<span class="normal"><a href="#__codelineno-14-21">21</a></span>
+<span class="normal"><a href="#__codelineno-14-22">22</a></span>
+<span class="normal"><a href="#__codelineno-14-23">23</a></span>
+<span class="normal"><a href="#__codelineno-14-24">24</a></span>
+<span class="normal"><a href="#__codelineno-14-25">25</a></span>
+<span class="normal"><a href="#__codelineno-14-26">26</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">sql2pyarrow_filter</span>
 <a id="__codelineno-14-2" name="__codelineno-14-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pyarrow</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pa</span>
-<a id="__codelineno-14-3" name="__codelineno-14-3"></a>
-<a id="__codelineno-14-4" name="__codelineno-14-4"></a><span class="c1"># Define schema</span>
-<a id="__codelineno-14-5" name="__codelineno-14-5"></a><span class="n">schema</span> <span class="o">=</span> <span class="n">pa</span><span class="o">.</span><span class="n">schema</span><span class="p">([</span>
-<a id="__codelineno-14-6" name="__codelineno-14-6"></a>    <span class="p">(</span><span class="s2">&quot;age&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">int32</span><span class="p">()),</span>
-<a id="__codelineno-14-7" name="__codelineno-14-7"></a>    <span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
-<a id="__codelineno-14-8" name="__codelineno-14-8"></a>    <span class="p">(</span><span class="s2">&quot;date&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">timestamp</span><span class="p">(</span><span class="s2">&quot;us&quot;</span><span class="p">))</span>
-<a id="__codelineno-14-9" name="__codelineno-14-9"></a><span class="p">])</span>
-<a id="__codelineno-14-10" name="__codelineno-14-10"></a>
-<a id="__codelineno-14-11" name="__codelineno-14-11"></a><span class="c1"># Create filter from SQL</span>
-<a id="__codelineno-14-12" name="__codelineno-14-12"></a><span class="n">expr</span> <span class="o">=</span> <span class="n">sql2pyarrow_filter</span><span class="p">(</span>
-<a id="__codelineno-14-13" name="__codelineno-14-13"></a>    <span class="s2">&quot;age &gt; 25 AND name = &#39;Alice&#39;&quot;</span><span class="p">,</span>
-<a id="__codelineno-14-14" name="__codelineno-14-14"></a>    <span class="n">schema</span>
-<a id="__codelineno-14-15" name="__codelineno-14-15"></a><span class="p">)</span>
-<a id="__codelineno-14-16" name="__codelineno-14-16"></a>
-<a id="__codelineno-14-17" name="__codelineno-14-17"></a><span class="c1"># Apply to dataset</span>
-<a id="__codelineno-14-18" name="__codelineno-14-18"></a><span class="n">filtered</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">to_table</span><span class="p">(</span><span class="nb">filter</span><span class="o">=</span><span class="n">expr</span><span class="p">)</span>
+<a id="__codelineno-14-3" name="__codelineno-14-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pyarrow.dataset</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ds</span>
+<a id="__codelineno-14-4" name="__codelineno-14-4"></a>
+<a id="__codelineno-14-5" name="__codelineno-14-5"></a><span class="c1"># Define schema</span>
+<a id="__codelineno-14-6" name="__codelineno-14-6"></a><span class="n">schema</span> <span class="o">=</span> <span class="n">pa</span><span class="o">.</span><span class="n">schema</span><span class="p">([</span>
+<a id="__codelineno-14-7" name="__codelineno-14-7"></a>    <span class="p">(</span><span class="s2">&quot;age&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">int32</span><span class="p">()),</span>
+<a id="__codelineno-14-8" name="__codelineno-14-8"></a>    <span class="p">(</span><span class="s2">&quot;name&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
+<a id="__codelineno-14-9" name="__codelineno-14-9"></a>    <span class="p">(</span><span class="s2">&quot;active&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">bool_</span><span class="p">()),</span>
+<a id="__codelineno-14-10" name="__codelineno-14-10"></a>    <span class="p">(</span><span class="s2">&quot;created_at&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">timestamp</span><span class="p">(</span><span class="s2">&quot;us&quot;</span><span class="p">,</span> <span class="s2">&quot;UTC&quot;</span><span class="p">)),</span>
+<a id="__codelineno-14-11" name="__codelineno-14-11"></a>    <span class="p">(</span><span class="s2">&quot;category&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">())</span>
+<a id="__codelineno-14-12" name="__codelineno-14-12"></a><span class="p">])</span>
+<a id="__codelineno-14-13" name="__codelineno-14-13"></a>
+<a id="__codelineno-14-14" name="__codelineno-14-14"></a><span class="c1"># Create filter from SQL</span>
+<a id="__codelineno-14-15" name="__codelineno-14-15"></a><span class="n">expr</span> <span class="o">=</span> <span class="n">sql2pyarrow_filter</span><span class="p">(</span>
+<a id="__codelineno-14-16" name="__codelineno-14-16"></a>    <span class="s2">&quot;age &gt; 25 AND name = &#39;Alice&#39; AND active = true&quot;</span><span class="p">,</span>
+<a id="__codelineno-14-17" name="__codelineno-14-17"></a>    <span class="n">schema</span>
+<a id="__codelineno-14-18" name="__codelineno-14-18"></a><span class="p">)</span>
+<a id="__codelineno-14-19" name="__codelineno-14-19"></a>
+<a id="__codelineno-14-20" name="__codelineno-14-20"></a><span class="c1"># Apply to dataset scanner</span>
+<a id="__codelineno-14-21" name="__codelineno-14-21"></a><span class="n">dataset</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">dataset</span><span class="p">(</span><span class="s2">&quot;/path/to/parquet&quot;</span><span class="p">,</span> <span class="nb">format</span><span class="o">=</span><span class="s2">&quot;parquet&quot;</span><span class="p">)</span>
+<a id="__codelineno-14-22" name="__codelineno-14-22"></a><span class="n">filtered</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">to_table</span><span class="p">(</span><span class="nb">filter</span><span class="o">=</span><span class="n">expr</span><span class="p">)</span>
+<a id="__codelineno-14-23" name="__codelineno-14-23"></a>
+<a id="__codelineno-14-24" name="__codelineno-14-24"></a><span class="c1"># Also works with table filtering</span>
+<a id="__codelineno-14-25" name="__codelineno-14-25"></a><span class="n">table</span> <span class="o">=</span> <span class="n">pa</span><span class="o">.</span><span class="n">table</span><span class="p">({</span><span class="o">...</span><span class="p">})</span>
+<a id="__codelineno-14-26" name="__codelineno-14-26"></a><span class="n">filtered_table</span> <span class="o">=</span> <span class="n">table</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">expr</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
+<p><strong>Key Features for PyArrow Integration:</strong>
+- Returns <code>pyarrow.compute.Expression</code> objects compatible with <code>dataset.to_table(filter=expr)</code>
+- Handles timestamp, date, and time literals with proper timezone support
+- Supports boolean literals (<code>true</code>, <code>false</code>, <code>1</code>, <code>0</code>)
+- Works with IN/NOT IN lists for efficient filtering
+- Compatible with row-level pruning in PyArrow datasets</p>
 <h3 id="sql2polars_filter"><code>sql2polars_filter</code><a class="headerlink" href="#sql2polars_filter" title="Permanent link">&para;</a></h3>
 <p>Convert SQL WHERE clause to Polars filter expression:</p>
 <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-15-1">1</a></span>
@@ -1952,80 +2102,835 @@
 <a id="__codelineno-15-7" name="__codelineno-15-7"></a><span class="n">filtered_df</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">expr</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
 <p><strong>Supported SQL syntax:</strong>
-- Comparison operators: <code>&gt;</code>, <code>&lt;</code>, <code>&gt;=</code>, <code>&lt;=</code>, <code>=</code>, <code>!=</code>
-- Logical operators: <code>AND</code>, <code>OR</code>, <code>NOT</code>
-- In operator: <code>IN (val1, val2)</code>
-- Between operator: <code>BETWEEN x AND y</code>
-- Null checks: <code>IS NULL</code>, <code>IS NOT NULL</code></p>
+- <strong>Comparison operators</strong>: <code>=</code>, <code>!=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code>
+- <strong>Logical operators</strong>: <code>AND</code>, <code>OR</code>, <code>NOT</code> with parentheses for grouping
+- <strong>In operator</strong>: <code>IN (val1, val2, ...)</code> and <code>NOT IN (val1, val2, ...)</code>
+- <strong>Null checks</strong>: <code>IS NULL</code>, <code>IS NOT NULL</code>
+- <strong>Boolean literals</strong>: <code>true</code>, <code>false</code>, <code>True</code>, <code>False</code>, <code>1</code>, <code>0</code>
+- <strong>Datetime literals</strong>: ISO format strings for timestamp/date/time columns
+  - Timestamps: <code>'2023-01-01T10:30:00'</code> or <code>'2023-01-01T10:30:00+02:00'</code>
+  - Dates: <code>'2023-01-01'</code>
+  - Times: <code>'10:30:00'</code>
+- <strong>Complex expressions</strong>: Nested combinations with parentheses, e.g. <code>(age &gt; 30 AND score &gt; 85) OR category = 'A'</code></p>
+<h2 id="duckdb-parquet-handler">DuckDB Parquet Handler<a class="headerlink" href="#duckdb-parquet-handler" title="Permanent link">&para;</a></h2>
+<h3 id="duckdbparquethandler"><code>DuckDBParquetHandler</code><a class="headerlink" href="#duckdbparquethandler" title="Permanent link">&para;</a></h3>
+<p>High-performance parquet dataset operations using DuckDB with fsspec integration for local and remote storage.</p>
+<h4 id="basic-usage">Basic Usage<a class="headerlink" href="#basic-usage" title="Permanent link">&para;</a></h4>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-16-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-16-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-16-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-16-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-16-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-16-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-16-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-16-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-16-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-16-10">10</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">DuckDBParquetHandler</span>
+<a id="__codelineno-16-2" name="__codelineno-16-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pyarrow</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pa</span>
+<a id="__codelineno-16-3" name="__codelineno-16-3"></a>
+<a id="__codelineno-16-4" name="__codelineno-16-4"></a><span class="c1"># Create sample data</span>
+<a id="__codelineno-16-5" name="__codelineno-16-5"></a><span class="n">table</span> <span class="o">=</span> <span class="n">pa</span><span class="o">.</span><span class="n">table</span><span class="p">({</span><span class="s1">&#39;id&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span> <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;Alice&#39;</span><span class="p">,</span> <span class="s1">&#39;Bob&#39;</span><span class="p">,</span> <span class="s1">&#39;Charlie&#39;</span><span class="p">]})</span>
+<a id="__codelineno-16-6" name="__codelineno-16-6"></a>
+<a id="__codelineno-16-7" name="__codelineno-16-7"></a><span class="c1"># Write and read parquet files</span>
+<a id="__codelineno-16-8" name="__codelineno-16-8"></a><span class="k">with</span> <span class="n">DuckDBParquetHandler</span><span class="p">()</span> <span class="k">as</span> <span class="n">handler</span><span class="p">:</span>
+<a id="__codelineno-16-9" name="__codelineno-16-9"></a>    <span class="n">handler</span><span class="o">.</span><span class="n">write_parquet</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="s2">&quot;/tmp/data.parquet&quot;</span><span class="p">)</span>
+<a id="__codelineno-16-10" name="__codelineno-16-10"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">read_parquet</span><span class="p">(</span><span class="s2">&quot;/tmp/data.parquet&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<h4 id="dataset-write-operations">Dataset Write Operations<a class="headerlink" href="#dataset-write-operations" title="Permanent link">&para;</a></h4>
+<p>Write to parquet datasets with automatic unique filenames:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-17-1">1</a></span>
+<span class="normal"><a href="#__codelineno-17-2">2</a></span>
+<span class="normal"><a href="#__codelineno-17-3">3</a></span>
+<span class="normal"><a href="#__codelineno-17-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1"></a><span class="c1"># Basic dataset write</span>
+<a id="__codelineno-17-2" name="__codelineno-17-2"></a><span class="k">with</span> <span class="n">DuckDBParquetHandler</span><span class="p">()</span> <span class="k">as</span> <span class="n">handler</span><span class="p">:</span>
+<a id="__codelineno-17-3" name="__codelineno-17-3"></a>    <span class="n">handler</span><span class="o">.</span><span class="n">write_parquet_dataset</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="s2">&quot;/data/sales/&quot;</span><span class="p">)</span>
+<a id="__codelineno-17-4" name="__codelineno-17-4"></a>    <span class="c1"># Creates: /data/sales/part-a1b2c3d4.parquet</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Append Mode (Incremental Updates)</strong></p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-18-1">1</a></span>
+<span class="normal"><a href="#__codelineno-18-2">2</a></span>
+<span class="normal"><a href="#__codelineno-18-3">3</a></span>
+<span class="normal"><a href="#__codelineno-18-4">4</a></span>
+<span class="normal"><a href="#__codelineno-18-5">5</a></span>
+<span class="normal"><a href="#__codelineno-18-6">6</a></span>
+<span class="normal"><a href="#__codelineno-18-7">7</a></span>
+<span class="normal"><a href="#__codelineno-18-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1"></a><span class="c1"># Day 1 - initial load</span>
+<a id="__codelineno-18-2" name="__codelineno-18-2"></a><span class="n">handler</span><span class="o">.</span><span class="n">write_parquet_dataset</span><span class="p">(</span><span class="n">batch1</span><span class="p">,</span> <span class="s2">&quot;/data/sales/&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;append&quot;</span><span class="p">)</span>
+<a id="__codelineno-18-3" name="__codelineno-18-3"></a>
+<a id="__codelineno-18-4" name="__codelineno-18-4"></a><span class="c1"># Day 2 - add new data (preserves Day 1 file)</span>
+<a id="__codelineno-18-5" name="__codelineno-18-5"></a><span class="n">handler</span><span class="o">.</span><span class="n">write_parquet_dataset</span><span class="p">(</span><span class="n">batch2</span><span class="p">,</span> <span class="s2">&quot;/data/sales/&quot;</span><span class="p">,</span> <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;append&quot;</span><span class="p">)</span>
+<a id="__codelineno-18-6" name="__codelineno-18-6"></a>
+<a id="__codelineno-18-7" name="__codelineno-18-7"></a><span class="c1"># Read combined dataset</span>
+<a id="__codelineno-18-8" name="__codelineno-18-8"></a><span class="n">all_data</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">read_parquet</span><span class="p">(</span><span class="s2">&quot;/data/sales/&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Overwrite Mode (Replace Dataset)</strong></p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-19-1">1</a></span>
+<span class="normal"><a href="#__codelineno-19-2">2</a></span>
+<span class="normal"><a href="#__codelineno-19-3">3</a></span>
+<span class="normal"><a href="#__codelineno-19-4">4</a></span>
+<span class="normal"><a href="#__codelineno-19-5">5</a></span>
+<span class="normal"><a href="#__codelineno-19-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-19-1" name="__codelineno-19-1"></a><span class="c1"># Replace entire dataset</span>
+<a id="__codelineno-19-2" name="__codelineno-19-2"></a><span class="n">handler</span><span class="o">.</span><span class="n">write_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-19-3" name="__codelineno-19-3"></a>    <span class="n">new_data</span><span class="p">,</span>
+<a id="__codelineno-19-4" name="__codelineno-19-4"></a>    <span class="s2">&quot;/data/sales/&quot;</span><span class="p">,</span>
+<a id="__codelineno-19-5" name="__codelineno-19-5"></a>    <span class="n">mode</span><span class="o">=</span><span class="s2">&quot;overwrite&quot;</span>  <span class="c1"># Deletes existing parquet files</span>
+<a id="__codelineno-19-6" name="__codelineno-19-6"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Split Large Tables</strong></p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-20-1">1</a></span>
+<span class="normal"><a href="#__codelineno-20-2">2</a></span>
+<span class="normal"><a href="#__codelineno-20-3">3</a></span>
+<span class="normal"><a href="#__codelineno-20-4">4</a></span>
+<span class="normal"><a href="#__codelineno-20-5">5</a></span>
+<span class="normal"><a href="#__codelineno-20-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-20-1" name="__codelineno-20-1"></a><span class="c1"># Split into multiple files with max 100k rows each</span>
+<a id="__codelineno-20-2" name="__codelineno-20-2"></a><span class="n">handler</span><span class="o">.</span><span class="n">write_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-20-3" name="__codelineno-20-3"></a>    <span class="n">large_table</span><span class="p">,</span>
+<a id="__codelineno-20-4" name="__codelineno-20-4"></a>    <span class="s2">&quot;/data/sales/&quot;</span><span class="p">,</span>
+<a id="__codelineno-20-5" name="__codelineno-20-5"></a>    <span class="n">max_rows_per_file</span><span class="o">=</span><span class="mi">100000</span>
+<a id="__codelineno-20-6" name="__codelineno-20-6"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Custom Filename Templates</strong></p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-21-1">1</a></span>
+<span class="normal"><a href="#__codelineno-21-2">2</a></span>
+<span class="normal"><a href="#__codelineno-21-3">3</a></span>
+<span class="normal"><a href="#__codelineno-21-4">4</a></span>
+<span class="normal"><a href="#__codelineno-21-5">5</a></span>
+<span class="normal"><a href="#__codelineno-21-6">6</a></span>
+<span class="normal"><a href="#__codelineno-21-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-21-1" name="__codelineno-21-1"></a><span class="c1"># Custom filename pattern</span>
+<a id="__codelineno-21-2" name="__codelineno-21-2"></a><span class="n">handler</span><span class="o">.</span><span class="n">write_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-21-3" name="__codelineno-21-3"></a>    <span class="n">table</span><span class="p">,</span>
+<a id="__codelineno-21-4" name="__codelineno-21-4"></a>    <span class="s2">&quot;/data/sales/&quot;</span><span class="p">,</span>
+<a id="__codelineno-21-5" name="__codelineno-21-5"></a>    <span class="n">basename_template</span><span class="o">=</span><span class="s2">&quot;sales_</span><span class="si">{}</span><span class="s2">.parquet&quot;</span>
+<a id="__codelineno-21-6" name="__codelineno-21-6"></a><span class="p">)</span>
+<a id="__codelineno-21-7" name="__codelineno-21-7"></a><span class="c1"># Creates: sales_a1b2c3d4.parquet</span>
+</code></pre></div></td></tr></table></div>
+<h4 id="dataset-merge-operations">Dataset Merge Operations<a class="headerlink" href="#dataset-merge-operations" title="Permanent link">&para;</a></h4>
+<p>Intelligently merge parquet datasets with multiple strategies for CDC, incremental loads, and synchronization:</p>
+<p><strong>Basic UPSERT (Change Data Capture)</strong></p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-22-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-22-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-22-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-22-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-22-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-22-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-22-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-22-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-22-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-22-10">10</a></span>
+<span class="normal"><a href="#__codelineno-22-11">11</a></span>
+<span class="normal"><a href="#__codelineno-22-12">12</a></span>
+<span class="normal"><a href="#__codelineno-22-13">13</a></span>
+<span class="normal"><a href="#__codelineno-22-14">14</a></span>
+<span class="normal"><a href="#__codelineno-22-15">15</a></span>
+<span class="normal"><a href="#__codelineno-22-16">16</a></span>
+<span class="normal"><a href="#__codelineno-22-17">17</a></span>
+<span class="normal"><a href="#__codelineno-22-18">18</a></span>
+<span class="normal"><a href="#__codelineno-22-19">19</a></span>
+<span class="normal"><a href="#__codelineno-22-20">20</a></span>
+<span class="normal"><a href="#__codelineno-22-21">21</a></span>
+<span class="normal"><a href="#__codelineno-22-22">22</a></span>
+<span class="normal"><a href="#__codelineno-22-23">23</a></span>
+<span class="normal"><a href="#__codelineno-22-24">24</a></span>
+<span class="normal"><a href="#__codelineno-22-25">25</a></span>
+<span class="normal"><a href="#__codelineno-22-26">26</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-22-1" name="__codelineno-22-1"></a><span class="k">with</span> <span class="n">DuckDBParquetHandler</span><span class="p">()</span> <span class="k">as</span> <span class="n">handler</span><span class="p">:</span>
+<a id="__codelineno-22-2" name="__codelineno-22-2"></a>    <span class="c1"># Initial data</span>
+<a id="__codelineno-22-3" name="__codelineno-22-3"></a>    <span class="n">initial</span> <span class="o">=</span> <span class="n">pa</span><span class="o">.</span><span class="n">table</span><span class="p">({</span>
+<a id="__codelineno-22-4" name="__codelineno-22-4"></a>        <span class="s1">&#39;customer_id&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">,</span> <span class="mi">3</span><span class="p">],</span>
+<a id="__codelineno-22-5" name="__codelineno-22-5"></a>        <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;Alice&#39;</span><span class="p">,</span> <span class="s1">&#39;Bob&#39;</span><span class="p">,</span> <span class="s1">&#39;Charlie&#39;</span><span class="p">],</span>
+<a id="__codelineno-22-6" name="__codelineno-22-6"></a>        <span class="s1">&#39;balance&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">100</span><span class="p">,</span> <span class="mi">200</span><span class="p">,</span> <span class="mi">300</span><span class="p">]</span>
+<a id="__codelineno-22-7" name="__codelineno-22-7"></a>    <span class="p">})</span>
+<a id="__codelineno-22-8" name="__codelineno-22-8"></a>    <span class="n">handler</span><span class="o">.</span><span class="n">write_parquet_dataset</span><span class="p">(</span><span class="n">initial</span><span class="p">,</span> <span class="s2">&quot;/data/customers/&quot;</span><span class="p">)</span>
+<a id="__codelineno-22-9" name="__codelineno-22-9"></a>
+<a id="__codelineno-22-10" name="__codelineno-22-10"></a>    <span class="c1"># CDC changes: Update customer 2, add customer 4</span>
+<a id="__codelineno-22-11" name="__codelineno-22-11"></a>    <span class="n">changes</span> <span class="o">=</span> <span class="n">pa</span><span class="o">.</span><span class="n">table</span><span class="p">({</span>
+<a id="__codelineno-22-12" name="__codelineno-22-12"></a>        <span class="s1">&#39;customer_id&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">2</span><span class="p">,</span> <span class="mi">4</span><span class="p">],</span>
+<a id="__codelineno-22-13" name="__codelineno-22-13"></a>        <span class="s1">&#39;name&#39;</span><span class="p">:</span> <span class="p">[</span><span class="s1">&#39;Bob&#39;</span><span class="p">,</span> <span class="s1">&#39;Diana&#39;</span><span class="p">],</span>
+<a id="__codelineno-22-14" name="__codelineno-22-14"></a>        <span class="s1">&#39;balance&#39;</span><span class="p">:</span> <span class="p">[</span><span class="mi">250</span><span class="p">,</span> <span class="mi">400</span><span class="p">]</span>
+<a id="__codelineno-22-15" name="__codelineno-22-15"></a>    <span class="p">})</span>
+<a id="__codelineno-22-16" name="__codelineno-22-16"></a>
+<a id="__codelineno-22-17" name="__codelineno-22-17"></a>    <span class="c1"># Merge with UPSERT strategy</span>
+<a id="__codelineno-22-18" name="__codelineno-22-18"></a>    <span class="n">stats</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">merge_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-22-19" name="__codelineno-22-19"></a>        <span class="n">source</span><span class="o">=</span><span class="n">changes</span><span class="p">,</span>
+<a id="__codelineno-22-20" name="__codelineno-22-20"></a>        <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/customers/&quot;</span><span class="p">,</span>
+<a id="__codelineno-22-21" name="__codelineno-22-21"></a>        <span class="n">key_columns</span><span class="o">=</span><span class="s2">&quot;customer_id&quot;</span><span class="p">,</span>
+<a id="__codelineno-22-22" name="__codelineno-22-22"></a>        <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;upsert&quot;</span>
+<a id="__codelineno-22-23" name="__codelineno-22-23"></a>    <span class="p">)</span>
+<a id="__codelineno-22-24" name="__codelineno-22-24"></a>
+<a id="__codelineno-22-25" name="__codelineno-22-25"></a>    <span class="nb">print</span><span class="p">(</span><span class="n">stats</span><span class="p">)</span>
+<a id="__codelineno-22-26" name="__codelineno-22-26"></a>    <span class="c1"># {&#39;inserted&#39;: 1, &#39;updated&#39;: 1, &#39;deleted&#39;: 0, &#39;total&#39;: 4}</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Available Merge Strategies</strong></p>
+<ol>
+<li>
+<p><strong>UPSERT</strong> - Insert new records and update existing ones (default for CDC)
+   <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-23-1">1</a></span>
+<span class="normal"><a href="#__codelineno-23-2">2</a></span>
+<span class="normal"><a href="#__codelineno-23-3">3</a></span>
+<span class="normal"><a href="#__codelineno-23-4">4</a></span>
+<span class="normal"><a href="#__codelineno-23-5">5</a></span>
+<span class="normal"><a href="#__codelineno-23-6">6</a></span>
+<span class="normal"><a href="#__codelineno-23-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-23-1" name="__codelineno-23-1"></a><span class="c1"># Best for: Change data capture, general updates</span>
+<a id="__codelineno-23-2" name="__codelineno-23-2"></a><span class="n">handler</span><span class="o">.</span><span class="n">merge_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-23-3" name="__codelineno-23-3"></a>    <span class="n">source</span><span class="o">=</span><span class="n">changes</span><span class="p">,</span>
+<a id="__codelineno-23-4" name="__codelineno-23-4"></a>    <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/&quot;</span><span class="p">,</span>
+<a id="__codelineno-23-5" name="__codelineno-23-5"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="s2">&quot;id&quot;</span><span class="p">,</span>
+<a id="__codelineno-23-6" name="__codelineno-23-6"></a>    <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;upsert&quot;</span>
+<a id="__codelineno-23-7" name="__codelineno-23-7"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div></p>
+</li>
+<li>
+<p><strong>INSERT</strong> - Add only new records, ignore existing (append-only)
+   <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-24-1">1</a></span>
+<span class="normal"><a href="#__codelineno-24-2">2</a></span>
+<span class="normal"><a href="#__codelineno-24-3">3</a></span>
+<span class="normal"><a href="#__codelineno-24-4">4</a></span>
+<span class="normal"><a href="#__codelineno-24-5">5</a></span>
+<span class="normal"><a href="#__codelineno-24-6">6</a></span>
+<span class="normal"><a href="#__codelineno-24-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-24-1" name="__codelineno-24-1"></a><span class="c1"># Best for: Event logs, audit trails, immutable data</span>
+<a id="__codelineno-24-2" name="__codelineno-24-2"></a><span class="n">handler</span><span class="o">.</span><span class="n">merge_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-24-3" name="__codelineno-24-3"></a>    <span class="n">source</span><span class="o">=</span><span class="n">new_events</span><span class="p">,</span>
+<a id="__codelineno-24-4" name="__codelineno-24-4"></a>    <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/events/&quot;</span><span class="p">,</span>
+<a id="__codelineno-24-5" name="__codelineno-24-5"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="s2">&quot;event_id&quot;</span><span class="p">,</span>
+<a id="__codelineno-24-6" name="__codelineno-24-6"></a>    <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;insert&quot;</span>
+<a id="__codelineno-24-7" name="__codelineno-24-7"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div></p>
+</li>
+<li>
+<p><strong>UPDATE</strong> - Update only existing records, ignore new ones
+   <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-25-1">1</a></span>
+<span class="normal"><a href="#__codelineno-25-2">2</a></span>
+<span class="normal"><a href="#__codelineno-25-3">3</a></span>
+<span class="normal"><a href="#__codelineno-25-4">4</a></span>
+<span class="normal"><a href="#__codelineno-25-5">5</a></span>
+<span class="normal"><a href="#__codelineno-25-6">6</a></span>
+<span class="normal"><a href="#__codelineno-25-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-25-1" name="__codelineno-25-1"></a><span class="c1"># Best for: Dimension table updates (SCD Type 1)</span>
+<a id="__codelineno-25-2" name="__codelineno-25-2"></a><span class="n">handler</span><span class="o">.</span><span class="n">merge_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-25-3" name="__codelineno-25-3"></a>    <span class="n">source</span><span class="o">=</span><span class="n">updates</span><span class="p">,</span>
+<a id="__codelineno-25-4" name="__codelineno-25-4"></a>    <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/products/&quot;</span><span class="p">,</span>
+<a id="__codelineno-25-5" name="__codelineno-25-5"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="s2">&quot;product_id&quot;</span><span class="p">,</span>
+<a id="__codelineno-25-6" name="__codelineno-25-6"></a>    <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;update&quot;</span>
+<a id="__codelineno-25-7" name="__codelineno-25-7"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div></p>
+</li>
+<li>
+<p><strong>FULL_MERGE</strong> - Complete synchronization (insert, update, delete)
+   <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-26-1">1</a></span>
+<span class="normal"><a href="#__codelineno-26-2">2</a></span>
+<span class="normal"><a href="#__codelineno-26-3">3</a></span>
+<span class="normal"><a href="#__codelineno-26-4">4</a></span>
+<span class="normal"><a href="#__codelineno-26-5">5</a></span>
+<span class="normal"><a href="#__codelineno-26-6">6</a></span>
+<span class="normal"><a href="#__codelineno-26-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-26-1" name="__codelineno-26-1"></a><span class="c1"># Best for: Full snapshots, complete syncs</span>
+<a id="__codelineno-26-2" name="__codelineno-26-2"></a><span class="n">handler</span><span class="o">.</span><span class="n">merge_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-26-3" name="__codelineno-26-3"></a>    <span class="n">source</span><span class="o">=</span><span class="n">fresh_snapshot</span><span class="p">,</span>
+<a id="__codelineno-26-4" name="__codelineno-26-4"></a>    <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/inventory/&quot;</span><span class="p">,</span>
+<a id="__codelineno-26-5" name="__codelineno-26-5"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="s2">&quot;sku&quot;</span><span class="p">,</span>
+<a id="__codelineno-26-6" name="__codelineno-26-6"></a>    <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;full_merge&quot;</span>
+<a id="__codelineno-26-7" name="__codelineno-26-7"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div></p>
+</li>
+<li>
+<p><strong>DEDUPLICATE</strong> - Remove duplicates, keeping most recent
+   <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-27-1">1</a></span>
+<span class="normal"><a href="#__codelineno-27-2">2</a></span>
+<span class="normal"><a href="#__codelineno-27-3">3</a></span>
+<span class="normal"><a href="#__codelineno-27-4">4</a></span>
+<span class="normal"><a href="#__codelineno-27-5">5</a></span>
+<span class="normal"><a href="#__codelineno-27-6">6</a></span>
+<span class="normal"><a href="#__codelineno-27-7">7</a></span>
+<span class="normal"><a href="#__codelineno-27-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-27-1" name="__codelineno-27-1"></a><span class="c1"># Best for: Deduplication, handling duplicate records</span>
+<a id="__codelineno-27-2" name="__codelineno-27-2"></a><span class="n">handler</span><span class="o">.</span><span class="n">merge_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-27-3" name="__codelineno-27-3"></a>    <span class="n">source</span><span class="o">=</span><span class="n">data_with_duplicates</span><span class="p">,</span>
+<a id="__codelineno-27-4" name="__codelineno-27-4"></a>    <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/transactions/&quot;</span><span class="p">,</span>
+<a id="__codelineno-27-5" name="__codelineno-27-5"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="s2">&quot;transaction_id&quot;</span><span class="p">,</span>
+<a id="__codelineno-27-6" name="__codelineno-27-6"></a>    <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;deduplicate&quot;</span><span class="p">,</span>
+<a id="__codelineno-27-7" name="__codelineno-27-7"></a>    <span class="n">dedup_order_by</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;timestamp&quot;</span><span class="p">]</span>  <span class="c1"># Keep highest timestamp</span>
+<a id="__codelineno-27-8" name="__codelineno-27-8"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div></p>
+</li>
+</ol>
+<p><strong>Composite Key Support</strong></p>
+<p>Merge on multiple columns for complex uniqueness requirements:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-28-1">1</a></span>
+<span class="normal"><a href="#__codelineno-28-2">2</a></span>
+<span class="normal"><a href="#__codelineno-28-3">3</a></span>
+<span class="normal"><a href="#__codelineno-28-4">4</a></span>
+<span class="normal"><a href="#__codelineno-28-5">5</a></span>
+<span class="normal"><a href="#__codelineno-28-6">6</a></span>
+<span class="normal"><a href="#__codelineno-28-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-28-1" name="__codelineno-28-1"></a><span class="c1"># Merge on user + date combination</span>
+<a id="__codelineno-28-2" name="__codelineno-28-2"></a><span class="n">handler</span><span class="o">.</span><span class="n">merge_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-28-3" name="__codelineno-28-3"></a>    <span class="n">source</span><span class="o">=</span><span class="n">daily_metrics</span><span class="p">,</span>
+<a id="__codelineno-28-4" name="__codelineno-28-4"></a>    <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/user_metrics/&quot;</span><span class="p">,</span>
+<a id="__codelineno-28-5" name="__codelineno-28-5"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;user_id&quot;</span><span class="p">,</span> <span class="s2">&quot;date&quot;</span><span class="p">],</span>  <span class="c1"># Composite key</span>
+<a id="__codelineno-28-6" name="__codelineno-28-6"></a>    <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;upsert&quot;</span>
+<a id="__codelineno-28-7" name="__codelineno-28-7"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Source from Path or Table</strong></p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-29-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-29-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-29-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-29-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-29-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-29-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-29-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-29-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-29-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-29-10">10</a></span>
+<span class="normal"><a href="#__codelineno-29-11">11</a></span>
+<span class="normal"><a href="#__codelineno-29-12">12</a></span>
+<span class="normal"><a href="#__codelineno-29-13">13</a></span>
+<span class="normal"><a href="#__codelineno-29-14">14</a></span>
+<span class="normal"><a href="#__codelineno-29-15">15</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-29-1" name="__codelineno-29-1"></a><span class="c1"># Source as PyArrow table</span>
+<a id="__codelineno-29-2" name="__codelineno-29-2"></a><span class="n">handler</span><span class="o">.</span><span class="n">merge_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-29-3" name="__codelineno-29-3"></a>    <span class="n">source</span><span class="o">=</span><span class="n">pa_table</span><span class="p">,</span>
+<a id="__codelineno-29-4" name="__codelineno-29-4"></a>    <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/target/&quot;</span><span class="p">,</span>
+<a id="__codelineno-29-5" name="__codelineno-29-5"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="s2">&quot;id&quot;</span><span class="p">,</span>
+<a id="__codelineno-29-6" name="__codelineno-29-6"></a>    <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;upsert&quot;</span>
+<a id="__codelineno-29-7" name="__codelineno-29-7"></a><span class="p">)</span>
+<a id="__codelineno-29-8" name="__codelineno-29-8"></a>
+<a id="__codelineno-29-9" name="__codelineno-29-9"></a><span class="c1"># Source as path to dataset</span>
+<a id="__codelineno-29-10" name="__codelineno-29-10"></a><span class="n">handler</span><span class="o">.</span><span class="n">merge_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-29-11" name="__codelineno-29-11"></a>    <span class="n">source</span><span class="o">=</span><span class="s2">&quot;/data/source/&quot;</span><span class="p">,</span>  <span class="c1"># Path to parquet dataset</span>
+<a id="__codelineno-29-12" name="__codelineno-29-12"></a>    <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/target/&quot;</span><span class="p">,</span>
+<a id="__codelineno-29-13" name="__codelineno-29-13"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="s2">&quot;id&quot;</span><span class="p">,</span>
+<a id="__codelineno-29-14" name="__codelineno-29-14"></a>    <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;upsert&quot;</span>
+<a id="__codelineno-29-15" name="__codelineno-29-15"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Merge with Compression</strong></p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-30-1">1</a></span>
+<span class="normal"><a href="#__codelineno-30-2">2</a></span>
+<span class="normal"><a href="#__codelineno-30-3">3</a></span>
+<span class="normal"><a href="#__codelineno-30-4">4</a></span>
+<span class="normal"><a href="#__codelineno-30-5">5</a></span>
+<span class="normal"><a href="#__codelineno-30-6">6</a></span>
+<span class="normal"><a href="#__codelineno-30-7">7</a></span>
+<span class="normal"><a href="#__codelineno-30-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-30-1" name="__codelineno-30-1"></a><span class="c1"># Merge and recompress with better algorithm</span>
+<a id="__codelineno-30-2" name="__codelineno-30-2"></a><span class="n">handler</span><span class="o">.</span><span class="n">merge_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-30-3" name="__codelineno-30-3"></a>    <span class="n">source</span><span class="o">=</span><span class="n">new_data</span><span class="p">,</span>
+<a id="__codelineno-30-4" name="__codelineno-30-4"></a>    <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/&quot;</span><span class="p">,</span>
+<a id="__codelineno-30-5" name="__codelineno-30-5"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="s2">&quot;id&quot;</span><span class="p">,</span>
+<a id="__codelineno-30-6" name="__codelineno-30-6"></a>    <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;upsert&quot;</span><span class="p">,</span>
+<a id="__codelineno-30-7" name="__codelineno-30-7"></a>    <span class="n">compression</span><span class="o">=</span><span class="s2">&quot;zstd&quot;</span>  <span class="c1"># High compression ratio</span>
+<a id="__codelineno-30-8" name="__codelineno-30-8"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Merge Statistics</strong></p>
+<p>All merge operations return detailed statistics:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-31-1">1</a></span>
+<span class="normal"><a href="#__codelineno-31-2">2</a></span>
+<span class="normal"><a href="#__codelineno-31-3">3</a></span>
+<span class="normal"><a href="#__codelineno-31-4">4</a></span>
+<span class="normal"><a href="#__codelineno-31-5">5</a></span>
+<span class="normal"><a href="#__codelineno-31-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-31-1" name="__codelineno-31-1"></a><span class="n">stats</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">merge_parquet_dataset</span><span class="p">(</span><span class="o">...</span><span class="p">)</span>
+<a id="__codelineno-31-2" name="__codelineno-31-2"></a>
+<a id="__codelineno-31-3" name="__codelineno-31-3"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Inserted: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;inserted&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>  <span class="c1"># New records added</span>
+<a id="__codelineno-31-4" name="__codelineno-31-4"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Updated: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;updated&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>    <span class="c1"># Existing records updated</span>
+<a id="__codelineno-31-5" name="__codelineno-31-5"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Deleted: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;deleted&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>    <span class="c1"># Records removed (FULL_MERGE only)</span>
+<a id="__codelineno-31-6" name="__codelineno-31-6"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Total: </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;total&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>        <span class="c1"># Final record count</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Validation and Error Handling</strong></p>
+<p>The merge operation performs comprehensive validation:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-32-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-32-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-32-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-32-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-32-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-32-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-32-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-32-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-32-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-32-10">10</a></span>
+<span class="normal"><a href="#__codelineno-32-11">11</a></span>
+<span class="normal"><a href="#__codelineno-32-12">12</a></span>
+<span class="normal"><a href="#__codelineno-32-13">13</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-32-1" name="__codelineno-32-1"></a><span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-32-2" name="__codelineno-32-2"></a>    <span class="n">handler</span><span class="o">.</span><span class="n">merge_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-32-3" name="__codelineno-32-3"></a>        <span class="n">source</span><span class="o">=</span><span class="n">data</span><span class="p">,</span>
+<a id="__codelineno-32-4" name="__codelineno-32-4"></a>        <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/&quot;</span><span class="p">,</span>
+<a id="__codelineno-32-5" name="__codelineno-32-5"></a>        <span class="n">key_columns</span><span class="o">=</span><span class="s2">&quot;id&quot;</span><span class="p">,</span>
+<a id="__codelineno-32-6" name="__codelineno-32-6"></a>        <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;upsert&quot;</span>
+<a id="__codelineno-32-7" name="__codelineno-32-7"></a>    <span class="p">)</span>
+<a id="__codelineno-32-8" name="__codelineno-32-8"></a><span class="k">except</span> <span class="ne">ValueError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<a id="__codelineno-32-9" name="__codelineno-32-9"></a>    <span class="c1"># Handles: Missing key columns, NULL keys, schema mismatches</span>
+<a id="__codelineno-32-10" name="__codelineno-32-10"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Merge validation failed: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<a id="__codelineno-32-11" name="__codelineno-32-11"></a><span class="k">except</span> <span class="ne">TypeError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<a id="__codelineno-32-12" name="__codelineno-32-12"></a>    <span class="c1"># Handles: Column type mismatches</span>
+<a id="__codelineno-32-13" name="__codelineno-32-13"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Type error: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Best Practices for Merging</strong></p>
+<ol>
+<li><strong>Choose the right strategy</strong> - UPSERT for CDC, INSERT for events, UPDATE for dimensions</li>
+<li><strong>Use composite keys</strong> - When uniqueness depends on multiple columns</li>
+<li><strong>Validate schemas first</strong> - Ensure source and target schemas match</li>
+<li><strong>Monitor statistics</strong> - Track inserted/updated/deleted counts</li>
+<li><strong>Handle NULL keys</strong> - Key columns must not contain NULL values</li>
+<li><strong>Test with small datasets</strong> - Verify merge logic before production</li>
+<li><strong>Use DEDUPLICATE</strong> - Clean data before merging if duplicates exist</li>
+<li><strong>Optimize with QUALIFY</strong> - DuckDB's QUALIFY clause optimizes deduplication</li>
+</ol>
+<p><strong>Performance Characteristics</strong></p>
+<table>
+<thead>
+<tr>
+<th>Strategy</th>
+<th>Time Complexity</th>
+<th>Best For</th>
+<th>Deletes Data</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>UPSERT</td>
+<td>O(n + m)</td>
+<td>CDC, general updates</td>
+<td>No</td>
+</tr>
+<tr>
+<td>INSERT</td>
+<td>O(n + m)</td>
+<td>Append-only loads</td>
+<td>No</td>
+</tr>
+<tr>
+<td>UPDATE</td>
+<td>O(n + m)</td>
+<td>Dimension updates</td>
+<td>No</td>
+</tr>
+<tr>
+<td>FULL_MERGE</td>
+<td>O(n + m)</td>
+<td>Full synchronization</td>
+<td>Yes</td>
+</tr>
+<tr>
+<td>DEDUPLICATE</td>
+<td>O(n + m)</td>
+<td>Duplicate removal</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+<p><em>n = target rows, m = source rows</em></p>
+<p>See <code>examples/duckdb/duckdb_merge_example.py</code> for comprehensive examples of all strategies.</p>
+<h4 id="dataset-maintenance-operations">Dataset Maintenance Operations<a class="headerlink" href="#dataset-maintenance-operations" title="Permanent link">&para;</a></h4>
+<p>Large parquet datasets inevitably accumulate many tiny files or become poorly clustered for selective queries. <code>DuckDBParquetHandler</code> ships two maintenance helpers that operate directly against your dataset directory without leaving behind temporary SQLite/Delta assets:</p>
+<ol>
+<li><code>compact_parquet_dataset</code> — consolidates small files into right-sized chunks while preserving schema, statistics, and (optionally) recompressing the output.</li>
+<li><code>optimize_parquet_dataset</code> — rewrites the dataset ordered by a multi-column z-order style key to improve predicate pushdown locality.</li>
+</ol>
+<p><strong>Inspect Current Fragmentation</strong></p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-33-1">1</a></span>
+<span class="normal"><a href="#__codelineno-33-2">2</a></span>
+<span class="normal"><a href="#__codelineno-33-3">3</a></span>
+<span class="normal"><a href="#__codelineno-33-4">4</a></span>
+<span class="normal"><a href="#__codelineno-33-5">5</a></span>
+<span class="normal"><a href="#__codelineno-33-6">6</a></span>
+<span class="normal"><a href="#__codelineno-33-7">7</a></span>
+<span class="normal"><a href="#__codelineno-33-8">8</a></span>
+<span class="normal"><a href="#__codelineno-33-9">9</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-33-1" name="__codelineno-33-1"></a><span class="k">with</span> <span class="n">DuckDBParquetHandler</span><span class="p">(</span><span class="n">storage_options</span><span class="o">=</span><span class="n">options</span><span class="p">)</span> <span class="k">as</span> <span class="n">handler</span><span class="p">:</span>
+<a id="__codelineno-33-2" name="__codelineno-33-2"></a>    <span class="n">stats</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">compact_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-33-3" name="__codelineno-33-3"></a>        <span class="n">path</span><span class="o">=</span><span class="s2">&quot;s3://bucket/events/&quot;</span><span class="p">,</span>
+<a id="__codelineno-33-4" name="__codelineno-33-4"></a>        <span class="n">target_mb_per_file</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+<a id="__codelineno-33-5" name="__codelineno-33-5"></a>        <span class="n">dry_run</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>  <span class="c1"># no writes, just inspection</span>
+<a id="__codelineno-33-6" name="__codelineno-33-6"></a>    <span class="p">)</span>
+<a id="__codelineno-33-7" name="__codelineno-33-7"></a>
+<a id="__codelineno-33-8" name="__codelineno-33-8"></a><span class="nb">print</span><span class="p">(</span><span class="n">stats</span><span class="p">[</span><span class="s2">&quot;before&quot;</span><span class="p">][</span><span class="s2">&quot;file_count&quot;</span><span class="p">],</span> <span class="s2">&quot;files before compaction&quot;</span><span class="p">)</span>
+<a id="__codelineno-33-9" name="__codelineno-33-9"></a><span class="nb">print</span><span class="p">(</span><span class="n">stats</span><span class="p">[</span><span class="s2">&quot;plan&quot;</span><span class="p">][</span><span class="mi">0</span><span class="p">])</span>  <span class="c1"># proposed merge groups</span>
+</code></pre></div></td></tr></table></div>
+<p><code>dry_run=True</code> returns a dictionary with <code>before</code>, <code>after</code>, and <code>plan</code> keys so you can review the intended merges inside CI/CD before touching storage.</p>
+<p><strong>Compact a Dataset</strong></p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-34-1">1</a></span>
+<span class="normal"><a href="#__codelineno-34-2">2</a></span>
+<span class="normal"><a href="#__codelineno-34-3">3</a></span>
+<span class="normal"><a href="#__codelineno-34-4">4</a></span>
+<span class="normal"><a href="#__codelineno-34-5">5</a></span>
+<span class="normal"><a href="#__codelineno-34-6">6</a></span>
+<span class="normal"><a href="#__codelineno-34-7">7</a></span>
+<span class="normal"><a href="#__codelineno-34-8">8</a></span>
+<span class="normal"><a href="#__codelineno-34-9">9</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-34-1" name="__codelineno-34-1"></a><span class="k">with</span> <span class="n">DuckDBParquetHandler</span><span class="p">()</span> <span class="k">as</span> <span class="n">handler</span><span class="p">:</span>
+<a id="__codelineno-34-2" name="__codelineno-34-2"></a>    <span class="n">stats</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">compact_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-34-3" name="__codelineno-34-3"></a>        <span class="n">path</span><span class="o">=</span><span class="s2">&quot;/data/sales/&quot;</span><span class="p">,</span>
+<a id="__codelineno-34-4" name="__codelineno-34-4"></a>        <span class="n">target_mb_per_file</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
+<a id="__codelineno-34-5" name="__codelineno-34-5"></a>        <span class="n">compression</span><span class="o">=</span><span class="s2">&quot;zstd&quot;</span><span class="p">,</span>  <span class="c1"># optional recompression</span>
+<a id="__codelineno-34-6" name="__codelineno-34-6"></a>        <span class="n">max_files_per_group</span><span class="o">=</span><span class="mi">32</span><span class="p">,</span>
+<a id="__codelineno-34-7" name="__codelineno-34-7"></a>    <span class="p">)</span>
+<a id="__codelineno-34-8" name="__codelineno-34-8"></a>
+<a id="__codelineno-34-9" name="__codelineno-34-9"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Reduced files from </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;before&#39;</span><span class="p">][</span><span class="s1">&#39;file_count&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> to </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;after&#39;</span><span class="p">][</span><span class="s1">&#39;file_count&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Optimize with Z-Order Style Ordering</strong></p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-35-1">1</a></span>
+<span class="normal"><a href="#__codelineno-35-2">2</a></span>
+<span class="normal"><a href="#__codelineno-35-3">3</a></span>
+<span class="normal"><a href="#__codelineno-35-4">4</a></span>
+<span class="normal"><a href="#__codelineno-35-5">5</a></span>
+<span class="normal"><a href="#__codelineno-35-6">6</a></span>
+<span class="normal"><a href="#__codelineno-35-7">7</a></span>
+<span class="normal"><a href="#__codelineno-35-8">8</a></span>
+<span class="normal"><a href="#__codelineno-35-9">9</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-35-1" name="__codelineno-35-1"></a><span class="k">with</span> <span class="n">DuckDBParquetHandler</span><span class="p">()</span> <span class="k">as</span> <span class="n">handler</span><span class="p">:</span>
+<a id="__codelineno-35-2" name="__codelineno-35-2"></a>    <span class="n">stats</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">optimize_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-35-3" name="__codelineno-35-3"></a>        <span class="n">path</span><span class="o">=</span><span class="s2">&quot;/data/events/&quot;</span><span class="p">,</span>
+<a id="__codelineno-35-4" name="__codelineno-35-4"></a>        <span class="n">zorder_columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;user_id&quot;</span><span class="p">,</span> <span class="s2">&quot;event_date&quot;</span><span class="p">],</span>
+<a id="__codelineno-35-5" name="__codelineno-35-5"></a>        <span class="n">target_mb_per_file</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
+<a id="__codelineno-35-6" name="__codelineno-35-6"></a>        <span class="n">partition_filter</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;date=2025-11-10&quot;</span><span class="p">],</span>
+<a id="__codelineno-35-7" name="__codelineno-35-7"></a>    <span class="p">)</span>
+<a id="__codelineno-35-8" name="__codelineno-35-8"></a>
+<a id="__codelineno-35-9" name="__codelineno-35-9"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Clustered </span><span class="si">{</span><span class="n">stats</span><span class="p">[</span><span class="s1">&#39;after&#39;</span><span class="p">][</span><span class="s1">&#39;file_count&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> files covering filtered partitions&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p>The optimizer rewrites files ordered by the provided columns using a lexicographic interleave approximation (not a full Morton curve). For write-after-read safety, it always writes into a temporary staging area, validates row counts, and then swaps the files in place.</p>
+<p><strong>Dry-Run Safety + Partition Filters</strong></p>
+<ul>
+<li>Pass <code>dry_run=True</code> to either method to inspect their impact.</li>
+<li>Provide <code>partition_filter=["date=2025-11-04"]</code> to limit work to specific partitions without scanning unrelated data.</li>
+<li><code>max_files_per_group</code> and <code>target_rows_per_file</code> let you bound resource use when compaction happens during active ingestion.</li>
+</ul>
+<p><strong>Returned Statistics</strong></p>
+<p>Both helpers return metrics that make it easy to alert/monitor:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-36-1">1</a></span>
+<span class="normal"><a href="#__codelineno-36-2">2</a></span>
+<span class="normal"><a href="#__codelineno-36-3">3</a></span>
+<span class="normal"><a href="#__codelineno-36-4">4</a></span>
+<span class="normal"><a href="#__codelineno-36-5">5</a></span>
+<span class="normal"><a href="#__codelineno-36-6">6</a></span>
+<span class="normal"><a href="#__codelineno-36-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-36-1" name="__codelineno-36-1"></a><span class="p">{</span>
+<a id="__codelineno-36-2" name="__codelineno-36-2"></a>    <span class="s2">&quot;before&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;file_count&quot;</span><span class="p">:</span> <span class="mi">147</span><span class="p">,</span> <span class="s2">&quot;total_rows&quot;</span><span class="p">:</span> <span class="mi">9_800_000</span><span class="p">,</span> <span class="s2">&quot;total_bytes&quot;</span><span class="p">:</span> <span class="mi">24_000_000_000</span><span class="p">},</span>
+<a id="__codelineno-36-3" name="__codelineno-36-3"></a>    <span class="s2">&quot;after&quot;</span><span class="p">:</span> <span class="p">{</span><span class="s2">&quot;file_count&quot;</span><span class="p">:</span> <span class="mi">32</span><span class="p">,</span> <span class="s2">&quot;total_rows&quot;</span><span class="p">:</span> <span class="mi">9_800_000</span><span class="p">,</span> <span class="s2">&quot;total_bytes&quot;</span><span class="p">:</span> <span class="mi">22_000_000_000</span><span class="p">},</span>
+<a id="__codelineno-36-4" name="__codelineno-36-4"></a>    <span class="s2">&quot;plan&quot;</span><span class="p">:</span> <span class="p">[</span>
+<a id="__codelineno-36-5" name="__codelineno-36-5"></a>        <span class="p">{</span><span class="s2">&quot;group_id&quot;</span><span class="p">:</span> <span class="mi">1</span><span class="p">,</span> <span class="s2">&quot;inputs&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;part-0001.parquet&quot;</span><span class="p">,</span> <span class="o">...</span><span class="p">],</span> <span class="s2">&quot;output&quot;</span><span class="p">:</span> <span class="s2">&quot;part-compact-0001.parquet&quot;</span><span class="p">}</span>
+<a id="__codelineno-36-6" name="__codelineno-36-6"></a>    <span class="p">],</span>
+<a id="__codelineno-36-7" name="__codelineno-36-7"></a><span class="p">}</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Best Practices</strong></p>
+<ol>
+<li><strong>Always dry-run in CI</strong> before letting automation rewrite production buckets.</li>
+<li><strong>Set realistic thresholds</strong> (<code>target_mb_per_file</code> or <code>target_rows_per_file</code>) that align with your downstream query engines.</li>
+<li><strong>Use partition filters</strong> to keep compaction scoped to “hot” partitions during live ingestion.</li>
+<li><strong>Recompress during maintenance</strong> if your historic data still uses gzip/snappy and you prefer zstd.</li>
+<li><strong>Alternate optimize + compact</strong> — run optimization first to recluster, then compaction to materialize polished files.</li>
+</ol>
+<p><strong>Limitations &amp; Future Work</strong></p>
+<ul>
+<li>Current z-ordering uses a deterministic interleave approximation and does not yet adapt to partition cardinality; true partition-aware curves are on the roadmap.</li>
+<li>File sizing relies on static thresholds; adaptive sizing driven by per-row-group statistics is a future enhancement.</li>
+</ul>
+<p>See <code>examples/duckdb/duckdb_compact_example.py</code> and <code>examples/duckdb/duckdb_optimize_example.py</code> for end-to-end scripts that mirror production workflows.</p>
+<h4 id="pyarrow-parquet-maintenance">PyArrow Parquet Maintenance<a class="headerlink" href="#pyarrow-parquet-maintenance" title="Permanent link">&para;</a></h4>
+<p>Some deployments cannot bundle DuckDB but still need dataset maintenance. The
+PyArrow helpers mirror the DuckDB behavior while working directly with
+<code>pyarrow</code> + <code>fsspec</code>:</p>
+<ul>
+<li><code>collect_dataset_stats_pyarrow</code> — metadata-only scan that returns file sizes
+  and row counts (optionally filtered by partition prefixes).</li>
+<li><code>compact_parquet_dataset_pyarrow</code> — rewrites groups of small files into
+  right-sized <code>compact-*.parquet</code> outputs.</li>
+<li><code>optimize_parquet_dataset_pyarrow</code> — reclusters files ordered by
+  <code>zorder_columns</code>, optionally combined with compaction thresholds.</li>
+</ul>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-37-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-37-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-37-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-37-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-37-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-37-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-37-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-37-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-37-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-37-10">10</a></span>
+<span class="normal"><a href="#__codelineno-37-11">11</a></span>
+<span class="normal"><a href="#__codelineno-37-12">12</a></span>
+<span class="normal"><a href="#__codelineno-37-13">13</a></span>
+<span class="normal"><a href="#__codelineno-37-14">14</a></span>
+<span class="normal"><a href="#__codelineno-37-15">15</a></span>
+<span class="normal"><a href="#__codelineno-37-16">16</a></span>
+<span class="normal"><a href="#__codelineno-37-17">17</a></span>
+<span class="normal"><a href="#__codelineno-37-18">18</a></span>
+<span class="normal"><a href="#__codelineno-37-19">19</a></span>
+<span class="normal"><a href="#__codelineno-37-20">20</a></span>
+<span class="normal"><a href="#__codelineno-37-21">21</a></span>
+<span class="normal"><a href="#__codelineno-37-22">22</a></span>
+<span class="normal"><a href="#__codelineno-37-23">23</a></span>
+<span class="normal"><a href="#__codelineno-37-24">24</a></span>
+<span class="normal"><a href="#__codelineno-37-25">25</a></span>
+<span class="normal"><a href="#__codelineno-37-26">26</a></span>
+<span class="normal"><a href="#__codelineno-37-27">27</a></span>
+<span class="normal"><a href="#__codelineno-37-28">28</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-37-1" name="__codelineno-37-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.utils.pyarrow</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+<a id="__codelineno-37-2" name="__codelineno-37-2"></a>    <span class="n">collect_dataset_stats_pyarrow</span><span class="p">,</span>
+<a id="__codelineno-37-3" name="__codelineno-37-3"></a>    <span class="n">compact_parquet_dataset_pyarrow</span><span class="p">,</span>
+<a id="__codelineno-37-4" name="__codelineno-37-4"></a>    <span class="n">optimize_parquet_dataset_pyarrow</span><span class="p">,</span>
+<a id="__codelineno-37-5" name="__codelineno-37-5"></a><span class="p">)</span>
+<a id="__codelineno-37-6" name="__codelineno-37-6"></a>
+<a id="__codelineno-37-7" name="__codelineno-37-7"></a><span class="c1"># Keep stats/maintenance scoped via partition prefixes so we never materialize</span>
+<a id="__codelineno-37-8" name="__codelineno-37-8"></a><span class="c1"># an entire dataset with dataset.to_table()</span>
+<a id="__codelineno-37-9" name="__codelineno-37-9"></a><span class="n">stats</span> <span class="o">=</span> <span class="n">collect_dataset_stats_pyarrow</span><span class="p">(</span>
+<a id="__codelineno-37-10" name="__codelineno-37-10"></a>    <span class="s2">&quot;s3://bucket/events/&quot;</span><span class="p">,</span>
+<a id="__codelineno-37-11" name="__codelineno-37-11"></a>    <span class="n">partition_filter</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;date=2025-11-15&quot;</span><span class="p">],</span>
+<a id="__codelineno-37-12" name="__codelineno-37-12"></a><span class="p">)</span>
+<a id="__codelineno-37-13" name="__codelineno-37-13"></a>
+<a id="__codelineno-37-14" name="__codelineno-37-14"></a><span class="n">plan</span> <span class="o">=</span> <span class="n">compact_parquet_dataset_pyarrow</span><span class="p">(</span>
+<a id="__codelineno-37-15" name="__codelineno-37-15"></a>    <span class="s2">&quot;s3://bucket/events/&quot;</span><span class="p">,</span>
+<a id="__codelineno-37-16" name="__codelineno-37-16"></a>    <span class="n">target_rows_per_file</span><span class="o">=</span><span class="mi">250_000</span><span class="p">,</span>
+<a id="__codelineno-37-17" name="__codelineno-37-17"></a>    <span class="n">partition_filter</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;date=2025-11-15&quot;</span><span class="p">],</span>
+<a id="__codelineno-37-18" name="__codelineno-37-18"></a>    <span class="n">dry_run</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span>
+<a id="__codelineno-37-19" name="__codelineno-37-19"></a><span class="p">)</span>
+<a id="__codelineno-37-20" name="__codelineno-37-20"></a><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Planned compaction groups:&quot;</span><span class="p">,</span> <span class="n">plan</span><span class="p">[</span><span class="s2">&quot;planned_groups&quot;</span><span class="p">])</span>
+<a id="__codelineno-37-21" name="__codelineno-37-21"></a>
+<a id="__codelineno-37-22" name="__codelineno-37-22"></a><span class="n">optimize</span> <span class="o">=</span> <span class="n">optimize_parquet_dataset_pyarrow</span><span class="p">(</span>
+<a id="__codelineno-37-23" name="__codelineno-37-23"></a>    <span class="s2">&quot;s3://bucket/events/&quot;</span><span class="p">,</span>
+<a id="__codelineno-37-24" name="__codelineno-37-24"></a>    <span class="n">zorder_columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;user_id&quot;</span><span class="p">,</span> <span class="s2">&quot;event_ts&quot;</span><span class="p">],</span>
+<a id="__codelineno-37-25" name="__codelineno-37-25"></a>    <span class="n">target_mb_per_file</span><span class="o">=</span><span class="mi">256</span><span class="p">,</span>
+<a id="__codelineno-37-26" name="__codelineno-37-26"></a>    <span class="n">partition_filter</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;date=2025-11-15&quot;</span><span class="p">],</span>
+<a id="__codelineno-37-27" name="__codelineno-37-27"></a><span class="p">)</span>
+<a id="__codelineno-37-28" name="__codelineno-37-28"></a><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Optimization rewrote&quot;</span><span class="p">,</span> <span class="n">optimize</span><span class="p">[</span><span class="s2">&quot;compacted_file_count&quot;</span><span class="p">],</span> <span class="s2">&quot;files&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p>Pair maintenance with filtered materialization when you need to inspect the
+results:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-38-1">1</a></span>
+<span class="normal"><a href="#__codelineno-38-2">2</a></span>
+<span class="normal"><a href="#__codelineno-38-3">3</a></span>
+<span class="normal"><a href="#__codelineno-38-4">4</a></span>
+<span class="normal"><a href="#__codelineno-38-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-38-1" name="__codelineno-38-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pyarrow.dataset</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">ds</span>
+<a id="__codelineno-38-2" name="__codelineno-38-2"></a>
+<a id="__codelineno-38-3" name="__codelineno-38-3"></a><span class="n">dataset</span> <span class="o">=</span> <span class="n">ds</span><span class="o">.</span><span class="n">dataset</span><span class="p">(</span><span class="s2">&quot;s3://bucket/events/&quot;</span><span class="p">)</span>
+<a id="__codelineno-38-4" name="__codelineno-38-4"></a><span class="n">hot_partition</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">to_table</span><span class="p">(</span><span class="nb">filter</span><span class="o">=</span><span class="n">ds</span><span class="o">.</span><span class="n">field</span><span class="p">(</span><span class="s2">&quot;date&quot;</span><span class="p">)</span> <span class="o">==</span> <span class="s2">&quot;2025-11-15&quot;</span><span class="p">)</span>
+<a id="__codelineno-38-5" name="__codelineno-38-5"></a><span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Materialized rows for hot partition:&quot;</span><span class="p">,</span> <span class="n">hot_partition</span><span class="o">.</span><span class="n">num_rows</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p><strong>Best Practices</strong></p>
+<ol>
+<li>Always set <code>partition_filter</code> (or <code>pyarrow.dataset</code> filters) so the helpers
+   only touch relevant directories.</li>
+<li>Avoid calling <code>dataset.to_table()</code> without a filter—large datasets will not
+   fit in memory.</li>
+<li>Use <code>dry_run=True</code> inside CI/CD to capture planned groups and metrics before
+   writing.</li>
+<li>Prefer a z-order optimization pass prior to compaction when you need better
+   predicate locality.</li>
+</ol>
+<p>See <code>examples/pyarrow/pyarrow_compact_example.py</code> and
+<code>examples/pyarrow/pyarrow_optimize_example.py</code> for runnable scripts mirroring
+production workflows without DuckDB.</p>
+<h3 id="pyarrow-parquet-merge">PyArrow Parquet Merge<a class="headerlink" href="#pyarrow-parquet-merge" title="Permanent link">&para;</a></h3>
+<p><code>merge_parquet_dataset_pyarrow</code> mirrors <code>DuckDBParquetHandler.merge_parquet_dataset</code>
+when you need UPSERT/INSERT/UPDATE/FULL_MERGE/DEDUPLICATE semantics without a
+DuckDB dependency. It runs entirely on PyArrow datasets and scanners:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-39-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-39-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-39-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-39-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-39-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-39-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-39-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-39-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-39-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-39-10">10</a></span>
+<span class="normal"><a href="#__codelineno-39-11">11</a></span>
+<span class="normal"><a href="#__codelineno-39-12">12</a></span>
+<span class="normal"><a href="#__codelineno-39-13">13</a></span>
+<span class="normal"><a href="#__codelineno-39-14">14</a></span>
+<span class="normal"><a href="#__codelineno-39-15">15</a></span>
+<span class="normal"><a href="#__codelineno-39-16">16</a></span>
+<span class="normal"><a href="#__codelineno-39-17">17</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-39-1" name="__codelineno-39-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.utils.pyarrow</span><span class="w"> </span><span class="kn">import</span> <span class="n">merge_parquet_dataset_pyarrow</span>
+<a id="__codelineno-39-2" name="__codelineno-39-2"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pyarrow</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pa</span>
+<a id="__codelineno-39-3" name="__codelineno-39-3"></a>
+<a id="__codelineno-39-4" name="__codelineno-39-4"></a><span class="n">source</span> <span class="o">=</span> <span class="n">pa</span><span class="o">.</span><span class="n">table</span><span class="p">({</span>
+<a id="__codelineno-39-5" name="__codelineno-39-5"></a>    <span class="s2">&quot;user_id&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">11</span><span class="p">,</span> <span class="mi">12</span><span class="p">,</span> <span class="mi">13</span><span class="p">],</span>
+<a id="__codelineno-39-6" name="__codelineno-39-6"></a>    <span class="s2">&quot;tier&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;gold&quot;</span><span class="p">,</span> <span class="s2">&quot;silver&quot;</span><span class="p">,</span> <span class="s2">&quot;basic&quot;</span><span class="p">],</span>
+<a id="__codelineno-39-7" name="__codelineno-39-7"></a><span class="p">})</span>
+<a id="__codelineno-39-8" name="__codelineno-39-8"></a>
+<a id="__codelineno-39-9" name="__codelineno-39-9"></a><span class="n">stats</span> <span class="o">=</span> <span class="n">merge_parquet_dataset_pyarrow</span><span class="p">(</span>
+<a id="__codelineno-39-10" name="__codelineno-39-10"></a>    <span class="n">source</span><span class="p">,</span>
+<a id="__codelineno-39-11" name="__codelineno-39-11"></a>    <span class="n">target_path</span><span class="o">=</span><span class="s2">&quot;/data/customers/&quot;</span><span class="p">,</span>
+<a id="__codelineno-39-12" name="__codelineno-39-12"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="s2">&quot;user_id&quot;</span><span class="p">,</span>
+<a id="__codelineno-39-13" name="__codelineno-39-13"></a>    <span class="n">strategy</span><span class="o">=</span><span class="s2">&quot;upsert&quot;</span><span class="p">,</span>
+<a id="__codelineno-39-14" name="__codelineno-39-14"></a><span class="p">)</span>
+<a id="__codelineno-39-15" name="__codelineno-39-15"></a>
+<a id="__codelineno-39-16" name="__codelineno-39-16"></a><span class="nb">print</span><span class="p">(</span><span class="n">stats</span><span class="p">)</span>
+<a id="__codelineno-39-17" name="__codelineno-39-17"></a><span class="c1"># {&#39;inserted&#39;: 1, &#39;updated&#39;: 2, &#39;deleted&#39;: 0, &#39;total&#39;: 2_450}</span>
+</code></pre></div></td></tr></table></div>
+<ul>
+<li><strong>Streaming + filters</strong>: the helper processes the source in batches and builds
+  <code>pyarrow.dataset</code> filter expressions (single keys use <code>field("key").isin(...)</code>,
+  composite keys become ORs of AND clauses) so the target scanner only loads
+  matching rows per batch.</li>
+<li><strong>Strategies</strong>: <code>strategy</code> matches the DuckDB helper — UPSERT merges new +
+  existing, INSERT ignores collisions, UPDATE only applies to existing rows,
+  FULL_MERGE deletes rows missing from the source, and DEDUPLICATE sorts by
+  <code>dedup_order_by</code> before performing an UPSERT.</li>
+<li><strong>Result stats</strong>: the helper returns <code>{"inserted": int, "updated": int,
+  "deleted": int, "total": int}</code> for monitoring/alerting.</li>
+<li><strong>Memory safety</strong>: target scanning happens via batch iterators; the code never
+  calls <code>dataset.to_table()</code> without filters and rewrites output files in new
+  <code>merge-*.parquet</code> chunks with configurable compression.</li>
+</ul>
+<p>For path-based sources (e.g. staging directories), pass the directory string as
+<code>source</code>. When <code>strategy="deduplicate"</code>, set <code>dedup_order_by=["timestamp"]</code> (or
+similar) to keep the newest record per key.</p>
+<h4 id="sql-query-execution">SQL Query Execution<a class="headerlink" href="#sql-query-execution" title="Permanent link">&para;</a></h4>
+<p>Execute SQL queries on parquet data:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-40-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-40-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-40-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-40-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-40-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-40-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-40-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-40-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-40-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-40-10">10</a></span>
+<span class="normal"><a href="#__codelineno-40-11">11</a></span>
+<span class="normal"><a href="#__codelineno-40-12">12</a></span>
+<span class="normal"><a href="#__codelineno-40-13">13</a></span>
+<span class="normal"><a href="#__codelineno-40-14">14</a></span>
+<span class="normal"><a href="#__codelineno-40-15">15</a></span>
+<span class="normal"><a href="#__codelineno-40-16">16</a></span>
+<span class="normal"><a href="#__codelineno-40-17">17</a></span>
+<span class="normal"><a href="#__codelineno-40-18">18</a></span>
+<span class="normal"><a href="#__codelineno-40-19">19</a></span>
+<span class="normal"><a href="#__codelineno-40-20">20</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-40-1" name="__codelineno-40-1"></a><span class="k">with</span> <span class="n">DuckDBParquetHandler</span><span class="p">()</span> <span class="k">as</span> <span class="n">handler</span><span class="p">:</span>
+<a id="__codelineno-40-2" name="__codelineno-40-2"></a>    <span class="n">handler</span><span class="o">.</span><span class="n">write_parquet</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="s2">&quot;/tmp/data.parquet&quot;</span><span class="p">)</span>
+<a id="__codelineno-40-3" name="__codelineno-40-3"></a>
+<a id="__codelineno-40-4" name="__codelineno-40-4"></a>    <span class="c1"># Simple query</span>
+<a id="__codelineno-40-5" name="__codelineno-40-5"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">execute_sql</span><span class="p">(</span>
+<a id="__codelineno-40-6" name="__codelineno-40-6"></a>        <span class="s2">&quot;SELECT * FROM parquet_scan(&#39;/tmp/data.parquet&#39;) WHERE id &gt; 1&quot;</span>
+<a id="__codelineno-40-7" name="__codelineno-40-7"></a>    <span class="p">)</span>
+<a id="__codelineno-40-8" name="__codelineno-40-8"></a>
+<a id="__codelineno-40-9" name="__codelineno-40-9"></a>    <span class="c1"># Parameterized query</span>
+<a id="__codelineno-40-10" name="__codelineno-40-10"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">execute_sql</span><span class="p">(</span>
+<a id="__codelineno-40-11" name="__codelineno-40-11"></a>        <span class="s2">&quot;SELECT * FROM parquet_scan(&#39;/tmp/data.parquet&#39;) WHERE id BETWEEN ? AND ?&quot;</span><span class="p">,</span>
+<a id="__codelineno-40-12" name="__codelineno-40-12"></a>        <span class="n">parameters</span><span class="o">=</span><span class="p">[</span><span class="mi">1</span><span class="p">,</span> <span class="mi">3</span><span class="p">]</span>
+<a id="__codelineno-40-13" name="__codelineno-40-13"></a>    <span class="p">)</span>
+<a id="__codelineno-40-14" name="__codelineno-40-14"></a>
+<a id="__codelineno-40-15" name="__codelineno-40-15"></a>    <span class="c1"># Aggregation</span>
+<a id="__codelineno-40-16" name="__codelineno-40-16"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">execute_sql</span><span class="p">(</span><span class="s2">&quot;&quot;&quot;</span>
+<a id="__codelineno-40-17" name="__codelineno-40-17"></a><span class="s2">        SELECT name, COUNT(*) as count</span>
+<a id="__codelineno-40-18" name="__codelineno-40-18"></a><span class="s2">        FROM parquet_scan(&#39;/tmp/data.parquet&#39;)</span>
+<a id="__codelineno-40-19" name="__codelineno-40-19"></a><span class="s2">        GROUP BY name</span>
+<a id="__codelineno-40-20" name="__codelineno-40-20"></a><span class="s2">    &quot;&quot;&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<h4 id="remote-storage-integration">Remote Storage Integration<a class="headerlink" href="#remote-storage-integration" title="Permanent link">&para;</a></h4>
+<p>Works seamlessly with S3, GCS, Azure through fsspec:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-41-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-41-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-41-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-41-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-41-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-41-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-41-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-41-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-41-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-41-10">10</a></span>
+<span class="normal"><a href="#__codelineno-41-11">11</a></span>
+<span class="normal"><a href="#__codelineno-41-12">12</a></span>
+<span class="normal"><a href="#__codelineno-41-13">13</a></span>
+<span class="normal"><a href="#__codelineno-41-14">14</a></span>
+<span class="normal"><a href="#__codelineno-41-15">15</a></span>
+<span class="normal"><a href="#__codelineno-41-16">16</a></span>
+<span class="normal"><a href="#__codelineno-41-17">17</a></span>
+<span class="normal"><a href="#__codelineno-41-18">18</a></span>
+<span class="normal"><a href="#__codelineno-41-19">19</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-41-1" name="__codelineno-41-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.storage_options</span><span class="w"> </span><span class="kn">import</span> <span class="n">AwsStorageOptions</span>
+<a id="__codelineno-41-2" name="__codelineno-41-2"></a>
+<a id="__codelineno-41-3" name="__codelineno-41-3"></a><span class="n">options</span> <span class="o">=</span> <span class="n">AwsStorageOptions</span><span class="p">(</span>
+<a id="__codelineno-41-4" name="__codelineno-41-4"></a>    <span class="n">access_key_id</span><span class="o">=</span><span class="s2">&quot;YOUR_KEY&quot;</span><span class="p">,</span>
+<a id="__codelineno-41-5" name="__codelineno-41-5"></a>    <span class="n">secret_access_key</span><span class="o">=</span><span class="s2">&quot;YOUR_SECRET&quot;</span><span class="p">,</span>
+<a id="__codelineno-41-6" name="__codelineno-41-6"></a>    <span class="n">region</span><span class="o">=</span><span class="s2">&quot;us-east-1&quot;</span>
+<a id="__codelineno-41-7" name="__codelineno-41-7"></a><span class="p">)</span>
+<a id="__codelineno-41-8" name="__codelineno-41-8"></a>
+<a id="__codelineno-41-9" name="__codelineno-41-9"></a><span class="k">with</span> <span class="n">DuckDBParquetHandler</span><span class="p">(</span><span class="n">storage_options</span><span class="o">=</span><span class="n">options</span><span class="p">)</span> <span class="k">as</span> <span class="n">handler</span><span class="p">:</span>
+<a id="__codelineno-41-10" name="__codelineno-41-10"></a>    <span class="c1"># Write to S3</span>
+<a id="__codelineno-41-11" name="__codelineno-41-11"></a>    <span class="n">handler</span><span class="o">.</span><span class="n">write_parquet_dataset</span><span class="p">(</span><span class="n">table</span><span class="p">,</span> <span class="s2">&quot;s3://bucket/data/&quot;</span><span class="p">)</span>
+<a id="__codelineno-41-12" name="__codelineno-41-12"></a>
+<a id="__codelineno-41-13" name="__codelineno-41-13"></a>    <span class="c1"># Read from S3</span>
+<a id="__codelineno-41-14" name="__codelineno-41-14"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">read_parquet</span><span class="p">(</span><span class="s2">&quot;s3://bucket/data/&quot;</span><span class="p">)</span>
+<a id="__codelineno-41-15" name="__codelineno-41-15"></a>
+<a id="__codelineno-41-16" name="__codelineno-41-16"></a>    <span class="c1"># Query S3 data</span>
+<a id="__codelineno-41-17" name="__codelineno-41-17"></a>    <span class="n">result</span> <span class="o">=</span> <span class="n">handler</span><span class="o">.</span><span class="n">execute_sql</span><span class="p">(</span>
+<a id="__codelineno-41-18" name="__codelineno-41-18"></a>        <span class="s2">&quot;SELECT * FROM parquet_scan(&#39;s3://bucket/data/*.parquet&#39;)&quot;</span>
+<a id="__codelineno-41-19" name="__codelineno-41-19"></a>    <span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<h4 id="key-features">Key Features<a class="headerlink" href="#key-features" title="Permanent link">&para;</a></h4>
+<ul>
+<li><strong>Unique Filenames</strong>: UUID-based generation prevents collisions</li>
+<li><strong>Write Modes</strong>: Append (default) or overwrite</li>
+<li><strong>File Splitting</strong>: Control file size with <code>max_rows_per_file</code></li>
+<li><strong>Compression</strong>: Support for snappy, gzip, zstd, lz4, brotli</li>
+<li><strong>Column Selection</strong>: Read only needed columns for efficiency</li>
+<li><strong>SQL Analytics</strong>: Full DuckDB SQL capabilities on parquet data</li>
+</ul>
+<h4 id="best-practices">Best Practices<a class="headerlink" href="#best-practices" title="Permanent link">&para;</a></h4>
+<ol>
+<li><strong>Use append mode for incremental updates</strong> - Safer default, no accidental data loss</li>
+<li><strong>Keep files reasonably sized</strong> - 10-100 MB per file using <code>max_rows_per_file</code></li>
+<li><strong>Organize hierarchically</strong> - Use year/month/day directory structure</li>
+<li><strong>Choose appropriate compression</strong> - 'snappy' for speed, 'zstd' for better compression</li>
+<li><strong>Periodic compaction</strong> - Consolidate many small files when using append mode</li>
+</ol>
+<p>See <code>examples/duckdb/duckdb_dataset_write_example.py</code> for comprehensive examples.</p>
 <h2 id="dependency-checking">Dependency Checking<a class="headerlink" href="#dependency-checking" title="Permanent link">&para;</a></h2>
 <h3 id="check_optional_dependency"><code>check_optional_dependency</code><a class="headerlink" href="#check_optional_dependency" title="Permanent link">&para;</a></h3>
 <p>Verify that optional dependencies are installed:</p>
-<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-16-1">1</a></span>
-<span class="normal"><a href="#__codelineno-16-2">2</a></span>
-<span class="normal"><a href="#__codelineno-16-3">3</a></span>
-<span class="normal"><a href="#__codelineno-16-4">4</a></span>
-<span class="normal"><a href="#__codelineno-16-5">5</a></span>
-<span class="normal"><a href="#__codelineno-16-6">6</a></span>
-<span class="normal"><a href="#__codelineno-16-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-16-1" name="__codelineno-16-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_optional_dependency</span>
-<a id="__codelineno-16-2" name="__codelineno-16-2"></a>
-<a id="__codelineno-16-3" name="__codelineno-16-3"></a><span class="c1"># Check for a dependency</span>
-<a id="__codelineno-16-4" name="__codelineno-16-4"></a><span class="k">try</span><span class="p">:</span>
-<a id="__codelineno-16-5" name="__codelineno-16-5"></a>    <span class="n">check_optional_dependency</span><span class="p">(</span><span class="s2">&quot;polars&quot;</span><span class="p">)</span>
-<a id="__codelineno-16-6" name="__codelineno-16-6"></a><span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
-<a id="__codelineno-16-7" name="__codelineno-16-7"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Optional dependency missing: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-42-1">1</a></span>
+<span class="normal"><a href="#__codelineno-42-2">2</a></span>
+<span class="normal"><a href="#__codelineno-42-3">3</a></span>
+<span class="normal"><a href="#__codelineno-42-4">4</a></span>
+<span class="normal"><a href="#__codelineno-42-5">5</a></span>
+<span class="normal"><a href="#__codelineno-42-6">6</a></span>
+<span class="normal"><a href="#__codelineno-42-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-42-1" name="__codelineno-42-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_optional_dependency</span>
+<a id="__codelineno-42-2" name="__codelineno-42-2"></a>
+<a id="__codelineno-42-3" name="__codelineno-42-3"></a><span class="c1"># Check for a dependency</span>
+<a id="__codelineno-42-4" name="__codelineno-42-4"></a><span class="k">try</span><span class="p">:</span>
+<a id="__codelineno-42-5" name="__codelineno-42-5"></a>    <span class="n">check_optional_dependency</span><span class="p">(</span><span class="s2">&quot;polars&quot;</span><span class="p">)</span>
+<a id="__codelineno-42-6" name="__codelineno-42-6"></a><span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">e</span><span class="p">:</span>
+<a id="__codelineno-42-7" name="__codelineno-42-7"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Optional dependency missing: </span><span class="si">{</span><span class="n">e</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
 <h2 id="filesystem-comparison">Filesystem Comparison<a class="headerlink" href="#filesystem-comparison" title="Permanent link">&para;</a></h2>
 <h3 id="check_fs_identical"><code>check_fs_identical</code><a class="headerlink" href="#check_fs_identical" title="Permanent link">&para;</a></h3>
 <p>Compare two filesystems to verify they contain identical data:</p>
-<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-17-1">1</a></span>
-<span class="normal"><a href="#__codelineno-17-2">2</a></span>
-<span class="normal"><a href="#__codelineno-17-3">3</a></span>
-<span class="normal"><a href="#__codelineno-17-4">4</a></span>
-<span class="normal"><a href="#__codelineno-17-5">5</a></span>
-<span class="normal"><a href="#__codelineno-17-6">6</a></span>
-<span class="normal"><a href="#__codelineno-17-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-17-1" name="__codelineno-17-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_fs_identical</span>
-<a id="__codelineno-17-2" name="__codelineno-17-2"></a>
-<a id="__codelineno-17-3" name="__codelineno-17-3"></a><span class="c1"># Compare local directories</span>
-<a id="__codelineno-17-4" name="__codelineno-17-4"></a><span class="n">fs1</span> <span class="o">=</span> <span class="n">filesystem</span><span class="p">(</span><span class="s2">&quot;/path1&quot;</span><span class="p">)</span>
-<a id="__codelineno-17-5" name="__codelineno-17-5"></a><span class="n">fs2</span> <span class="o">=</span> <span class="n">filesystem</span><span class="p">(</span><span class="s2">&quot;/path2&quot;</span><span class="p">)</span>
-<a id="__codelineno-17-6" name="__codelineno-17-6"></a>
-<a id="__codelineno-17-7" name="__codelineno-17-7"></a><span class="n">identical</span> <span class="o">=</span> <span class="n">check_fs_identical</span><span class="p">(</span><span class="n">fs1</span><span class="p">,</span> <span class="s2">&quot;/data&quot;</span><span class="p">,</span> <span class="n">fs2</span><span class="p">,</span> <span class="s2">&quot;/data&quot;</span><span class="p">)</span>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-43-1">1</a></span>
+<span class="normal"><a href="#__codelineno-43-2">2</a></span>
+<span class="normal"><a href="#__codelineno-43-3">3</a></span>
+<span class="normal"><a href="#__codelineno-43-4">4</a></span>
+<span class="normal"><a href="#__codelineno-43-5">5</a></span>
+<span class="normal"><a href="#__codelineno-43-6">6</a></span>
+<span class="normal"><a href="#__codelineno-43-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-43-1" name="__codelineno-43-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.utils</span><span class="w"> </span><span class="kn">import</span> <span class="n">check_fs_identical</span>
+<a id="__codelineno-43-2" name="__codelineno-43-2"></a>
+<a id="__codelineno-43-3" name="__codelineno-43-3"></a><span class="c1"># Compare local directories</span>
+<a id="__codelineno-43-4" name="__codelineno-43-4"></a><span class="n">fs1</span> <span class="o">=</span> <span class="n">filesystem</span><span class="p">(</span><span class="s2">&quot;/path1&quot;</span><span class="p">)</span>
+<a id="__codelineno-43-5" name="__codelineno-43-5"></a><span class="n">fs2</span> <span class="o">=</span> <span class="n">filesystem</span><span class="p">(</span><span class="s2">&quot;/path2&quot;</span><span class="p">)</span>
+<a id="__codelineno-43-6" name="__codelineno-43-6"></a>
+<a id="__codelineno-43-7" name="__codelineno-43-7"></a><span class="n">identical</span> <span class="o">=</span> <span class="n">check_fs_identical</span><span class="p">(</span><span class="n">fs1</span><span class="p">,</span> <span class="s2">&quot;/data&quot;</span><span class="p">,</span> <span class="n">fs2</span><span class="p">,</span> <span class="s2">&quot;/data&quot;</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
 <h2 id="polars-dataframe-extensions">Polars DataFrame Extensions<a class="headerlink" href="#polars-dataframe-extensions" title="Permanent link">&para;</a></h2>
 <p>When using fsspeckit with Polars, additional methods are automatically added to DataFrames:</p>
-<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-18-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-18-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-18-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-18-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-18-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-18-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-18-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-18-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-18-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-18-10">10</a></span>
-<span class="normal"><a href="#__codelineno-18-11">11</a></span>
-<span class="normal"><a href="#__codelineno-18-12">12</a></span>
-<span class="normal"><a href="#__codelineno-18-13">13</a></span>
-<span class="normal"><a href="#__codelineno-18-14">14</a></span>
-<span class="normal"><a href="#__codelineno-18-15">15</a></span>
-<span class="normal"><a href="#__codelineno-18-16">16</a></span>
-<span class="normal"><a href="#__codelineno-18-17">17</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-18-1" name="__codelineno-18-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">polars</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pl</span>
-<a id="__codelineno-18-2" name="__codelineno-18-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit</span><span class="w"> </span><span class="kn">import</span> <span class="n">filesystem</span>
-<a id="__codelineno-18-3" name="__codelineno-18-3"></a>
-<a id="__codelineno-18-4" name="__codelineno-18-4"></a><span class="n">df</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span>
-<a id="__codelineno-18-5" name="__codelineno-18-5"></a>    <span class="s2">&quot;date&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;2023-01-01&quot;</span><span class="p">,</span> <span class="s2">&quot;2023-02-15&quot;</span><span class="p">],</span>
-<a id="__codelineno-18-6" name="__codelineno-18-6"></a>    <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="s2">&quot;B&quot;</span><span class="p">],</span>
-<a id="__codelineno-18-7" name="__codelineno-18-7"></a>    <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">100</span><span class="p">,</span> <span class="mi">200</span><span class="p">]</span>
-<a id="__codelineno-18-8" name="__codelineno-18-8"></a><span class="p">})</span>
-<a id="__codelineno-18-9" name="__codelineno-18-9"></a>
-<a id="__codelineno-18-10" name="__codelineno-18-10"></a><span class="c1"># Access optimized dtypes</span>
-<a id="__codelineno-18-11" name="__codelineno-18-11"></a><span class="n">df_opt</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">opt_dtype</span>
-<a id="__codelineno-18-12" name="__codelineno-18-12"></a>
-<a id="__codelineno-18-13" name="__codelineno-18-13"></a><span class="c1"># Create partition columns from date</span>
-<a id="__codelineno-18-14" name="__codelineno-18-14"></a><span class="n">df_with_parts</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">with_datepart_columns</span><span class="p">(</span><span class="s2">&quot;date&quot;</span><span class="p">)</span>
-<a id="__codelineno-18-15" name="__codelineno-18-15"></a>
-<a id="__codelineno-18-16" name="__codelineno-18-16"></a><span class="c1"># Drop columns with all null values</span>
-<a id="__codelineno-18-17" name="__codelineno-18-17"></a><span class="n">df_clean</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">drop_null_columns</span><span class="p">()</span>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-44-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-44-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-44-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-44-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-44-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-44-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-44-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-44-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-44-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-44-10">10</a></span>
+<span class="normal"><a href="#__codelineno-44-11">11</a></span>
+<span class="normal"><a href="#__codelineno-44-12">12</a></span>
+<span class="normal"><a href="#__codelineno-44-13">13</a></span>
+<span class="normal"><a href="#__codelineno-44-14">14</a></span>
+<span class="normal"><a href="#__codelineno-44-15">15</a></span>
+<span class="normal"><a href="#__codelineno-44-16">16</a></span>
+<span class="normal"><a href="#__codelineno-44-17">17</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-44-1" name="__codelineno-44-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">polars</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pl</span>
+<a id="__codelineno-44-2" name="__codelineno-44-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit</span><span class="w"> </span><span class="kn">import</span> <span class="n">filesystem</span>
+<a id="__codelineno-44-3" name="__codelineno-44-3"></a>
+<a id="__codelineno-44-4" name="__codelineno-44-4"></a><span class="n">df</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">({</span>
+<a id="__codelineno-44-5" name="__codelineno-44-5"></a>    <span class="s2">&quot;date&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;2023-01-01&quot;</span><span class="p">,</span> <span class="s2">&quot;2023-02-15&quot;</span><span class="p">],</span>
+<a id="__codelineno-44-6" name="__codelineno-44-6"></a>    <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="p">[</span><span class="s2">&quot;A&quot;</span><span class="p">,</span> <span class="s2">&quot;B&quot;</span><span class="p">],</span>
+<a id="__codelineno-44-7" name="__codelineno-44-7"></a>    <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="p">[</span><span class="mi">100</span><span class="p">,</span> <span class="mi">200</span><span class="p">]</span>
+<a id="__codelineno-44-8" name="__codelineno-44-8"></a><span class="p">})</span>
+<a id="__codelineno-44-9" name="__codelineno-44-9"></a>
+<a id="__codelineno-44-10" name="__codelineno-44-10"></a><span class="c1"># Access optimized dtypes</span>
+<a id="__codelineno-44-11" name="__codelineno-44-11"></a><span class="n">df_opt</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">opt_dtype</span>
+<a id="__codelineno-44-12" name="__codelineno-44-12"></a>
+<a id="__codelineno-44-13" name="__codelineno-44-13"></a><span class="c1"># Create partition columns from date</span>
+<a id="__codelineno-44-14" name="__codelineno-44-14"></a><span class="n">df_with_parts</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">with_datepart_columns</span><span class="p">(</span><span class="s2">&quot;date&quot;</span><span class="p">)</span>
+<a id="__codelineno-44-15" name="__codelineno-44-15"></a>
+<a id="__codelineno-44-16" name="__codelineno-44-16"></a><span class="c1"># Drop columns with all null values</span>
+<a id="__codelineno-44-17" name="__codelineno-44-17"></a><span class="n">df_clean</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">drop_null_columns</span><span class="p">()</span>
 </code></pre></div></td></tr></table></div>
 
 

@@ -1778,6 +1778,7 @@
 <li>Custom endpoints for S3-compatible services</li>
 <li>Region configuration</li>
 <li>SSL/TLS settings</li>
+<li>Anonymous access for public buckets</li>
 </ul>
 <p><strong>Attributes:</strong></p>
 <ul>
@@ -1789,6 +1790,7 @@
 <li><code>region</code> (<code>str</code>): AWS region name</li>
 <li><code>allow_invalid_certificates</code> (<code>bool</code>): Skip SSL certificate validation</li>
 <li><code>allow_http</code> (<code>bool</code>): Allow unencrypted HTTP connections</li>
+<li><code>anonymous</code> (<code>bool</code>): Use anonymous (unsigned) S3 access</li>
 </ul>
 <p><strong>Example:</strong></p>
 <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1"> 1</a></span>
@@ -1807,7 +1809,10 @@
 <span class="normal"><a href="#__codelineno-7-14">14</a></span>
 <span class="normal"><a href="#__codelineno-7-15">15</a></span>
 <span class="normal"><a href="#__codelineno-7-16">16</a></span>
-<span class="normal"><a href="#__codelineno-7-17">17</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="c1"># Basic credentials</span>
+<span class="normal"><a href="#__codelineno-7-17">17</a></span>
+<span class="normal"><a href="#__codelineno-7-18">18</a></span>
+<span class="normal"><a href="#__codelineno-7-19">19</a></span>
+<span class="normal"><a href="#__codelineno-7-20">20</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="c1"># Basic credentials</span>
 <a id="__codelineno-7-2" name="__codelineno-7-2"></a><span class="n">options</span> <span class="o">=</span> <span class="n">AwsStorageOptions</span><span class="p">(</span>
 <a id="__codelineno-7-3" name="__codelineno-7-3"></a>    <span class="n">access_key_id</span><span class="o">=</span><span class="s2">&quot;AKIAXXXXXXXX&quot;</span><span class="p">,</span>
 <a id="__codelineno-7-4" name="__codelineno-7-4"></a>    <span class="n">secret_access_key</span><span class="o">=</span><span class="s2">&quot;SECRETKEY&quot;</span><span class="p">,</span>
@@ -1824,6 +1829,9 @@
 <a id="__codelineno-7-15" name="__codelineno-7-15"></a>    <span class="n">secret_access_key</span><span class="o">=</span><span class="s2">&quot;minioadmin&quot;</span><span class="p">,</span>
 <a id="__codelineno-7-16" name="__codelineno-7-16"></a>    <span class="n">allow_http</span><span class="o">=</span><span class="kc">True</span>
 <a id="__codelineno-7-17" name="__codelineno-7-17"></a><span class="p">)</span>
+<a id="__codelineno-7-18" name="__codelineno-7-18"></a>
+<a id="__codelineno-7-19" name="__codelineno-7-19"></a><span class="c1"># Anonymous access for public buckets</span>
+<a id="__codelineno-7-20" name="__codelineno-7-20"></a><span class="n">options</span> <span class="o">=</span> <span class="n">AwsStorageOptions</span><span class="p">(</span><span class="n">anonymous</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
 <h3 id="create"><code>create()</code><a class="headerlink" href="#create" title="Permanent link">&para;</a></h3>
 <p>Creates an <code>AwsStorageOptions</code> instance, handling aliases and profile loading.</p>
@@ -1875,6 +1883,11 @@
 <td style="text-align: left;"><code>allow_http</code></td>
 <td style="text-align: left;"><code>bool | None</code></td>
 <td style="text-align: left;">Allow unencrypted HTTP connections.</td>
+</tr>
+<tr>
+<td style="text-align: left;"><code>anonymous</code></td>
+<td style="text-align: left;"><code>bool | None</code></td>
+<td style="text-align: left;">Use anonymous (unsigned) S3 access.</td>
 </tr>
 <tr>
 <td style="text-align: left;"><code>key</code></td>
@@ -1941,6 +1954,11 @@
 <td style="text-align: left;"><code>bool</code></td>
 <td style="text-align: left;">Allow unencrypted HTTP connections</td>
 </tr>
+<tr>
+<td style="text-align: left;"><code>anonymous</code></td>
+<td style="text-align: left;"><code>bool</code></td>
+<td style="text-align: left;">Use anonymous (unsigned) S3 access</td>
+</tr>
 </tbody>
 </table>
 <table>
@@ -2002,6 +2020,7 @@
 <li><code>AWS_DEFAULT_REGION</code></li>
 <li><code>ALLOW_INVALID_CERTIFICATE</code></li>
 <li><code>AWS_ALLOW_HTTP</code></li>
+<li><code>AWS_S3_ANONYMOUS</code></li>
 </ul>
 <table>
 <thead>
