@@ -269,28 +269,43 @@ table = convert_large_types_to_normal(table)
 
 ### `sql2pyarrow_filter`
 
-Convert SQL WHERE clause to PyArrow filter expression:
+Convert SQL WHERE clause to PyArrow filter expression for use with `pyarrow.dataset.Scanner`:
 
 ```python
 from fsspeckit.utils import sql2pyarrow_filter
 import pyarrow as pa
+import pyarrow.dataset as ds
 
 # Define schema
 schema = pa.schema([
     ("age", pa.int32()),
     ("name", pa.string()),
-    ("date", pa.timestamp("us"))
+    ("active", pa.bool_()),
+    ("created_at", pa.timestamp("us", "UTC")),
+    ("category", pa.string())
 ])
 
 # Create filter from SQL
 expr = sql2pyarrow_filter(
-    "age > 25 AND name = 'Alice'",
+    "age > 25 AND name = 'Alice' AND active = true",
     schema
 )
 
-# Apply to dataset
+# Apply to dataset scanner
+dataset = ds.dataset("/path/to/parquet", format="parquet")
 filtered = dataset.to_table(filter=expr)
+
+# Also works with table filtering
+table = pa.table({...})
+filtered_table = table.filter(expr)
 ```
+
+**Key Features for PyArrow Integration:**
+- Returns `pyarrow.compute.Expression` objects compatible with `dataset.to_table(filter=expr)`
+- Handles timestamp, date, and time literals with proper timezone support
+- Supports boolean literals (`true`, `false`, `1`, `0`)
+- Works with IN/NOT IN lists for efficient filtering
+- Compatible with row-level pruning in PyArrow datasets
 
 ### `sql2polars_filter`
 
@@ -307,11 +322,16 @@ filtered_df = df.filter(expr)
 ```
 
 **Supported SQL syntax:**
-- Comparison operators: `>`, `<`, `>=`, `<=`, `=`, `!=`
-- Logical operators: `AND`, `OR`, `NOT`
-- In operator: `IN (val1, val2)`
-- Between operator: `BETWEEN x AND y`
-- Null checks: `IS NULL`, `IS NOT NULL`
+- **Comparison operators**: `=`, `!=`, `>`, `>=`, `<`, `<=`
+- **Logical operators**: `AND`, `OR`, `NOT` with parentheses for grouping
+- **In operator**: `IN (val1, val2, ...)` and `NOT IN (val1, val2, ...)`
+- **Null checks**: `IS NULL`, `IS NOT NULL`
+- **Boolean literals**: `true`, `false`, `True`, `False`, `1`, `0`
+- **Datetime literals**: ISO format strings for timestamp/date/time columns
+  - Timestamps: `'2023-01-01T10:30:00'` or `'2023-01-01T10:30:00+02:00'`
+  - Dates: `'2023-01-01'`
+  - Times: `'10:30:00'`
+- **Complex expressions**: Nested combinations with parentheses, e.g. `(age > 30 AND score > 85) OR category = 'A'`
 
 ## DuckDB Parquet Handler
 

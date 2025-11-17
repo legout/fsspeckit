@@ -334,3 +334,129 @@ class TestSql2PyarrowFilter:
         # Newlines and tabs
         expr = sql2pyarrow_filter("id\n=\t1", sample_schema)
         assert isinstance(expr, pc.Expression)
+
+    def test_dataset_filter_integration(self, sample_table):
+        """Test integration with PyArrow dataset filtering."""
+        import tempfile
+        import pyarrow.dataset as ds
+
+        schema = sample_table.schema
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Write as parquet dataset
+            ds.write_dataset(sample_table, tmpdir, format="parquet")
+            dataset = ds.dataset(tmpdir, format="parquet")
+
+            # Test cases: (filter_expr, expected_row_count)
+            test_cases = [
+                ("id = 1", 1),
+                ("age > 30", 3),  # ages 35, 40, 45
+                ("active = true", 3),  # Alice, Charlie, Eve
+                ("name = 'Alice'", 1),
+                ("age IN (25, 35)", 2),  # Alice, Charlie
+                ("category IN ('A', 'C')", 3),  # Alice, Charlie, David
+                ("category NOT IN ('B')", 3),  # Alice, Charlie, David
+                ("age > 30 AND active = true", 2),  # Charlie, Eve
+                ("age > 30 AND active = false", 1),  # David
+                ("created_at > '2023-03-01T00:00:00'", 3),  # March, April, May
+                ("birth_date > '1990-01-01'", 2),  # Alice, Bob
+                ("login_time > '12:00:00'", 2),  # 14:30, 16:45
+                (
+                    "(age > 30 AND score > 85) OR category = 'A'",
+                    4,
+                ),  # Alice, Charlie, David, Eve
+            ]
+
+            for filter_expr, expected_count in test_cases:
+                # Generate filter expression
+                expr = sql2pyarrow_filter(filter_expr, schema)
+                assert isinstance(expr, pc.Expression)
+
+                # Apply filter via dataset scanner
+                result = dataset.to_table(filter=expr)
+                assert result.num_rows == expected_count, (
+                    f"Filter '{filter_expr}' expected {expected_count} rows, "
+                    f"got {result.num_rows}"
+                )
+
+                # Verify the expression works with table.filter too
+                table_result = sample_table.filter(expr)
+                assert table_result.num_rows == expected_count
+
+    def test_dataset_level_filtering_with_temp_parquet(self):
+        """Test dataset-level filtering with temporary parquet directory."""
+        import tempfile
+        import pyarrow.dataset as ds
+        from datetime import datetime, timezone
+
+        # Create test data with various types
+        schema = pa.schema(
+            [
+                pa.field("id", pa.int64()),
+                pa.field("name", pa.string()),
+                pa.field("age", pa.int64()),
+                pa.field("score", pa.float64()),
+                pa.field("active", pa.bool_()),
+                pa.field("created_at", pa.timestamp("us", "UTC")),
+            ]
+        )
+
+        test_data = pa.Table.from_arrays(
+            [
+                pa.array([1, 2, 3, 4, 5, 6]),
+                pa.array(["Alice", "Bob", "Charlie", "David", "Eve", "Frank"]),
+                pa.array([25, 30, 35, 40, 45, 50]),
+                pa.array([85.5, 90.2, 78.9, 92.1, 88.7, 95.3]),
+                pa.array([True, False, True, False, True, False]),
+                pa.array(
+                    [
+                        datetime(2023, 1, 1, 10, 0, tzinfo=timezone.utc),
+                        datetime(2023, 2, 15, 14, 30, tzinfo=timezone.utc),
+                        datetime(2023, 3, 20, 9, 15, tzinfo=timezone.utc),
+                        datetime(2023, 4, 25, 16, 45, tzinfo=timezone.utc),
+                        datetime(2023, 5, 30, 11, 20, tzinfo=timezone.utc),
+                        datetime(2023, 6, 10, 13, 30, tzinfo=timezone.utc),
+                    ],
+                    type=pa.timestamp("us", "UTC"),
+                ),
+            ],
+            schema=schema,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Write dataset to temporary parquet directory
+            ds.write_dataset(test_data, tmpdir, format="parquet")
+
+            # Load dataset
+            dataset = ds.dataset(tmpdir, format="parquet")
+
+            # Test complex filter expression
+            filter_sql = "age > 30 AND (score > 85 OR active = true) AND created_at > '2023-03-01T00:00:00'"
+
+            # Convert SQL to PyArrow expression
+            expr = sql2pyarrow_filter(filter_sql, schema)
+            assert isinstance(expr, pc.Expression)
+
+            # Apply filter via scanner
+            filtered_result = dataset.to_table(filter=expr)
+
+            # Verify results match expectations
+            # Should include: Charlie (age=35, score=78.9, active=true, created=March),
+            # David (age=40, score=92.1, active=false, created=April),
+            # Eve (age=45, score=88.7, active=true, created=May),
+            # Frank (age=50, score=95.3, active=false, created=June)
+            expected_count = 4
+            assert filtered_result.num_rows == expected_count, (
+                f"Expected {expected_count} rows, got {filtered_result.num_rows}"
+            )
+
+            # Verify each row meets the criteria
+            for i in range(filtered_result.num_rows):
+                row_age = filtered_result["age"][i].as_py()
+                row_score = filtered_result["score"][i].as_py()
+                row_active = filtered_result["active"][i].as_py()
+                row_created = filtered_result["created_at"][i].as_py()
+
+                assert row_age > 30
+                assert row_score > 85 or row_active is True
+                assert row_created > datetime(2023, 3, 1, 0, 0, tzinfo=timezone.utc)
