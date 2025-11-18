@@ -67,7 +67,7 @@ class DuckDBParquetHandler:
         >>> with DuckDBParquetHandler(storage_options=options) as handler:
         ...     # Read from S3
         ...     table = handler.read_parquet("s3://bucket/data.parquet")
-        ...     
+        ...
         ...     # Execute SQL query on S3 data
         ...     result = handler.execute_sql(
         ...         "SELECT * FROM parquet_scan('s3://bucket/data.parquet') WHERE col > 10"
@@ -84,18 +84,18 @@ class DuckDBParquetHandler:
         SQL query execution:
         >>> with DuckDBParquetHandler() as handler:
         ...     handler.write_parquet(table, "/tmp/data.parquet")
-        ...     
+        ...
         ...     # Simple query
         ...     result = handler.execute_sql(
         ...         "SELECT a, b FROM parquet_scan('/tmp/data.parquet') WHERE a > 1"
         ...     )
-        ...     
+        ...
         ...     # Parameterized query
         ...     result = handler.execute_sql(
         ...         "SELECT * FROM parquet_scan('/tmp/data.parquet') WHERE a BETWEEN ? AND ?",
         ...         parameters=[1, 3]
         ...     )
-        ...     
+        ...
         ...     # Aggregation query
         ...     result = handler.execute_sql(
         ...         '''
@@ -214,6 +214,11 @@ class DuckDBParquetHandler:
         """
         conn = self._ensure_connection()
 
+        # Check if path exists before executing DuckDB query
+        if self._filesystem is not None:
+            if not self._filesystem.exists(path):
+                raise FileNotFoundError(f"Parquet path '{path}' does not exist")
+
         # Build column selection clause
         columns_clause = "*" if columns is None else ", ".join(columns)
 
@@ -224,12 +229,24 @@ class DuckDBParquetHandler:
             # Execute query and return as PyArrow table
             result = conn.execute(query).arrow()
             # Convert RecordBatchReader to Table
-            if hasattr(result, 'read_all'):
+            if hasattr(result, "read_all"):
                 result = result.read_all()
             return result
         except Exception as e:
-            # Re-raise with more context
-            raise Exception(f"Failed to read parquet from '{path}': {e}") from e
+            # Preserve original error type and message when possible
+            error_msg = str(e)
+            if (
+                "does not exist" in error_msg.lower()
+                or "not found" in error_msg.lower()
+            ):
+                raise FileNotFoundError(
+                    f"Parquet path '{path}' does not exist: {error_msg}"
+                ) from e
+            else:
+                # Re-raise with original exception type preserved
+                raise type(e)(
+                    f"Failed to read parquet from '{path}': {error_msg}"
+                ) from e
 
     def write_parquet(
         self,
@@ -271,9 +288,16 @@ class DuckDBParquetHandler:
         """
         conn = self._ensure_connection()
 
-        # Ensure parent directory exists
+        # Ensure parent directory exists and is not a file
         parent_path = str(Path(path).parent)
         if self._filesystem is not None:
+            # Check if parent path exists and is a file (not directory)
+            if self._filesystem.exists(parent_path):
+                if not self._filesystem.isdir(parent_path):
+                    raise NotADirectoryError(
+                        f"Parent directory '{parent_path}' exists but is a file. Cannot create file '{path}'."
+                    )
+
             try:
                 if not self._filesystem.exists(parent_path):
                     self._filesystem.makedirs(parent_path, exist_ok=True)
@@ -390,19 +414,26 @@ class DuckDBParquetHandler:
             )
 
         if max_rows_per_file is not None and max_rows_per_file <= 0:
-            raise ValueError(
-                f"max_rows_per_file must be > 0, got {max_rows_per_file}"
-            )
+            raise ValueError(f"max_rows_per_file must be > 0, got {max_rows_per_file}")
 
         conn = self._ensure_connection()
 
         # Ensure directory exists
         if self._filesystem is not None:
+            # Check if path exists and is a file (not directory)
+            if self._filesystem.exists(path):
+                if not self._filesystem.isdir(path):
+                    raise NotADirectoryError(
+                        f"Dataset path '{path}' exists but is a file. Dataset paths must be directories."
+                    )
+
             try:
                 if not self._filesystem.exists(path):
                     self._filesystem.makedirs(path, exist_ok=True)
             except Exception as e:
-                raise Exception(f"Failed to create dataset directory '{path}': {e}") from e
+                raise Exception(
+                    f"Failed to create dataset directory '{path}': {e}"
+                ) from e
 
         # Handle overwrite mode - clear existing parquet files
         if mode == "overwrite":
@@ -510,7 +541,7 @@ class DuckDBParquetHandler:
                 files = self._filesystem.ls(path, detail=False)
 
                 # Filter for parquet files only
-                parquet_files = [f for f in files if f.endswith('.parquet')]
+                parquet_files = [f for f in files if f.endswith(".parquet")]
 
                 # Delete parquet files
                 for file in parquet_files:
@@ -557,7 +588,7 @@ class DuckDBParquetHandler:
         Returns:
             Dictionary with merge statistics:
                 - "inserted": Number of records inserted
-                - "updated": Number of records updated  
+                - "updated": Number of records updated
                 - "deleted": Number of records deleted
                 - "total": Total records in merged dataset
 
@@ -646,8 +677,12 @@ class DuckDBParquetHandler:
             target_table = self.read_parquet(target_path)
         else:
             # Target doesn't exist - treat as empty dataset with source schema
-            target_table = pa.table({col: pa.array([], type=source_table.schema.field(col).type) 
-                                    for col in source_table.schema.names})
+            target_table = pa.table(
+                {
+                    col: pa.array([], type=source_table.schema.field(col).type)
+                    for col in source_table.schema.names
+                }
+            )
 
         # Validate inputs
         self._validate_merge_inputs(source_table, target_table, key_columns)
@@ -672,10 +707,7 @@ class DuckDBParquetHandler:
 
         # Write merged result back to target (overwrite mode)
         self.write_parquet_dataset(
-            merged_table,
-            target_path,
-            mode="overwrite",
-            compression=compression
+            merged_table, target_path, mode="overwrite", compression=compression
         )
 
         # Cleanup
@@ -689,10 +721,7 @@ class DuckDBParquetHandler:
         return stats
 
     def _validate_merge_inputs(
-        self,
-        source: pa.Table,
-        target: pa.Table,
-        key_columns: list[str]
+        self, source: pa.Table, target: pa.Table, key_columns: list[str]
     ) -> None:
         """Validate merge inputs for correctness.
 
@@ -753,7 +782,7 @@ class DuckDBParquetHandler:
                     f"Key column '{key_col}' contains {source_col.null_count} NULL values in source. "
                     f"Key columns must not have NULLs."
                 )
-            
+
             if target.num_rows > 0:
                 target_col = target.column(key_col)
                 if target_col.null_count > 0:
@@ -767,7 +796,7 @@ class DuckDBParquetHandler:
         conn: duckdb.DuckDBPyConnection,
         strategy: MergeStrategy,
         key_columns: list[str],
-        dedup_order_by: list[str] | None
+        dedup_order_by: list[str] | None,
     ) -> pa.Table:
         """Execute the specified merge strategy using DuckDB SQL.
 
@@ -827,7 +856,7 @@ class DuckDBParquetHandler:
         elif strategy == "deduplicate":
             # Deduplicate source using QUALIFY, then UPSERT
             partition_cols = ", ".join(key_columns)
-            
+
             if dedup_order_by:
                 order_cols = ", ".join([f"{col} DESC" for col in dedup_order_by])
             else:
@@ -843,7 +872,9 @@ class DuckDBParquetHandler:
             conn.execute(dedup_query)
 
             # Then perform UPSERT with deduplicated source
-            join_condition_dedup = " AND ".join([f"s.{col} = t.{col}" for col in key_columns])
+            join_condition_dedup = " AND ".join(
+                [f"s.{col} = t.{col}" for col in key_columns]
+            )
             query = f"""
             SELECT * FROM (
                 SELECT t.* FROM target_dataset t
@@ -856,9 +887,9 @@ class DuckDBParquetHandler:
 
         # Execute and return result
         result = conn.execute(query).arrow()
-        if hasattr(result, 'read_all'):
+        if hasattr(result, "read_all"):
             result = result.read_all()
-        
+
         return result
 
     def _calculate_merge_stats(
@@ -866,7 +897,7 @@ class DuckDBParquetHandler:
         target_before: int,
         source_count: int,
         target_after: int,
-        strategy: MergeStrategy
+        strategy: MergeStrategy,
     ) -> dict[str, int]:
         """Calculate merge statistics.
 
@@ -879,9 +910,7 @@ class DuckDBParquetHandler:
         Returns:
             Dictionary with merge statistics.
         """
-        stats: dict[str, int] = {
-            "total": target_after
-        }
+        stats: dict[str, int] = {"total": target_after}
 
         if strategy == "insert":
             # INSERT: only additions, no updates or deletes
@@ -986,7 +1015,7 @@ class DuckDBParquetHandler:
                 # Execute regular query
                 result = conn.execute(query).arrow()
             # Convert RecordBatchReader to Table
-            if hasattr(result, 'read_all'):
+            if hasattr(result, "read_all"):
                 result = result.read_all()
             return result
         except Exception as e:
@@ -1026,7 +1055,7 @@ class DuckDBParquetHandler:
         path: str,
         partition_filter: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Collect file-level statistics for a parquet dataset.
+        """Collect file-level statistics for a parquet dataset using shared core logic.
 
         Args:
             path: Dataset directory path.
@@ -1040,71 +1069,14 @@ class DuckDBParquetHandler:
         Raises:
             FileNotFoundError: If path does not exist or has no parquet files.
         """
-        if self._filesystem is None:
-            raise FileNotFoundError(f"Filesystem not initialized for path '{path}'")
-        if not self._filesystem.exists(path):
-            raise FileNotFoundError(f"Dataset path '{path}' does not exist")
-        # Recursive discovery of parquet files
-        try:
-            self._filesystem.ls(path, detail=False)
-        except Exception as e:
-            raise Exception(f"Failed listing dataset path '{path}': {e}") from e
-        parquet_files: list[str] = []
-        stack: list[str] = [path]
-        while stack:
-            current_dir = stack.pop()
-            try:
-                cur_entries = self._filesystem.ls(current_dir, detail=False)
-            except Exception:
-                continue
-            for entry in cur_entries:
-                if entry.endswith('.parquet'):
-                    parquet_files.append(entry)
-                else:
-                    # Heuristic: treat as directory if it exists and is not a parquet
-                    try:
-                        if self._filesystem.isdir(entry):
-                            stack.append(entry)
-                    except Exception:
-                        pass
-        if partition_filter:
-            parquet_files = [
-                f for f in parquet_files
-                if any(Path(f).relative_to(Path(path)).as_posix().startswith(pfx) for pfx in partition_filter)
-            ]
-        if not parquet_files:
-            raise FileNotFoundError(f"No parquet files found under '{path}' matching filter")
-        from pyarrow import parquet as pq  # local import to avoid top-time cost if unused
-        file_infos: list[dict[str, Any]] = []
-        total_bytes = 0
-        total_rows = 0
-        for f in parquet_files:
-            size = 0
-            try:
-                info = self._filesystem.info(f)
-                size = info.get('size', 0) if isinstance(info, dict) else 0
-            except Exception:
-                pass
-            num_rows = 0
-            try:
-                fs = self._require_filesystem()
-                with fs.open(f, 'rb') as fh:
-                    pf = pq.ParquetFile(fh)
-                    num_rows = pf.metadata.num_rows
-            except Exception:
-                try:
-                    table = self.read_parquet(f)
-                    num_rows = table.num_rows
-                except Exception:
-                    num_rows = 0
-            total_bytes += size
-            total_rows += num_rows
-            file_infos.append({"path": f, "size_bytes": size, "num_rows": num_rows})
-        return {
-            "files": file_infos,
-            "total_bytes": total_bytes,
-            "total_rows": total_rows,
-        }
+        from fsspeckit.core.maintenance import collect_dataset_stats
+
+        fs = self._require_filesystem()
+        return collect_dataset_stats(
+            path=path,
+            filesystem=fs,
+            partition_filter=partition_filter,
+        )
 
     def compact_parquet_dataset(
         self,
@@ -1115,7 +1087,7 @@ class DuckDBParquetHandler:
         compression: str | None = None,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Compact a parquet dataset directory into fewer larger files.
+        """Compact a parquet dataset directory into fewer larger files using shared planning.
 
         Groups small files based on size (MB) and/or row thresholds, rewrites grouped
         files into new parquet files, optionally changing compression. Supports
@@ -1132,114 +1104,87 @@ class DuckDBParquetHandler:
         Returns:
             Statistics dict including before/after counts and optional plan.
         """
-        if target_mb_per_file is None and target_rows_per_file is None:
-            raise ValueError("Must provide at least one of target_mb_per_file or target_rows_per_file")
-        if target_mb_per_file is not None and target_mb_per_file <= 0:
-            raise ValueError("target_mb_per_file must be > 0")
-        if target_rows_per_file is not None and target_rows_per_file <= 0:
-            raise ValueError("target_rows_per_file must be > 0")
+        from fsspeckit.core.maintenance import plan_compaction_groups, MaintenanceStats
+
         if self._filesystem is None:
             raise FileNotFoundError("Filesystem not initialized for compaction")
         filesystem = self._filesystem
+
+        # Get dataset stats using shared logic
         stats_before = self._collect_dataset_stats(path, partition_filter)
         files = stats_before["files"]
-        before_file_count = len(files)
-        before_total_bytes = stats_before["total_bytes"]
-        # Identify candidate files (those below size threshold if size given or all if only rows)
-        size_threshold_bytes = target_mb_per_file * 1024 * 1024 if target_mb_per_file else None
-        candidates = []
-        large_files = []
-        for fi in files:
-            size_ok = size_threshold_bytes is not None and fi["size_bytes"] < size_threshold_bytes
-            if size_threshold_bytes is None:
-                size_ok = True  # row-only grouping; consider all
-            if size_ok:
-                candidates.append(fi)
-            else:
-                large_files.append(fi)
-        # Grouping algorithm
-        groups: list[list[dict[str, Any]]] = []
-        current: list[dict[str, Any]] = []
-        current_size = 0
-        current_rows = 0
-        def flush_current():
-            nonlocal current, current_size, current_rows
-            if current:
-                groups.append(current)
-                current = []
-                current_size = 0
-                current_rows = 0
-        for fi in sorted(candidates, key=lambda x: x["size_bytes"]):
-            size_bytes = fi["size_bytes"]
-            num_rows = fi["num_rows"]
-            would_exceed_size = size_threshold_bytes is not None and current_size + size_bytes > size_threshold_bytes and current
-            would_exceed_rows = target_rows_per_file is not None and current_rows + num_rows > target_rows_per_file and current
-            if would_exceed_size or would_exceed_rows:
-                flush_current()
-            current.append(fi)
-            current_size += size_bytes
-            current_rows += num_rows
-        flush_current()
-        # Remove singleton groups that already exceed thresholds (no benefit)
-        finalized_groups = [g for g in groups if len(g) > 1]
-        compacted_file_count = sum(len(g) for g in finalized_groups)
-        planned_groups_paths = [[f["path"] for f in g] for g in finalized_groups]
-        if dry_run or not finalized_groups:
-            after_file_count_est = len(large_files) + len(finalized_groups) + (before_file_count - compacted_file_count - len(large_files))
-            # After_total_bytes unchanged in dry-run
-            return {
-                "before_file_count": before_file_count,
-                "after_file_count": after_file_count_est,
-                "before_total_bytes": before_total_bytes,
-                "after_total_bytes": before_total_bytes,
-                "compacted_file_count": compacted_file_count,
-                "rewritten_bytes": sum(f["size_bytes"] for g in finalized_groups for f in g),
-                "compression_codec": compression,
-                "dry_run": dry_run,
-                "planned_groups": planned_groups_paths,
-            }
-        # Execute compaction
+
+        # Use shared compaction planning
+        plan_result = plan_compaction_groups(
+            file_infos=files,
+            target_mb_per_file=target_mb_per_file,
+            target_rows_per_file=target_rows_per_file,
+        )
+
+        groups = plan_result["groups"]
+        planned_stats = plan_result["planned_stats"]
+
+        # Update planned stats with compression info
+        planned_stats.compression_codec = compression
+        planned_stats.dry_run = dry_run
+
+        if dry_run or not groups:
+            return planned_stats.to_dict()
+
+        # Execute compaction using DuckDB
         conn = self._ensure_connection()
         rewritten_bytes = 0
-        for group in finalized_groups:
-            # Read group into Arrow table
-            paths = [fi["path"] for fi in group]
+
+        for group in groups:
+            # Read group into Arrow table using DuckDB for efficiency
+            paths = [file_info.path for file_info in group.files]
             try:
-                # Use DuckDB parquet_scan for efficiency
                 scan_list = ",".join([f"'{p}'" for p in paths])
-                table = conn.execute(f"SELECT * FROM parquet_scan([{scan_list}])").arrow()
-                if hasattr(table, 'read_all'):
+                table = conn.execute(
+                    f"SELECT * FROM parquet_scan([{scan_list}])"
+                ).arrow()
+                if hasattr(table, "read_all"):
                     table = table.read_all()
             except Exception:
                 # Fallback to pyarrow
                 import pyarrow.parquet as pq
+
                 tables = []
                 for p in paths:
-                    with filesystem.open(p, 'rb') as fh:
+                    with filesystem.open(p, "rb") as fh:
                         tables.append(pq.read_table(fh))
                 table = pa.concat_tables(tables)
+
+            # Write compacted file
             out_name = self._generate_unique_filename("compact-{}.parquet")
             out_path = str(Path(path) / out_name)
             self.write_parquet(table, out_path, compression=compression or "snappy")
-            rewritten_bytes += sum(f["size_bytes"] for f in group)
-            # Remove originals
-            for f in paths:
+
+            rewritten_bytes += group.total_size_bytes
+
+            # Remove original files
+            for file_info in group.files:
                 try:
-                    filesystem.rm(f)
+                    filesystem.rm(file_info.path)
                 except Exception as e:
-                    print(f"Warning: failed to delete '{f}': {e}")
-        # Recompute stats after write
+                    print(f"Warning: failed to delete '{file_info.path}': {e}")
+
+        # Recompute stats after compaction
         stats_after = self._collect_dataset_stats(path, partition_filter=None)
-        return {
-            "before_file_count": before_file_count,
-            "after_file_count": len(stats_after["files"]),
-            "before_total_bytes": before_total_bytes,
-            "after_total_bytes": stats_after["total_bytes"],
-            "compacted_file_count": compacted_file_count,
-            "rewritten_bytes": rewritten_bytes,
-            "compression_codec": compression or "snappy",
-            "dry_run": False,
-        }
+
+        # Create final stats
+        final_stats = MaintenanceStats(
+            before_file_count=planned_stats.before_file_count,
+            after_file_count=len(stats_after["files"]),
+            before_total_bytes=planned_stats.before_total_bytes,
+            after_total_bytes=stats_after["total_bytes"],
+            compacted_file_count=planned_stats.compacted_file_count,
+            rewritten_bytes=rewritten_bytes,
+            compression_codec=compression or "snappy",
+            dry_run=False,
+        )
+
+        return final_stats.to_dict()
 
     def optimize_parquet_dataset(
         self,
@@ -1251,7 +1196,7 @@ class DuckDBParquetHandler:
         compression: str | None = None,
         dry_run: bool = False,
     ) -> dict[str, Any]:
-        """Optimize a parquet dataset by clustering (approximate z-order) and optional compaction.
+        """Optimize a parquet dataset by clustering (approximate z-order) using shared planning.
 
         Reads dataset, orders rows by given columns, optionally groups into sized chunks
         similar to compaction, rewrites dataset (overwrite semantics). Supports dry-run.
@@ -1268,124 +1213,125 @@ class DuckDBParquetHandler:
         Returns:
             Statistics dict; may include planned grouping if dry-run.
         """
+        from fsspeckit.core.maintenance import plan_optimize_groups, MaintenanceStats
+
         if not zorder_columns:
             raise ValueError("zorder_columns must be a non-empty list")
         if self._filesystem is None:
             raise FileNotFoundError("Filesystem not initialized for optimization")
         filesystem = self._filesystem
+
+        # Get dataset stats using shared logic
         stats_before = self._collect_dataset_stats(path, partition_filter)
         files = stats_before["files"]
-        before_file_count = len(files)
-        before_total_bytes = stats_before["total_bytes"]
-        # Validate columns exist
-        # Load a sample table to inspect schema
+
+        # Load a sample table to inspect schema for z-order validation
         sample_table = self.read_parquet(files[0]["path"])  # first file
-        schema_cols = set(sample_table.column_names)
-        missing = [c for c in zorder_columns if c not in schema_cols]
-        if missing:
-            raise ValueError(
-                f"Missing z-order columns: {', '.join(missing)}. Available: {', '.join(sorted(schema_cols))}"
-            )
-        # Dry-run grouping estimation: assume entire dataset loaded then split by thresholds
-        if dry_run:
-            size_threshold_bytes = target_mb_per_file * 1024 * 1024 if target_mb_per_file else None
-            planned_groups: list[list[str]] = []
-            current_group: list[str] = []
-            current_size = 0
-            current_rows = 0
-            for fi in files:
-                size_b = fi["size_bytes"]
-                rows = fi["num_rows"]
-                would_exceed_size = size_threshold_bytes is not None and current_size + size_b > size_threshold_bytes and current_group
-                would_exceed_rows = target_rows_per_file is not None and current_rows + rows > target_rows_per_file and current_group
-                if would_exceed_size or would_exceed_rows:
-                    planned_groups.append(current_group)
-                    current_group = []
-                    current_size = 0
-                    current_rows = 0
-                current_group.append(fi["path"])
-                current_size += size_b
-                current_rows += rows
-            if current_group:
-                planned_groups.append(current_group)
-            return {
-                "before_file_count": before_file_count,
-                "after_file_count": len(planned_groups),
-                "before_total_bytes": before_total_bytes,
-                "after_total_bytes": before_total_bytes,
-                "compacted_file_count": before_file_count,  # all will be rewritten
-                "rewritten_bytes": before_total_bytes,
-                "compression_codec": compression,
-                "dry_run": True,
-                "zorder_columns": zorder_columns,
-                "planned_groups": planned_groups,
-            }
-        # Full optimize execution
+
+        # Use shared optimization planning with schema validation
+        plan_result = plan_optimize_groups(
+            file_infos=files,
+            zorder_columns=zorder_columns,
+            target_mb_per_file=target_mb_per_file,
+            target_rows_per_file=target_rows_per_file,
+            sample_schema=sample_table.schema,
+        )
+
+        groups = plan_result["groups"]
+        planned_stats = plan_result["planned_stats"]
+
+        # Update planned stats with compression info
+        planned_stats.compression_codec = compression
+        planned_stats.dry_run = dry_run
+
+        if dry_run or not groups:
+            return planned_stats.to_dict()
+
+        # Execute optimization using DuckDB
         conn = self._ensure_connection()
-        all_paths_sql = ",".join([f"'{fi['path']}'" for fi in files])
-        # ORDER BY columns with NULL handling
-        order_clause_parts = []
+        compression_codec = compression or "snappy"
+        rewritten_bytes = 0
+
         def _quote_identifier(identifier: str) -> str:
             escaped = identifier.replace('"', '""')
             return f'"{escaped}"'
-        for col in zorder_columns:
-            # Put NULLs last
-            quoted = _quote_identifier(col)
-            order_clause_parts.append(f"({quoted} IS NULL) ASC")
-            order_clause_parts.append(f"{quoted} ASC")
-        order_clause = ", ".join(order_clause_parts)
-        query = f"SELECT * FROM parquet_scan([{all_paths_sql}]) ORDER BY {order_clause}"  # simple composite ordering
-        ordered_table = conn.execute(query).arrow()
-        if hasattr(ordered_table, 'read_all'):
-            ordered_table = ordered_table.read_all()
-        # Determine chunking post-order
-        size_threshold_bytes = target_mb_per_file * 1024 * 1024 if target_mb_per_file else None
-        chunks: list[pa.Table] = []
-        if target_rows_per_file and target_rows_per_file > 0:
-            # Row-based splitting
-            num_rows = ordered_table.num_rows
-            for start in range(0, num_rows, target_rows_per_file):
-                end = min(start + target_rows_per_file, num_rows)
-                chunks.append(ordered_table.slice(start, end - start))
-        else:
-            chunks = [ordered_table]
-        # If size threshold provided without row threshold, we approximate by rows proportionally
-        if size_threshold_bytes and target_rows_per_file is None and ordered_table.num_rows > 0:
-            # Estimate average bytes per row
-            avg_bytes_per_row = before_total_bytes / max(ordered_table.num_rows, 1)
-            est_rows_per_chunk = int(size_threshold_bytes / max(avg_bytes_per_row, 1))
-            if est_rows_per_chunk > 0 and est_rows_per_chunk < ordered_table.num_rows:
-                chunks = []
-                for start in range(0, ordered_table.num_rows, est_rows_per_chunk):
-                    end = min(start + est_rows_per_chunk, ordered_table.num_rows)
-                    chunks.append(ordered_table.slice(start, end - start))
-        # Rewrite only filtered subset (do not clear entire dataset)
-        compression_codec = compression or "snappy"
+
+        # Helper function to build ORDER BY clause with NULL handling
+        def _build_order_clause(columns: list[str]) -> str:
+            order_parts = []
+            for col in columns:
+                quoted = _quote_identifier(col)
+                # Put NULLs last
+                order_parts.append(f"({quoted} IS NULL) ASC")
+                order_parts.append(f"{quoted} ASC")
+            return ", ".join(order_parts)
+
+        order_clause = _build_order_clause(zorder_columns)
+
+        # Process each group separately for more memory-efficient operation
         written_paths: list[str] = []
-        # Delete original filtered files
-        for fi in files:
-            try:
-                filesystem.rm(fi["path"])
-            except Exception:
-                pass
-        for idx, chunk in enumerate(chunks):
-            filename = f"optimized-{idx:05d}.parquet"
-            out_path = str(Path(path) / filename)
-            self.write_parquet(chunk, out_path, compression=compression_codec)
-            written_paths.append(out_path)
-        # Collect stats again for filtered subset only
+        for group_idx, group in enumerate(groups):
+            # Read group files and sort by z-order columns
+            paths = [file_info.path for file_info in group.files]
+            all_paths_sql = ",".join([f"'{p}'" for p in paths])
+
+            query = f"SELECT * FROM parquet_scan([{all_paths_sql}]) ORDER BY {order_clause}"
+            ordered_table = conn.execute(query).arrow()
+            if hasattr(ordered_table, "read_all"):
+                ordered_table = ordered_table.read_all()
+
+            # Apply chunking within the group if needed
+            if target_rows_per_file and target_rows_per_file > 0:
+                # Row-based splitting
+                num_rows = ordered_table.num_rows
+                chunks = []
+                for start in range(0, num_rows, target_rows_per_file):
+                    end = min(start + target_rows_per_file, num_rows)
+                    chunk = ordered_table.slice(start, end - start)
+                    if chunk.num_rows > 0:
+                        chunks.append(chunk)
+            else:
+                chunks = [ordered_table]
+
+            # Write optimized chunks
+            for chunk_idx, chunk in enumerate(chunks):
+                if len(groups) == 1:
+                    # Single group case - use simple naming
+                    filename = f"optimized-{chunk_idx:05d}.parquet"
+                else:
+                    # Multiple groups - include group index
+                    filename = f"optimized-{group_idx:02d}-{chunk_idx:05d}.parquet"
+
+                out_path = str(Path(path) / filename)
+                self.write_parquet(chunk, out_path, compression=compression_codec)
+                written_paths.append(out_path)
+
+            rewritten_bytes += group.total_size_bytes
+
+            # Remove original files in this group
+            for file_info in group.files:
+                try:
+                    filesystem.rm(file_info.path)
+                except Exception:
+                    pass
+
+        # Recompute stats after optimization
         stats_after = self._collect_dataset_stats(path, partition_filter=partition_filter)
-        return {
-            "before_file_count": before_file_count,
-            "after_file_count": len(stats_after["files"]),
-            "before_total_bytes": before_total_bytes,
-            "after_total_bytes": stats_after["total_bytes"],
-            "compacted_file_count": before_file_count,  # all filtered files were rewritten
-            "rewritten_bytes": before_total_bytes,
-            "compression_codec": compression_codec,
-            "dry_run": False,
-            "zorder_columns": zorder_columns,
-        }
+
+        # Create final stats
+        final_stats = MaintenanceStats(
+            before_file_count=planned_stats.before_file_count,
+            after_file_count=len(stats_after["files"]),
+            before_total_bytes=planned_stats.before_total_bytes,
+            after_total_bytes=stats_after["total_bytes"],
+            compacted_file_count=planned_stats.compacted_file_count,
+            rewritten_bytes=rewritten_bytes,
+            compression_codec=compression_codec,
+            dry_run=False,
+            zorder_columns=zorder_columns,
+        )
+
+        return final_stats.to_dict()
 
     def __del__(self) -> None:
         """Cleanup on deletion."""
