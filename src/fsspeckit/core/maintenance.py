@@ -1,0 +1,507 @@
+"""
+Backend-neutral maintenance layer for parquet dataset operations.
+
+This module provides shared functionality for dataset discovery, statistics,
+and grouping algorithms used by both DuckDB and PyArrow maintenance operations.
+
+Key responsibilities:
+1. Dataset discovery and file-level statistics
+2. Compaction grouping algorithms
+3. Optimization planning and validation
+4. Canonical statistics structures
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+from fsspec import AbstractFileSystem
+
+from fsspeckit.core.filesystem import fsspec_filesystem
+
+
+@dataclass
+class FileInfo:
+    """Information about a single parquet file."""
+    path: str
+    size_bytes: int
+    num_rows: int
+
+    def __post_init__(self) -> None:
+        if self.size_bytes < 0:
+            raise ValueError("size_bytes must be >= 0")
+        if self.num_rows < 0:
+            raise ValueError("num_rows must be >= 0")
+
+
+@dataclass
+class MaintenanceStats:
+    """Canonical statistics structure for maintenance operations."""
+    before_file_count: int
+    after_file_count: int
+    before_total_bytes: int
+    after_total_bytes: int
+    compacted_file_count: int
+    rewritten_bytes: int
+    compression_codec: str | None = None
+    dry_run: bool = False
+
+    # Optional fields for specific operations
+    zorder_columns: list[str] | None = None
+    planned_groups: list[list[str]] | None = None
+
+    def __post_init__(self) -> None:
+        if self.before_file_count < 0:
+            raise ValueError("before_file_count must be >= 0")
+        if self.after_file_count < 0:
+            raise ValueError("after_file_count must be >= 0")
+        if self.before_total_bytes < 0:
+            raise ValueError("before_total_bytes must be >= 0")
+        if self.after_total_bytes < 0:
+            raise ValueError("after_total_bytes must be >= 0")
+        if self.compacted_file_count < 0:
+            raise ValueError("compacted_file_count must be >= 0")
+        if self.rewritten_bytes < 0:
+            raise ValueError("rewritten_bytes must be >= 0")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary format for backward compatibility."""
+        result = {
+            "before_file_count": self.before_file_count,
+            "after_file_count": self.after_file_count,
+            "before_total_bytes": self.before_total_bytes,
+            "after_total_bytes": self.after_total_bytes,
+            "compacted_file_count": self.compacted_file_count,
+            "rewritten_bytes": self.rewritten_bytes,
+            "compression_codec": self.compression_codec,
+            "dry_run": self.dry_run,
+        }
+
+        if self.zorder_columns is not None:
+            result["zorder_columns"] = self.zorder_columns
+        if self.planned_groups is not None:
+            result["planned_groups"] = self.planned_groups
+
+        return result
+
+
+@dataclass
+class CompactionGroup:
+    """A group of files to be compacted together."""
+    files: list[FileInfo]
+    total_size_bytes: int = field(init=False)
+    total_rows: int = field(init=False)
+
+    def __post_init__(self) -> None:
+        if not self.files:
+            raise ValueError("CompactionGroup must contain at least one file")
+        self.total_size_bytes = sum(f.size_bytes for f in self.files)
+        self.total_rows = sum(f.num_rows for f in self.files)
+
+    @property
+    def file_count(self) -> int:
+        return len(self.files)
+
+    def file_paths(self) -> list[str]:
+        return [f.path for f in self.files]
+
+
+def collect_dataset_stats(
+    path: str,
+    filesystem: AbstractFileSystem | None = None,
+    partition_filter: list[str] | None = None,
+) -> dict[str, Any]:
+    """
+    Collect file-level statistics for a parquet dataset.
+
+    This function walks the given dataset directory on the provided filesystem,
+    discovers parquet files (recursively), and returns basic statistics.
+
+    Args:
+        path: Root directory of the parquet dataset.
+        filesystem: Optional fsspec filesystem. If omitted, a local "file"
+            filesystem is used.
+        partition_filter: Optional list of partition prefix filters
+            (e.g. ["date=2025-11-04"]). Only files whose path relative to
+            ``path`` starts with one of these prefixes are included.
+
+    Returns:
+        Dict with keys:
+        - ``files``: list of ``{"path", "size_bytes", "num_rows"}`` dicts
+        - ``total_bytes``: sum of file sizes
+        - ``total_rows``: sum of row counts
+
+    Raises:
+        FileNotFoundError: If the path does not exist or no parquet files
+            match the optional partition filter.
+    """
+    import pyarrow.parquet as pq
+
+    fs = filesystem or fsspec_filesystem("file")
+
+    if not fs.exists(path):
+        raise FileNotFoundError(f"Dataset path '{path}' does not exist")
+
+    root = Path(path)
+
+    # Discover parquet files recursively via a manual stack walk so we can
+    # respect partition_filter prefixes on the logical relative path.
+    files: list[str] = []
+    stack: list[str] = [path]
+    while stack:
+        current_dir = stack.pop()
+        try:
+            entries = fs.ls(current_dir, detail=False)
+        except Exception:
+            continue
+
+        for entry in entries:
+            if entry.endswith(".parquet"):
+                files.append(entry)
+            else:
+                try:
+                    if fs.isdir(entry):
+                        stack.append(entry)
+                except Exception:
+                    continue
+
+    if partition_filter:
+        normalized_filters = [p.rstrip("/") for p in partition_filter]
+        filtered_files: list[str] = []
+        for filename in files:
+            rel = Path(filename).relative_to(root).as_posix()
+            if any(rel.startswith(prefix) for prefix in normalized_filters):
+                filtered_files.append(filename)
+        files = filtered_files
+
+    if not files:
+        raise FileNotFoundError(
+            f"No parquet files found under '{path}' matching filter"
+        )
+
+    file_infos: list[dict[str, Any]] = []
+    total_bytes = 0
+    total_rows = 0
+
+    for filename in files:
+        size_bytes = 0
+        try:
+            info = fs.info(filename)
+            if isinstance(info, dict):
+                size_bytes = int(info.get("size", 0))
+        except Exception:
+            size_bytes = 0
+
+        num_rows = 0
+        try:
+            with fs.open(filename, "rb") as fh:
+                pf = pq.ParquetFile(fh)
+                num_rows = pf.metadata.num_rows
+        except Exception:
+            # As a fallback, attempt a minimal table read to estimate rows.
+            try:
+                with fs.open(filename, "rb") as fh:
+                    table = pq.read_table(fh)
+                num_rows = table.num_rows
+            except Exception:
+                num_rows = 0
+
+        total_bytes += size_bytes
+        total_rows += num_rows
+        file_infos.append(
+            {"path": filename, "size_bytes": size_bytes, "num_rows": num_rows}
+        )
+
+    return {"files": file_infos, "total_bytes": total_bytes, "total_rows": total_rows}
+
+
+def plan_compaction_groups(
+    file_infos: list[dict[str, Any]] | list[FileInfo],
+    target_mb_per_file: int | None,
+    target_rows_per_file: int | None,
+) -> dict[str, Any]:
+    """
+    Plan compaction groups based on size and row thresholds.
+
+    Args:
+        file_infos: List of file information dictionaries or FileInfo objects.
+        target_mb_per_file: Target size in megabytes per output file.
+        target_rows_per_file: Target number of rows per output file.
+
+    Returns:
+        Dictionary with:
+        - groups: List of CompactionGroup objects to be compacted
+        - untouched_files: List of FileInfo objects not requiring compaction
+        - planned_stats: MaintenanceStats object for the planned operation
+        - planned_groups: List of file paths per group (for backward compatibility)
+
+    Raises:
+        ValueError: If both target_mb_per_file and target_rows_per_file are None or <= 0.
+    """
+    # Validate inputs
+    if target_mb_per_file is None and target_rows_per_file is None:
+        raise ValueError(
+            "Must provide at least one of target_mb_per_file or target_rows_per_file"
+        )
+    if target_mb_per_file is not None and target_mb_per_file <= 0:
+        raise ValueError("target_mb_per_file must be > 0")
+    if target_rows_per_file is not None and target_rows_per_file <= 0:
+        raise ValueError("target_rows_per_file must be > 0")
+
+    # Convert to FileInfo objects if needed
+    if file_infos and isinstance(file_infos[0], dict):
+        files = [FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"]) for fi in file_infos]
+    else:
+        files = file_infos  # type: ignore
+
+    size_threshold_bytes = (
+        target_mb_per_file * 1024 * 1024 if target_mb_per_file is not None else None
+    )
+
+    # Separate candidate files (eligible for compaction) from large files.
+    candidates: list[FileInfo] = []
+    large_files: list[FileInfo] = []
+    for file_info in files:
+        size_bytes = file_info.size_bytes
+        if size_threshold_bytes is None or size_bytes < size_threshold_bytes:
+            candidates.append(file_info)
+        else:
+            large_files.append(file_info)
+
+    # Build groups based on thresholds.
+    groups: list[list[FileInfo]] = []
+    current_group: list[FileInfo] = []
+    current_size = 0
+    current_rows = 0
+
+    def flush_group() -> None:
+        nonlocal current_group, current_size, current_rows
+        if current_group:
+            groups.append(current_group)
+            current_group = []
+            current_size = 0
+            current_rows = 0
+
+    for file_info in sorted(candidates, key=lambda x: x.size_bytes):
+        size_bytes = file_info.size_bytes
+        num_rows = file_info.num_rows
+        would_exceed_size = (
+            size_threshold_bytes is not None
+            and current_size + size_bytes > size_threshold_bytes
+            and current_group
+        )
+        would_exceed_rows = (
+            target_rows_per_file is not None
+            and current_rows + num_rows > target_rows_per_file
+            and current_group
+        )
+        if would_exceed_size or would_exceed_rows:
+            flush_group()
+        current_group.append(file_info)
+        current_size += size_bytes
+        current_rows += num_rows
+    flush_group()
+
+    # Only compact groups that contain more than one file; singleton groups
+    # would just rewrite an existing file.
+    finalized_groups: list[CompactionGroup] = [
+        CompactionGroup(files=group) for group in groups if len(group) > 1
+    ]
+
+    # Calculate statistics
+    before_file_count = len(files)
+    before_total_bytes = sum(f.size_bytes for f in files)
+
+    compacted_file_count = sum(len(group.files) for group in finalized_groups)
+    untouched_files = large_files + [
+        file_info for file_info in candidates
+        if not any(file_info in group.files for group in finalized_groups)
+    ]
+
+    after_file_count = len(untouched_files) + len(finalized_groups)
+
+    # Estimate after_total_bytes (assume minimal compression change for planning)
+    compacted_bytes = sum(group.total_size_bytes for group in finalized_groups)
+    untouched_bytes = sum(f.size_bytes for f in untouched_files)
+    after_total_bytes = untouched_bytes + compacted_bytes  # Rough estimate
+
+    rewritten_bytes = compacted_bytes
+
+    # Create compatibility structures
+    planned_groups = [group.file_paths() for group in finalized_groups]
+
+    planned_stats = MaintenanceStats(
+        before_file_count=before_file_count,
+        after_file_count=after_file_count,
+        before_total_bytes=before_total_bytes,
+        after_total_bytes=after_total_bytes,
+        compacted_file_count=compacted_file_count,
+        rewritten_bytes=rewritten_bytes,
+        compression_codec=None,  # Will be set by backend
+        dry_run=True,
+        planned_groups=planned_groups,
+    )
+
+    return {
+        "groups": finalized_groups,
+        "untouched_files": untouched_files,
+        "planned_stats": planned_stats,
+        "planned_groups": planned_groups,
+    }
+
+
+def plan_optimize_groups(
+    file_infos: list[dict[str, Any]] | list[FileInfo],
+    zorder_columns: list[str],
+    target_mb_per_file: int | None = None,
+    target_rows_per_file: int | None = None,
+    sample_schema: Any = None,
+) -> dict[str, Any]:
+    """
+    Plan optimization groups with z-order validation.
+
+    Args:
+        file_infos: List of file information dictionaries or FileInfo objects.
+        zorder_columns: List of columns to use for z-order clustering.
+        target_mb_per_file: Target size in megabytes per output file.
+        target_rows_per_file: Target number of rows per output file.
+        sample_schema: PyArrow schema or object with column_names method for validation.
+                      If None, schema validation will be skipped.
+
+    Returns:
+        Dictionary with:
+        - groups: List of CompactionGroup objects to be optimized
+        - untouched_files: List of FileInfo objects not requiring optimization
+        - planned_stats: MaintenanceStats object for the planned operation
+        - planned_groups: List of file paths per group (for backward compatibility)
+
+    Raises:
+        ValueError: If thresholds are invalid or zorder_columns is empty.
+    """
+    # Validate inputs
+    if not zorder_columns:
+        raise ValueError("zorder_columns must be a non-empty list")
+    if target_mb_per_file is not None and target_mb_per_file <= 0:
+        raise ValueError("target_mb_per_file must be > 0")
+    if target_rows_per_file is not None and target_rows_per_file <= 0:
+        raise ValueError("target_rows_per_file must be > 0")
+
+    # Validate zorder columns against schema if provided
+    if sample_schema is not None:
+        try:
+            available_cols = set(sample_schema.column_names)
+            missing = [col for col in zorder_columns if col not in available_cols]
+            if missing:
+                raise ValueError(
+                    f"Missing z-order columns: {', '.join(missing)}. "
+                    f"Available columns: {', '.join(sorted(available_cols))}"
+                )
+        except AttributeError:
+            # sample_schema doesn't have column_names, skip validation
+            pass
+
+    # Convert to FileInfo objects if needed
+    if file_infos and isinstance(file_infos[0], dict):
+        files = [FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"]) for fi in file_infos]
+    else:
+        files = file_infos  # type: ignore
+
+    # For optimization, we typically want to process all files unless they're
+    # already large enough to be left alone
+    size_threshold_bytes = (
+        target_mb_per_file * 1024 * 1024 if target_mb_per_file is not None else None
+    )
+
+    # Separate candidate files from large files
+    candidates: list[FileInfo] = []
+    large_files: list[FileInfo] = []
+    for file_info in files:
+        size_bytes = file_info.size_bytes
+        if size_threshold_bytes is None or size_bytes < size_threshold_bytes:
+            candidates.append(file_info)
+        else:
+            large_files.append(file_info)
+
+    # Group files for optimization - similar to compaction but more aggressive
+    # since optimization typically rewrites all eligible files
+    groups: list[list[FileInfo]] = []
+    current_group: list[FileInfo] = []
+    current_size = 0
+    current_rows = 0
+
+    def flush_group() -> None:
+        nonlocal current_group, current_size, current_rows
+        if current_group:
+            groups.append(current_group)
+            current_group = []
+            current_size = 0
+            current_rows = 0
+
+    # Sort files for more consistent optimization
+    for file_info in sorted(candidates, key=lambda x: x.size_bytes):
+        size_bytes = file_info.size_bytes
+        num_rows = file_info.num_rows
+        would_exceed_size = (
+            size_threshold_bytes is not None
+            and current_size + size_bytes > size_threshold_bytes
+            and current_group
+        )
+        would_exceed_rows = (
+            target_rows_per_file is not None
+            and current_rows + num_rows > target_rows_per_file
+            and current_group
+        )
+        if would_exceed_size or would_exceed_rows:
+            flush_group()
+        current_group.append(file_info)
+        current_size += size_bytes
+        current_rows += num_rows
+    flush_group()
+
+    # Include single-file groups for optimization (unlike compaction)
+    # because optimization needs to reorder all eligible files
+    finalized_groups: list[CompactionGroup] = []
+    for group in groups:
+        if len(group) > 0:  # Include single files too
+            finalized_groups.append(CompactionGroup(files=group))
+
+    # Calculate statistics
+    before_file_count = len(files)
+    before_total_bytes = sum(f.size_bytes for f in files)
+
+    optimized_file_count = sum(len(group.files) for group in finalized_groups)
+    untouched_files = large_files  # Only large files are left untouched in optimization
+
+    after_file_count = len(untouched_files) + len(finalized_groups)
+
+    # Estimate after_total_bytes (optimization may improve compression)
+    optimized_bytes = sum(group.total_size_bytes for group in finalized_groups)
+    untouched_bytes = sum(f.size_bytes for f in untouched_files)
+    after_total_bytes = untouched_bytes + optimized_bytes  # Rough estimate
+
+    rewritten_bytes = optimized_bytes
+
+    # Create compatibility structures
+    planned_groups = [group.file_paths() for group in finalized_groups]
+
+    planned_stats = MaintenanceStats(
+        before_file_count=before_file_count,
+        after_file_count=after_file_count,
+        before_total_bytes=before_total_bytes,
+        after_total_bytes=after_total_bytes,
+        compacted_file_count=optimized_file_count,
+        rewritten_bytes=rewritten_bytes,
+        compression_codec=None,  # Will be set by backend
+        dry_run=True,
+        zorder_columns=zorder_columns,
+        planned_groups=planned_groups,
+    )
+
+    return {
+        "groups": finalized_groups,
+        "untouched_files": untouched_files,
+        "planned_stats": planned_stats,
+        "planned_groups": planned_groups,
+    }
