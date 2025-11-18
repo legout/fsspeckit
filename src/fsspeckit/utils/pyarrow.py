@@ -93,7 +93,7 @@ def compact_parquet_dataset_pyarrow(
     dry_run: bool = False,
     filesystem: AbstractFileSystem | None = None,
 ) -> dict[str, Any]:
-    """Compact a parquet dataset directory into fewer larger files using PyArrow.
+    """Compact a parquet dataset directory into fewer larger files using PyArrow and shared planning.
 
     Groups small files based on size (MB) and/or row thresholds, rewrites grouped
     files into new parquet files, and optionally changes compression. Supports a
@@ -103,100 +103,32 @@ def compact_parquet_dataset_pyarrow(
     a given group into memory when processing that group and never materializes
     the entire dataset as a single table.
     """
-    if target_mb_per_file is None and target_rows_per_file is None:
-        raise ValueError(
-            "Must provide at least one of target_mb_per_file or target_rows_per_file"
-        )
-    if target_mb_per_file is not None and target_mb_per_file <= 0:
-        raise ValueError("target_mb_per_file must be > 0")
-    if target_rows_per_file is not None and target_rows_per_file <= 0:
-        raise ValueError("target_rows_per_file must be > 0")
+    from fsspeckit.core.maintenance import plan_compaction_groups, MaintenanceStats
 
+    # Get dataset stats using shared logic
     stats = collect_dataset_stats_pyarrow(
         path=path, filesystem=filesystem, partition_filter=partition_filter
     )
     files = stats["files"]
-    before_file_count = len(files)
-    before_total_bytes = stats["total_bytes"]
 
-    size_threshold_bytes = (
-        target_mb_per_file * 1024 * 1024 if target_mb_per_file is not None else None
+    # Use shared compaction planning
+    plan_result = plan_compaction_groups(
+        file_infos=files,
+        target_mb_per_file=target_mb_per_file,
+        target_rows_per_file=target_rows_per_file,
     )
 
-    # Separate candidate files (eligible for compaction) from large files.
-    candidates: list[dict[str, Any]] = []
-    large_files: list[dict[str, Any]] = []
-    for file_info in files:
-        size_bytes = int(file_info["size_bytes"])
-        if size_threshold_bytes is None or size_bytes < size_threshold_bytes:
-            candidates.append(file_info)
-        else:
-            large_files.append(file_info)
+    groups = plan_result["groups"]
+    planned_stats = plan_result["planned_stats"]
 
-    # Build groups based on thresholds.
-    groups: list[list[dict[str, Any]]] = []
-    current_group: list[dict[str, Any]] = []
-    current_size = 0
-    current_rows = 0
+    # Update planned stats with compression info
+    planned_stats.compression_codec = compression
+    planned_stats.dry_run = dry_run
 
-    def flush_group() -> None:
-        nonlocal current_group, current_size, current_rows
-        if current_group:
-            groups.append(current_group)
-            current_group = []
-            current_size = 0
-            current_rows = 0
+    if dry_run or not groups:
+        return planned_stats.to_dict()
 
-    for file_info in sorted(candidates, key=lambda x: int(x["size_bytes"])):
-        size_bytes = int(file_info["size_bytes"])
-        num_rows = int(file_info["num_rows"])
-        would_exceed_size = (
-            size_threshold_bytes is not None
-            and current_size + size_bytes > size_threshold_bytes
-            and current_group
-        )
-        would_exceed_rows = (
-            target_rows_per_file is not None
-            and current_rows + num_rows > target_rows_per_file
-            and current_group
-        )
-        if would_exceed_size or would_exceed_rows:
-            flush_group()
-        current_group.append(file_info)
-        current_size += size_bytes
-        current_rows += num_rows
-    flush_group()
-
-    # Only compact groups that contain more than one file; singleton groups
-    # would just rewrite an existing file.
-    finalized_groups: list[list[dict[str, Any]]] = [
-        group for group in groups if len(group) > 1
-    ]
-    compacted_file_count = sum(len(group) for group in finalized_groups)
-    planned_groups = [[fi["path"] for fi in group] for group in finalized_groups]
-    rewritten_bytes = sum(
-        int(fi["size_bytes"]) for group in finalized_groups for fi in group
-    )
-
-    if dry_run or not finalized_groups:
-        # after_file_count is: large files (untouched) + one new file per group
-        # + any singleton candidates that were not compacted.
-        singleton_candidates = [g[0] for g in groups if len(g) == 1]
-        after_file_count = len(large_files) + len(finalized_groups) + len(
-            singleton_candidates
-        )
-        return {
-            "before_file_count": before_file_count,
-            "after_file_count": after_file_count,
-            "before_total_bytes": before_total_bytes,
-            "after_total_bytes": before_total_bytes,
-            "compacted_file_count": compacted_file_count,
-            "rewritten_bytes": rewritten_bytes,
-            "compression_codec": compression,
-            "dry_run": True,
-            "planned_groups": planned_groups,
-        }
-
+    # Execute compaction using PyArrow
     fs = filesystem or fsspec_filesystem("file")
     codec = compression or "snappy"
     rewritten_bytes_live = 0
@@ -204,8 +136,8 @@ def compact_parquet_dataset_pyarrow(
     # Process each group: read, concatenate, write a new file, then delete
     # originals for that group. This ensures peak memory is bounded by the
     # group size.
-    for group_idx, group in enumerate(finalized_groups):
-        paths = [str(fi["path"]) for fi in group]
+    for group_idx, group in enumerate(groups):
+        paths = [file_info.path for file_info in group.files]
         tables: list[pa.Table] = []
         for filename in paths:
             with fs.open(filename, "rb") as fh:
@@ -217,29 +149,34 @@ def compact_parquet_dataset_pyarrow(
         with fs.open(out_path, "wb") as fh:
             pq.write_table(combined, fh, compression=codec)
 
-        rewritten_bytes_live += sum(int(fi["size_bytes"]) for fi in group)
+        rewritten_bytes_live += group.total_size_bytes
 
-        for filename in paths:
+        # Remove original files in this group
+        for file_info in group.files:
             try:
-                fs.rm(filename)
+                fs.rm(file_info.path)
             except Exception:
                 # Best-effort cleanup; leave a warning to the caller.
-                print(f"Warning: failed to delete '{filename}' after compaction")
+                print(f"Warning: failed to delete '{file_info.path}' after compaction")
 
     # Recompute stats after compaction for the affected subset.
     stats_after = collect_dataset_stats_pyarrow(
         path=path, filesystem=fs, partition_filter=partition_filter
     )
-    return {
-        "before_file_count": before_file_count,
-        "after_file_count": len(stats_after["files"]),
-        "before_total_bytes": before_total_bytes,
-        "after_total_bytes": stats_after["total_bytes"],
-        "compacted_file_count": compacted_file_count,
-        "rewritten_bytes": rewritten_bytes_live,
-        "compression_codec": codec,
-        "dry_run": False,
-    }
+
+    # Create final stats
+    final_stats = MaintenanceStats(
+        before_file_count=planned_stats.before_file_count,
+        after_file_count=len(stats_after["files"]),
+        before_total_bytes=planned_stats.before_total_bytes,
+        after_total_bytes=stats_after["total_bytes"],
+        compacted_file_count=planned_stats.compacted_file_count,
+        rewritten_bytes=rewritten_bytes_live,
+        compression_codec=codec,
+        dry_run=False,
+    )
+
+    return final_stats.to_dict()
 
 
 def optimize_parquet_dataset_pyarrow(
