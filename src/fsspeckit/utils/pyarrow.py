@@ -45,7 +45,7 @@ def collect_dataset_stats_pyarrow(
     filesystem: AbstractFileSystem | None = None,
     partition_filter: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Collect file-level statistics for a parquet dataset using PyArrow.
+    """Collect file-level statistics for a parquet dataset using shared core logic.
 
     The helper walks the given dataset directory on the provided filesystem,
     discovers parquet files (recursively), and returns basic statistics:
@@ -75,82 +75,13 @@ def collect_dataset_stats_pyarrow(
         FileNotFoundError: If the path does not exist or no parquet files
             match the optional partition filter.
     """
-    fs = filesystem or fsspec_filesystem("file")
+    from fsspeckit.core.maintenance import collect_dataset_stats
 
-    if not fs.exists(path):
-        raise FileNotFoundError(f"Dataset path '{path}' does not exist")
-
-    root = Path(path)
-
-    # Discover parquet files recursively via a manual stack walk so we can
-    # respect partition_filter prefixes on the logical relative path.
-    files: list[str] = []
-    stack: list[str] = [path]
-    while stack:
-        current_dir = stack.pop()
-        try:
-            entries = fs.ls(current_dir, detail=False)
-        except Exception:
-            continue
-
-        for entry in entries:
-            if entry.endswith(".parquet"):
-                files.append(entry)
-            else:
-                try:
-                    if fs.isdir(entry):
-                        stack.append(entry)
-                except Exception:
-                    continue
-
-    if partition_filter:
-        normalized_filters = [p.rstrip("/") for p in partition_filter]
-        filtered_files: list[str] = []
-        for filename in files:
-            rel = Path(filename).relative_to(root).as_posix()
-            if any(rel.startswith(prefix) for prefix in normalized_filters):
-                filtered_files.append(filename)
-        files = filtered_files
-
-    if not files:
-        raise FileNotFoundError(
-            f"No parquet files found under '{path}' matching filter"
-        )
-
-    file_infos: list[dict[str, Any]] = []
-    total_bytes = 0
-    total_rows = 0
-
-    for filename in files:
-        size_bytes = 0
-        try:
-            info = fs.info(filename)
-            if isinstance(info, dict):
-                size_bytes = int(info.get("size", 0))
-        except Exception:
-            size_bytes = 0
-
-        num_rows = 0
-        try:
-            with fs.open(filename, "rb") as fh:
-                pf = pq.ParquetFile(fh)
-                num_rows = pf.metadata.num_rows
-        except Exception:
-            # As a fallback, attempt a minimal table read to estimate rows.
-            try:
-                with fs.open(filename, "rb") as fh:
-                    table = pq.read_table(fh)
-                num_rows = table.num_rows
-            except Exception:
-                num_rows = 0
-
-        total_bytes += size_bytes
-        total_rows += num_rows
-        file_infos.append(
-            {"path": filename, "size_bytes": size_bytes, "num_rows": num_rows}
-        )
-
-    return {"files": file_infos, "total_bytes": total_bytes, "total_rows": total_rows}
+    return collect_dataset_stats(
+        path=path,
+        filesystem=filesystem,
+        partition_filter=partition_filter,
+    )
 
 
 def compact_parquet_dataset_pyarrow(
