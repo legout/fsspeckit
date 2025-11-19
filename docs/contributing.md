@@ -1,6 +1,6 @@
-# Contributing to fsspec-utils
+# Contributing to fsspeckit
 
-We welcome contributions to `fsspec-utils`! Your help makes this project better. This guide outlines how you can contribute, from reporting issues to submitting pull requests.
+We welcome contributions to `fsspeckit`! Your help makes this project better. This guide outlines how you can contribute, from reporting issues to submitting pull requests.
 
 ## How to Contribute
 
@@ -13,7 +13,7 @@ When reporting an issue, please include:
 - Steps to reproduce the behavior.
 - Expected behavior.
 - Screenshots or error messages if applicable.
-- Your `fsspec-utils` version and Python environment details.
+- Your `fsspeckit` version and Python environment details.
 
 ### Submitting Pull Requests
 
@@ -50,7 +50,7 @@ We gladly accept pull requests for bug fixes, new features, and improvements. To
     ```bash
     git push origin feature/your-feature-name
     ```
-10. **Open a Pull Request**: Go to the original `fsspec-utils` repository on GitHub and open a pull request from your new branch. Provide a detailed description of your changes.
+10. **Open a Pull Request**: Go to the original `fsspeckit` repository on GitHub and open a pull request from your new branch. Provide a detailed description of your changes.
 
 ## Development Setup
 

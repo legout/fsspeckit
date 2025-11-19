@@ -14,7 +14,7 @@ The example shows:
 ## Prerequisites
 
 - Python 3.8+
-- fsspec-utils installed
+- fsspeckit installed
 - Access to one of the supported S3-compatible services:
   - AWS S3 account with credentials
   - Cloudflare R2 account with credentials

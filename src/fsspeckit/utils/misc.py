@@ -1,4 +1,4 @@
-"""Miscellaneous utility functions for fsspec-utils."""
+"""Miscellaneous utility functions for fsspeckit."""
 
 import importlib
 import os
@@ -486,7 +486,7 @@ def check_optional_dependency(package_name: str, feature_name: str) -> None:
     if not importlib.util.find_spec(package_name):
         raise ImportError(
             f"{package_name} is required for {feature_name}. "
-            f"Install with: pip install fsspec-utils[full]"
+            f"Install with: pip install fsspeckit[full]"
         )
 
 

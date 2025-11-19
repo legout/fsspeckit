@@ -2,7 +2,7 @@
 Example: Reading Folder of Files into PyArrow Table
 
 This example demonstrates how to read a folder of parquet, csv, or json files
-into a PyArrow table using fsspec-utils.
+into a PyArrow table using fsspeckit.
 
 The example shows:
 1. Creating sample data files in different formats (Parquet, CSV, JSON)
@@ -19,7 +19,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import json
 
-# Import fsspec-utils
+# Import fsspeckit
 from fsspeckit import filesystem
 
 
@@ -148,7 +148,7 @@ def demonstrate_json_reading(temp_dir):
 
 
 def main():
-    """Main function to demonstrate fsspec-utils functionality."""
+    """Main function to demonstrate fsspeckit functionality."""
     # Create a temporary directory
     temp_dir = tempfile.mkdtemp()
     print(f"Created temporary directory: {temp_dir}")

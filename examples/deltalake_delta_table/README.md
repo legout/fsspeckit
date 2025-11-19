@@ -1,6 +1,6 @@
-# Working with Delta Lake DeltaTable using fsspec-utils
+# Working with Delta Lake DeltaTable using fsspeckit
 
-This example demonstrates how to work with Delta Lake DeltaTable using fsspec-utils and StorageOptions.
+This example demonstrates how to work with Delta Lake DeltaTable using fsspeckit and StorageOptions.
 
 ## Overview
 
@@ -11,7 +11,7 @@ The example shows:
 ## Prerequisites
 
 - Python 3.8+
-- fsspec-utils installed
+- fsspeckit installed
 - deltalake installed
 - fsspec-s3 installed (for S3 support)
 

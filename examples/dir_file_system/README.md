@@ -1,6 +1,6 @@
-# Using DirFileSystem with fsspec-utils
+# Using DirFileSystem with fsspeckit
 
-This example demonstrates how to use DirFileSystem with fsspec-utils to work with directory-based file systems.
+This example demonstrates how to use DirFileSystem with fsspeckit to work with directory-based file systems.
 
 ## Overview
 
@@ -13,7 +13,7 @@ The example shows:
 ## Prerequisites
 
 - Python 3.8+
-- fsspec-utils installed
+- fsspeckit installed
 
 ## Running the Example
 

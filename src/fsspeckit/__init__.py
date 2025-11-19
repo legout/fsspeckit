@@ -1,4 +1,4 @@
-"""fsspec-utils: Enhanced utilities and extensions for fsspec filesystems.
+"""fsspeckit: Enhanced utilities and extensions for fsspec filesystems.
 
 This package provides enhanced filesystem utilities built on top of fsspec,
 including:

@@ -1,4 +1,4 @@
-"""Utility modules for fsspec-utils."""
+"""Utility modules for fsspeckit."""
 
 from .duckdb import DuckDBParquetHandler
 from .logging import setup_logging

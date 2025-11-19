@@ -13,7 +13,7 @@ def __():
     import os
     import json
 
-    # Import fsspec-utils filesystem function
+    # Import fsspeckit filesystem function
     from fsspeckit import filesystem
 
     return filesystem, json, os, tempfile, time
@@ -28,7 +28,7 @@ def __(filesystem, json, os, tempfile, time):
     # Create a sample JSON file
     sample_file = os.path.join(tmpdir, "sample_data.json")
     sample_data = {
-        "name": "fsspec-utils caching example",
+        "name": "fsspeckit caching example",
         "timestamp": time.time(),
         "items": [
             {"id": i, "value": f"item_{i}"} for i in range(1000)

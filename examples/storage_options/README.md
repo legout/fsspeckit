@@ -1,6 +1,6 @@
-# Using StorageOptions with fsspec-utils
+# Using StorageOptions with fsspeckit
 
-This example demonstrates how to use different StorageOptions classes with fsspec-utils to configure various storage systems.
+This example demonstrates how to use different StorageOptions classes with fsspeckit to configure various storage systems.
 
 ## Overview
 
@@ -13,7 +13,7 @@ The example shows:
 ## Prerequisites
 
 - Python 3.8+
-- fsspec-utils installed
+- fsspeckit installed
 
 ## Running the Example
 

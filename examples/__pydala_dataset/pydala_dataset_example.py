@@ -1,7 +1,7 @@
 """
-Example: Working with Delta Tables using fsspec-utils
+Example: Working with Delta Tables using fsspeckit
 
-This example demonstrates how to work with Delta tables using fsspec-utils and StorageOptions.
+This example demonstrates how to work with Delta tables using fsspeckit and StorageOptions.
 
 The example shows:
 1. Using StorageOptions with DeltaTable from delta-rs
@@ -21,7 +21,7 @@ from fsspeckit.storage_options import LocalStorageOptions
 
 
 def main():
-    """Demonstrate using StorageOptions with DeltaTable using delta-rs and fsspec-utils."""
+    """Demonstrate using StorageOptions with DeltaTable using delta-rs and fsspeckit."""
 
     # Create a temporary directory for our DeltaTable
     temp_dir = tempfile.mkdtemp()

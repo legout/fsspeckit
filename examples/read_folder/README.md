@@ -1,6 +1,6 @@
 # Reading Folder of Files into PyArrow Table
 
-This example demonstrates how to read a folder of parquet, csv, or json files into a PyArrow table using fsspec-utils.
+This example demonstrates how to read a folder of parquet, csv, or json files into a PyArrow table using fsspeckit.
 
 ## Overview
 
@@ -13,7 +13,7 @@ The example shows:
 ## Prerequisites
 
 - Python 3.8+
-- fsspec-utils installed
+- fsspeckit installed
 - pyarrow installed
 - polars installed (for CSV and JSON handling)
 

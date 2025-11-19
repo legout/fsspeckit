@@ -1,4 +1,4 @@
-"""Core filesystem functionality for fsspec-utils."""
+"""Core filesystem functionality for fsspeckit."""
 
 from .base import (
     GitLabFileSystem,

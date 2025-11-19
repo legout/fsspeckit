@@ -16,7 +16,7 @@ def __():
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    # Import fsspec-utils
+    # Import fsspeckit
     from fsspeckit import filesystem
 
     return filesystem, os, pa, Path, pl, pq, shutil, tempfile

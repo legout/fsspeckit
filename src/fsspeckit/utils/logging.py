@@ -1,4 +1,4 @@
-"""Logging configuration utilities for fsspec-utils."""
+"""Logging configuration utilities for fsspeckit."""
 
 import os
 import sys
@@ -12,7 +12,7 @@ def setup_logging(
     disable: bool = False,
     format_string: Optional[str] = None,
 ) -> None:
-    """Configure the Loguru logger for fsspec-utils.
+    """Configure the Loguru logger for fsspeckit.
 
     Removes the default handler and adds a new one targeting stderr
     with customizable level and format.
@@ -21,7 +21,7 @@ def setup_logging(
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
                If None, uses fsspeckit_LOG_LEVEL environment variable
                or defaults to "INFO".
-        disable: Whether to disable logging for fsspec-utils package.
+        disable: Whether to disable logging for fsspeckit package.
         format_string: Custom format string for log messages.
                       If None, uses a default comprehensive format.
 

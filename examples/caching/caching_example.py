@@ -1,7 +1,7 @@
 """
-Example: Using Caching with fsspec-utils
+Example: Using Caching with fsspeckit
 
-This example demonstrates how to use the caching functionality in fsspec-utils
+This example demonstrates how to use the caching functionality in fsspeckit
 to improve performance for repeated file operations.
 
 The example shows:
@@ -16,7 +16,7 @@ import time
 import os
 import json
 
-# Import fsspec-utils filesystem function
+# Import fsspeckit filesystem function
 from fsspeckit import filesystem
 
 
@@ -26,7 +26,7 @@ def main():
         # Create a sample JSON file
         sample_file = os.path.join(tmpdir, "sample_data.json")
         sample_data = {
-            "name": "fsspec-utils caching example",
+            "name": "fsspeckit caching example",
             "timestamp": time.time(),
             "items": [
                 {"id": i, "value": f"item_{i}"} for i in range(1000)

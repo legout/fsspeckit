@@ -1,6 +1,6 @@
-# Working with PyDala Datasets using fsspec-utils
+# Working with PyDala Datasets using fsspeckit
 
-This example demonstrates how to work with PyDala datasets using fsspec-utils and StorageOptions.
+This example demonstrates how to work with PyDala datasets using fsspeckit and StorageOptions.
 
 ## Overview
 
@@ -13,7 +13,7 @@ The example shows:
 ## Prerequisites
 
 - Python 3.8+
-- fsspec-utils installed
+- fsspeckit installed
 - deltalake installed
 - pyarrow installed
 - polars installed

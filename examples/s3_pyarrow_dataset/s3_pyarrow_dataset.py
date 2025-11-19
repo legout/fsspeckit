@@ -1,7 +1,7 @@
 """
 Example: Reading PyArrow Dataset from S3
 
-This example demonstrates how to use fsspec-utils to read PyArrow datasets from
+This example demonstrates how to use fsspeckit to read PyArrow datasets from
 S3-compatible storage systems including AWS S3, Cloudflare R2, and self-hosted MinIO.
 
 The example shows:

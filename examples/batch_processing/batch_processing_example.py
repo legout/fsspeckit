@@ -1,8 +1,8 @@
 """
-Example: Batch Processing with fsspec-utils
+Example: Batch Processing with fsspeckit
 
 This example demonstrates how to perform batch processing operations with
-different file formats using fsspec-utils.
+different file formats using fsspeckit.
 
 The example shows:
 1. Creating sample data files in different formats (Parquet, CSV, JSON)
@@ -19,7 +19,7 @@ import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-# Import fsspec-utils
+# Import fsspeckit
 from fsspeckit import filesystem
 
 
@@ -163,7 +163,7 @@ def demonstrate_json_batch_reading(temp_dir):
 
 
 def main():
-    """Main function to demonstrate batch processing with fsspec-utils."""
+    """Main function to demonstrate batch processing with fsspeckit."""
     # Create a temporary directory
     temp_dir = tempfile.mkdtemp()
     print(f"Created temporary directory: {temp_dir}")

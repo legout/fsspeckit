@@ -1,6 +1,6 @@
-# Using Caching with fsspec-utils
+# Using Caching with fsspeckit
 
-This example demonstrates how to use the caching functionality in fsspec-utils to improve performance for repeated file operations.
+This example demonstrates how to use the caching functionality in fsspeckit to improve performance for repeated file operations.
 
 ## Overview
 
@@ -13,7 +13,7 @@ The example shows:
 ## Prerequisites
 
 - Python 3.8+
-- fsspec-utils installed
+- fsspeckit installed
 
 ## Running the Example
 

@@ -16,7 +16,7 @@ def __():
     import pyarrow.parquet as pq
     import json
 
-    # Import fsspec-utils
+    # Import fsspeckit
     from fsspeckit import filesystem
 
     return filesystem, json, os, pa, pl, pq, shutil, tempfile

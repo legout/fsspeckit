@@ -1,6 +1,6 @@
-# Batch Processing with fsspec-utils
+# Batch Processing with fsspeckit
 
-This example demonstrates how to perform batch processing operations with different file formats using fsspec-utils.
+This example demonstrates how to perform batch processing operations with different file formats using fsspeckit.
 
 ## Overview
 
@@ -13,7 +13,7 @@ The example shows:
 ## Prerequisites
 
 - Python 3.8+
-- fsspec-utils installed
+- fsspeckit installed
 - pyarrow installed
 - polars installed (for CSV and JSON handling)
 

@@ -1,12 +1,12 @@
 import marimo
 
 __generated_with = "0.9.27"
-app = marimo.App(title="Working with Delta Tables using fsspec-utils")
+app = marimo.App(title="Working with Delta Tables using fsspeckit")
 
 
 @app.cell
 def __():
-    # Working with Delta Tables using fsspec-utils (marimo notebook version)
+    # Working with Delta Tables using fsspeckit (marimo notebook version)
     import marimo as mo
     import tempfile
     import shutil

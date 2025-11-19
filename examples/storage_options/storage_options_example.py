@@ -1,7 +1,7 @@
 """
-Example: Using StorageOptions with fsspec-utils
+Example: Using StorageOptions with fsspeckit
 
-This example demonstrates how to use different StorageOptions classes with fsspec-utils
+This example demonstrates how to use different StorageOptions classes with fsspeckit
 to configure various storage systems.
 
 The example shows:
