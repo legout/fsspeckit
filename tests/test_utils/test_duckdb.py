@@ -14,15 +14,17 @@ from fsspeckit import filesystem
 @pytest.fixture
 def sample_table():
     """Create a sample PyArrow table for testing."""
-    return pa.table({
-        "id": [1, 2, 3, 4, 5],
-        "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
-        "age": [28, 34, 45, 29, 52],
-        "city": ["New York", "London", "Paris", "Tokyo", "Sydney"],
-        "amount": [150.50, 89.99, 234.75, 67.25, 412.80],
-        "category": ["A", "B", "A", "C", "B"],
-        "active": [True, True, False, True, False],
-    })
+    return pa.table(
+        {
+            "id": [1, 2, 3, 4, 5],
+            "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+            "age": [28, 34, 45, 29, 52],
+            "city": ["New York", "London", "Paris", "Tokyo", "Sydney"],
+            "amount": [150.50, 89.99, 234.75, 67.25, 412.80],
+            "category": ["A", "B", "A", "C", "B"],
+            "active": [True, True, False, True, False],
+        }
+    )
 
 
 @pytest.fixture
@@ -62,10 +64,7 @@ class TestDuckDBParquetHandlerInit:
         """Test that filesystem parameter takes precedence over storage_options."""
         storage_options = LocalStorageOptions()
         fs = filesystem("file")
-        handler = DuckDBParquetHandler(
-            storage_options=storage_options,
-            filesystem=fs
-        )
+        handler = DuckDBParquetHandler(storage_options=storage_options, filesystem=fs)
         assert handler._filesystem is fs
         handler.close()
 
@@ -171,7 +170,9 @@ class TestDuckDBParquetHandlerReadWrite:
             handler.write_parquet(sample_table, str(parquet_file))
 
             # Read only specific columns
-            result = handler.read_parquet(str(parquet_file), columns=["id", "name", "age"])
+            result = handler.read_parquet(
+                str(parquet_file), columns=["id", "name", "age"]
+            )
             assert result.num_rows == sample_table.num_rows
             assert result.num_columns == 3
             assert result.column_names == ["id", "name", "age"]
@@ -203,10 +204,12 @@ class TestDuckDBParquetHandlerReadWrite:
 
     def test_write_empty_table(self, temp_dir):
         """Test writing empty table."""
-        empty_table = pa.table({
-            "col1": pa.array([], type=pa.int64()),
-            "col2": pa.array([], type=pa.string()),
-        })
+        empty_table = pa.table(
+            {
+                "col1": pa.array([], type=pa.int64()),
+                "col2": pa.array([], type=pa.string()),
+            }
+        )
         parquet_file = temp_dir / "empty.parquet"
 
         with DuckDBParquetHandler() as handler:
@@ -413,14 +416,16 @@ class TestDuckDBParquetHandlerIntegration:
 
     def test_data_type_preservation(self, temp_dir):
         """Test that data types are preserved through write and read."""
-        test_table = pa.table({
-            "int32": pa.array([1, 2, 3], type=pa.int32()),
-            "int64": pa.array([1, 2, 3], type=pa.int64()),
-            "float32": pa.array([1.1, 2.2, 3.3], type=pa.float32()),
-            "float64": pa.array([1.1, 2.2, 3.3], type=pa.float64()),
-            "string": pa.array(["a", "b", "c"], type=pa.string()),
-            "bool": pa.array([True, False, True], type=pa.bool_()),
-        })
+        test_table = pa.table(
+            {
+                "int32": pa.array([1, 2, 3], type=pa.int32()),
+                "int64": pa.array([1, 2, 3], type=pa.int64()),
+                "float32": pa.array([1.1, 2.2, 3.3], type=pa.float32()),
+                "float64": pa.array([1.1, 2.2, 3.3], type=pa.float64()),
+                "string": pa.array(["a", "b", "c"], type=pa.string()),
+                "bool": pa.array([True, False, True], type=pa.bool_()),
+            }
+        )
         parquet_file = temp_dir / "types.parquet"
 
         with DuckDBParquetHandler() as handler:
@@ -490,7 +495,9 @@ class TestDuckDBParquetHandlerDatasetWrite:
             first_file = files_after_first[0]
 
             # Second write (overwrite)
-            handler.write_parquet_dataset(sample_table, str(dataset_dir), mode="overwrite")
+            handler.write_parquet_dataset(
+                sample_table, str(dataset_dir), mode="overwrite"
+            )
             files_after_second = list(dataset_dir.glob("*.parquet"))
             assert len(files_after_second) == 1
 
@@ -514,9 +521,7 @@ class TestDuckDBParquetHandlerDatasetWrite:
         with DuckDBParquetHandler() as handler:
             # Split into files with max 30 rows each
             handler.write_parquet_dataset(
-                large_table,
-                str(dataset_dir),
-                max_rows_per_file=30
+                large_table, str(dataset_dir), max_rows_per_file=30
             )
 
             # Should create 4 files (30, 30, 30, 10)
@@ -533,9 +538,7 @@ class TestDuckDBParquetHandlerDatasetWrite:
 
         with DuckDBParquetHandler() as handler:
             handler.write_parquet_dataset(
-                sample_table,
-                str(dataset_dir),
-                basename_template="data_{}.parquet"
+                sample_table, str(dataset_dir), basename_template="data_{}.parquet"
             )
 
             files = list(dataset_dir.glob("*.parquet"))
@@ -548,9 +551,7 @@ class TestDuckDBParquetHandlerDatasetWrite:
 
         with DuckDBParquetHandler() as handler:
             handler.write_parquet_dataset(
-                sample_table,
-                str(dataset_dir),
-                compression="gzip"
+                sample_table, str(dataset_dir), compression="gzip"
             )
 
             # Verify file exists and is readable
@@ -566,7 +567,7 @@ class TestDuckDBParquetHandlerDatasetWrite:
                 handler.write_parquet_dataset(
                     sample_table,
                     str(dataset_dir),
-                    mode="invalid"  # type: ignore
+                    mode="invalid",  # type: ignore
                 )
 
     def test_write_dataset_invalid_max_rows_error(self, sample_table, temp_dir):
@@ -576,24 +577,22 @@ class TestDuckDBParquetHandlerDatasetWrite:
         with DuckDBParquetHandler() as handler:
             with pytest.raises(ValueError, match="must be > 0"):
                 handler.write_parquet_dataset(
-                    sample_table,
-                    str(dataset_dir),
-                    max_rows_per_file=0
+                    sample_table, str(dataset_dir), max_rows_per_file=0
                 )
 
             with pytest.raises(ValueError, match="must be > 0"):
                 handler.write_parquet_dataset(
-                    sample_table,
-                    str(dataset_dir),
-                    max_rows_per_file=-10
+                    sample_table, str(dataset_dir), max_rows_per_file=-10
                 )
 
     def test_write_dataset_empty_table(self, temp_dir):
         """Test writing empty table to dataset."""
-        empty_table = pa.table({
-            "col1": pa.array([], type=pa.int64()),
-            "col2": pa.array([], type=pa.string()),
-        })
+        empty_table = pa.table(
+            {
+                "col1": pa.array([], type=pa.int64()),
+                "col2": pa.array([], type=pa.string()),
+            }
+        )
         dataset_dir = temp_dir / "dataset"
 
         with DuckDBParquetHandler() as handler:
@@ -616,7 +615,9 @@ class TestDuckDBParquetHandlerDatasetWrite:
 
             # Write 5 times
             for _ in range(5):
-                handler.write_parquet_dataset(sample_table, str(dataset_dir), mode="append")
+                handler.write_parquet_dataset(
+                    sample_table, str(dataset_dir), mode="append"
+                )
 
             files = list(dataset_dir.glob("*.parquet"))
             assert len(files) == 5
@@ -625,7 +626,9 @@ class TestDuckDBParquetHandlerDatasetWrite:
             filenames = {f.name for f in files}
             assert len(filenames) == 5
 
-    def test_write_dataset_overwrite_preserves_non_parquet(self, sample_table, temp_dir):
+    def test_write_dataset_overwrite_preserves_non_parquet(
+        self, sample_table, temp_dir
+    ):
         """Test that overwrite mode preserves non-parquet files."""
         dataset_dir = temp_dir / "dataset"
         dataset_dir.mkdir()
@@ -639,7 +642,9 @@ class TestDuckDBParquetHandlerDatasetWrite:
             handler.write_parquet_dataset(sample_table, str(dataset_dir))
 
             # Overwrite
-            handler.write_parquet_dataset(sample_table, str(dataset_dir), mode="overwrite")
+            handler.write_parquet_dataset(
+                sample_table, str(dataset_dir), mode="overwrite"
+            )
 
             # README should still exist
             assert readme_file.exists()
@@ -651,10 +656,12 @@ class TestDuckDBParquetHandlerDatasetWrite:
 
     def test_write_dataset_multiple_splits_with_template(self, temp_dir):
         """Test splitting with custom template."""
-        large_table = pa.table({
-            "id": list(range(100)),
-            "value": list(range(100)),
-        })
+        large_table = pa.table(
+            {
+                "id": list(range(100)),
+                "value": list(range(100)),
+            }
+        )
         dataset_dir = temp_dir / "dataset"
 
         with DuckDBParquetHandler() as handler:
@@ -662,7 +669,7 @@ class TestDuckDBParquetHandlerDatasetWrite:
                 large_table,
                 str(dataset_dir),
                 max_rows_per_file=25,
-                basename_template="chunk_{}.parquet"
+                basename_template="chunk_{}.parquet",
             )
 
             files = list(dataset_dir.glob("*.parquet"))
@@ -692,6 +699,31 @@ class TestDuckDBParquetHandlerDatasetWrite:
 
         handler.close()
 
+    def test_write_dataset_path_is_file_error(self, sample_table, temp_dir):
+        """Test error when dataset path exists but is a file."""
+        # Create a file where we want to write dataset
+        existing_file = temp_dir / "existing_file.txt"
+        existing_file.write_text("This is a file, not a directory")
+
+        with DuckDBParquetHandler() as handler:
+            with pytest.raises(NotADirectoryError, match="exists but is a file"):
+                handler.write_parquet_dataset(sample_table, str(existing_file))
+
+    def test_write_parquet_parent_is_file_error(self, sample_table, temp_dir):
+        """Test error when parent directory for parquet file is a file."""
+        # Create a file where we want to create a parent directory
+        parent_file = temp_dir / "parent_file.txt"
+        parent_file.write_text("This is a file, not a directory")
+
+        parquet_path = parent_file / "subdir" / "output.parquet"
+
+        with DuckDBParquetHandler() as handler:
+            with pytest.raises(
+                (NotADirectoryError, Exception),
+                match="Parent directory.*exists but is a file|Cannot open file.*Not a directory",
+            ):
+                handler.write_parquet(sample_table, str(parquet_path))
+
 
 class TestDuckDBParquetHandlerMerge:
     """Tests for dataset merge functionality."""
@@ -699,84 +731,84 @@ class TestDuckDBParquetHandlerMerge:
     def test_merge_upsert_basic(self, temp_dir):
         """Test UPSERT strategy with basic insert and update."""
         # Create initial target data
-        target_data = pa.table({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-            "value": [100, 200, 300]
-        })
-        
+        target_data = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "value": [100, 200, 300],
+            }
+        )
+
         # Create source with update to id=2 and new id=4
-        source_data = pa.table({
-            "id": [2, 4],
-            "name": ["Bob Updated", "Diana"],
-            "value": [250, 400]
-        })
-        
+        source_data = pa.table(
+            {"id": [2, 4], "name": ["Bob Updated", "Diana"], "value": [250, 400]}
+        )
+
         dataset_dir = temp_dir / "dataset"
-        
+
         with DuckDBParquetHandler() as handler:
             # Write initial target
             handler.write_parquet_dataset(target_data, str(dataset_dir))
-            
+
             # Merge with UPSERT
             stats = handler.merge_parquet_dataset(
                 source=source_data,
                 target_path=str(dataset_dir),
                 key_columns="id",
-                strategy="upsert"
+                strategy="upsert",
             )
-            
+
             # Verify statistics
             assert stats["inserted"] == 1  # id=4 inserted
             assert stats["updated"] == 1  # id=2 updated
             assert stats["deleted"] == 0
             assert stats["total"] == 4  # 1,2,3,4
-            
+
             # Verify result
             result = handler.read_parquet(str(dataset_dir))
             assert result.num_rows == 4
-            
+
             # Check that id=2 was updated
             result_dict = result.to_pydict()
             bob_idx = result_dict["id"].index(2)
             assert result_dict["name"][bob_idx] == "Bob Updated"
             assert result_dict["value"][bob_idx] == 250
-            
+
             # Check that id=4 was inserted
             assert 4 in result_dict["id"]
 
     def test_merge_insert_only(self, temp_dir):
         """Test INSERT strategy adds only new records."""
-        target_data = pa.table({
-            "id": [1, 2],
-            "name": ["Alice", "Bob"],
-            "value": [100, 200]
-        })
-        
-        source_data = pa.table({
-            "id": [2, 3],  # id=2 exists, id=3 is new
-            "name": ["Bob Updated", "Charlie"],
-            "value": [250, 300]
-        })
-        
+        target_data = pa.table(
+            {"id": [1, 2], "name": ["Alice", "Bob"], "value": [100, 200]}
+        )
+
+        source_data = pa.table(
+            {
+                "id": [2, 3],  # id=2 exists, id=3 is new
+                "name": ["Bob Updated", "Charlie"],
+                "value": [250, 300],
+            }
+        )
+
         dataset_dir = temp_dir / "dataset"
-        
+
         with DuckDBParquetHandler() as handler:
             handler.write_parquet_dataset(target_data, str(dataset_dir))
-            
+
             stats = handler.merge_parquet_dataset(
                 source=source_data,
                 target_path=str(dataset_dir),
                 key_columns="id",
-                strategy="insert"
+                strategy="insert",
             )
-            
+
             # Only id=3 should be inserted
             assert stats["inserted"] == 1
             assert stats["updated"] == 0
             assert stats["deleted"] == 0
             assert stats["total"] == 3
-            
+
             # Verify id=2 was NOT updated
             result = handler.read_parquet(str(dataset_dir))
             result_dict = result.to_pydict()
@@ -786,77 +818,81 @@ class TestDuckDBParquetHandlerMerge:
 
     def test_merge_update_only(self, temp_dir):
         """Test UPDATE strategy updates only existing records."""
-        target_data = pa.table({
-            "id": [1, 2],
-            "name": ["Alice", "Bob"],
-            "value": [100, 200]
-        })
-        
-        source_data = pa.table({
-            "id": [2, 3],  # id=2 exists, id=3 is new
-            "name": ["Bob Updated", "Charlie"],
-            "value": [250, 300]
-        })
-        
+        target_data = pa.table(
+            {"id": [1, 2], "name": ["Alice", "Bob"], "value": [100, 200]}
+        )
+
+        source_data = pa.table(
+            {
+                "id": [2, 3],  # id=2 exists, id=3 is new
+                "name": ["Bob Updated", "Charlie"],
+                "value": [250, 300],
+            }
+        )
+
         dataset_dir = temp_dir / "dataset"
-        
+
         with DuckDBParquetHandler() as handler:
             handler.write_parquet_dataset(target_data, str(dataset_dir))
-            
+
             stats = handler.merge_parquet_dataset(
                 source=source_data,
                 target_path=str(dataset_dir),
                 key_columns="id",
-                strategy="update"
+                strategy="update",
             )
-            
+
             # Only id=2 should be updated
             assert stats["inserted"] == 0
             assert stats["updated"] == 2  # All existing potentially updated
             assert stats["deleted"] == 0
             assert stats["total"] == 2  # Still just 1, 2
-            
+
             # Verify id=2 was updated
             result = handler.read_parquet(str(dataset_dir))
             result_dict = result.to_pydict()
             bob_idx = result_dict["id"].index(2)
             assert result_dict["name"][bob_idx] == "Bob Updated"
-            
+
             # Verify id=3 was NOT inserted
             assert 3 not in result_dict["id"]
 
     def test_merge_full_merge(self, temp_dir):
         """Test FULL_MERGE strategy with deletes."""
-        target_data = pa.table({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-            "value": [100, 200, 300]
-        })
-        
-        source_data = pa.table({
-            "id": [2, 4],  # id=1,3 will be deleted, id=4 inserted
-            "name": ["Bob Updated", "Diana"],
-            "value": [250, 400]
-        })
-        
+        target_data = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "value": [100, 200, 300],
+            }
+        )
+
+        source_data = pa.table(
+            {
+                "id": [2, 4],  # id=1,3 will be deleted, id=4 inserted
+                "name": ["Bob Updated", "Diana"],
+                "value": [250, 400],
+            }
+        )
+
         dataset_dir = temp_dir / "dataset"
-        
+
         with DuckDBParquetHandler() as handler:
             handler.write_parquet_dataset(target_data, str(dataset_dir))
-            
+
             stats = handler.merge_parquet_dataset(
                 source=source_data,
                 target_path=str(dataset_dir),
                 key_columns="id",
-                strategy="full_merge"
+                strategy="full_merge",
             )
-            
+
             # Full replacement
             assert stats["inserted"] == 2  # Source count
             assert stats["updated"] == 0
             assert stats["deleted"] == 3  # Target count
             assert stats["total"] == 2
-            
+
             # Verify only source records remain
             result = handler.read_parquet(str(dataset_dir))
             result_dict = result.to_pydict()
@@ -866,34 +902,34 @@ class TestDuckDBParquetHandlerMerge:
 
     def test_merge_deduplicate(self, temp_dir):
         """Test DEDUPLICATE strategy with QUALIFY."""
-        target_data = pa.table({
-            "id": [1, 2],
-            "name": ["Alice", "Bob"],
-            "timestamp": [100, 200]
-        })
-        
+        target_data = pa.table(
+            {"id": [1, 2], "name": ["Alice", "Bob"], "timestamp": [100, 200]}
+        )
+
         # Source has duplicates
-        source_data = pa.table({
-            "id": [2, 2, 3],  # id=2 appears twice
-            "name": ["Bob V1", "Bob V2", "Charlie"],
-            "timestamp": [250, 300, 350]  # Higher timestamp wins
-        })
-        
+        source_data = pa.table(
+            {
+                "id": [2, 2, 3],  # id=2 appears twice
+                "name": ["Bob V1", "Bob V2", "Charlie"],
+                "timestamp": [250, 300, 350],  # Higher timestamp wins
+            }
+        )
+
         dataset_dir = temp_dir / "dataset"
-        
+
         with DuckDBParquetHandler() as handler:
             handler.write_parquet_dataset(target_data, str(dataset_dir))
-            
+
             stats = handler.merge_parquet_dataset(
                 source=source_data,
                 target_path=str(dataset_dir),
                 key_columns="id",
                 strategy="deduplicate",
-                dedup_order_by=["timestamp"]  # Keep highest timestamp
+                dedup_order_by=["timestamp"],  # Keep highest timestamp
             )
-            
+
             assert stats["total"] == 3  # 1, 2, 3
-            
+
             # Verify only one id=2 remains (with highest timestamp)
             result = handler.read_parquet(str(dataset_dir))
             result_dict = result.to_pydict()
@@ -905,90 +941,95 @@ class TestDuckDBParquetHandlerMerge:
 
     def test_merge_composite_key(self, temp_dir):
         """Test merge with composite key columns."""
-        target_data = pa.table({
-            "user_id": [1, 1, 2],
-            "date": ["2024-01-01", "2024-01-02", "2024-01-01"],
-            "value": [100, 200, 300]
-        })
-        
-        source_data = pa.table({
-            "user_id": [1, 2],
-            "date": ["2024-01-02", "2024-01-03"],  # Update (1, 2024-01-02), Insert (2, 2024-01-03)
-            "value": [250, 400]
-        })
-        
+        target_data = pa.table(
+            {
+                "user_id": [1, 1, 2],
+                "date": ["2024-01-01", "2024-01-02", "2024-01-01"],
+                "value": [100, 200, 300],
+            }
+        )
+
+        source_data = pa.table(
+            {
+                "user_id": [1, 2],
+                "date": [
+                    "2024-01-02",
+                    "2024-01-03",
+                ],  # Update (1, 2024-01-02), Insert (2, 2024-01-03)
+                "value": [250, 400],
+            }
+        )
+
         dataset_dir = temp_dir / "dataset"
-        
+
         with DuckDBParquetHandler() as handler:
             handler.write_parquet_dataset(target_data, str(dataset_dir))
-            
+
             stats = handler.merge_parquet_dataset(
                 source=source_data,
                 target_path=str(dataset_dir),
                 key_columns=["user_id", "date"],
-                strategy="upsert"
+                strategy="upsert",
             )
-            
+
             assert stats["inserted"] == 1  # (2, 2024-01-03)
             assert stats["updated"] == 1  # (1, 2024-01-02)
             assert stats["total"] == 4
 
     def test_merge_from_path_source(self, temp_dir):
         """Test merge with source as path to dataset."""
-        target_data = pa.table({
-            "id": [1, 2],
-            "name": ["Alice", "Bob"],
-            "value": [100, 200]
-        })
-        
-        source_data = pa.table({
-            "id": [2, 3],
-            "name": ["Bob Updated", "Charlie"],
-            "value": [250, 300]
-        })
-        
+        target_data = pa.table(
+            {"id": [1, 2], "name": ["Alice", "Bob"], "value": [100, 200]}
+        )
+
+        source_data = pa.table(
+            {"id": [2, 3], "name": ["Bob Updated", "Charlie"], "value": [250, 300]}
+        )
+
         target_dir = temp_dir / "target"
         source_dir = temp_dir / "source"
-        
+
         with DuckDBParquetHandler() as handler:
             handler.write_parquet_dataset(target_data, str(target_dir))
             handler.write_parquet_dataset(source_data, str(source_dir))
-            
+
             # Merge using source path
             stats = handler.merge_parquet_dataset(
                 source=str(source_dir),
                 target_path=str(target_dir),
                 key_columns="id",
-                strategy="upsert"
+                strategy="upsert",
             )
-            
+
             assert stats["total"] == 3
             result = handler.read_parquet(str(target_dir))
             assert result.num_rows == 3
 
     def test_merge_empty_target(self, temp_dir):
         """Test merge to non-existent target (initial load)."""
-        source_data = pa.table({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-            "value": [100, 200, 300]
-        })
-        
+        source_data = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "value": [100, 200, 300],
+            }
+        )
+
         dataset_dir = temp_dir / "dataset"
-        
+
         with DuckDBParquetHandler() as handler:
             # Target doesn't exist yet
             stats = handler.merge_parquet_dataset(
                 source=source_data,
                 target_path=str(dataset_dir),
                 key_columns="id",
-                strategy="upsert"
+                strategy="upsert",
             )
-            
+
             # Should insert all records
             assert stats["inserted"] == 3
             assert stats["total"] == 3
-            
+
             result = handler.read_parquet(str(dataset_dir))
             assert result.num_rows == 3
 
@@ -996,98 +1037,101 @@ class TestDuckDBParquetHandlerMerge:
         """Test error on invalid strategy."""
         source_data = pa.table({"id": [1], "name": ["Alice"]})
         dataset_dir = temp_dir / "dataset"
-        
+
         with DuckDBParquetHandler() as handler:
             with pytest.raises(ValueError, match="Invalid strategy"):
                 handler.merge_parquet_dataset(
                     source=source_data,
                     target_path=str(dataset_dir),
                     key_columns="id",
-                    strategy="invalid"  # type: ignore
+                    strategy="invalid",  # type: ignore
                 )
 
     def test_merge_missing_key_column(self, temp_dir):
         """Test error when key column missing from source."""
         source_data = pa.table({"id": [1], "name": ["Alice"]})
         dataset_dir = temp_dir / "dataset"
-        
+
         with DuckDBParquetHandler() as handler:
             with pytest.raises(ValueError, match="Key column 'missing_key' not found"):
                 handler.merge_parquet_dataset(
                     source=source_data,
                     target_path=str(dataset_dir),
                     key_columns="missing_key",
-                    strategy="upsert"
+                    strategy="upsert",
                 )
 
     def test_merge_null_in_key_column(self, temp_dir):
         """Test error when key column contains NULLs."""
-        source_data = pa.table({
-            "id": [1, None, 3],
-            "name": ["Alice", "Bob", "Charlie"]
-        })
+        source_data = pa.table(
+            {"id": [1, None, 3], "name": ["Alice", "Bob", "Charlie"]}
+        )
         dataset_dir = temp_dir / "dataset"
-        
+
         with DuckDBParquetHandler() as handler:
             with pytest.raises(ValueError, match="contains .* NULL values"):
                 handler.merge_parquet_dataset(
                     source=source_data,
                     target_path=str(dataset_dir),
                     key_columns="id",
-                    strategy="upsert"
+                    strategy="upsert",
                 )
 
     def test_merge_schema_mismatch(self, temp_dir):
         """Test error on schema mismatch."""
-        target_data = pa.table({
-            "id": [1, 2],
-            "name": ["Alice", "Bob"],
-            "value": [100, 200]
-        })
-        
+        target_data = pa.table(
+            {"id": [1, 2], "name": ["Alice", "Bob"], "value": [100, 200]}
+        )
+
         # Source has different schema
-        source_data = pa.table({
-            "id": [2, 3],
-            "name": ["Bob", "Charlie"],
-            "amount": [250, 300]  # Different column name
-        })
-        
+        source_data = pa.table(
+            {
+                "id": [2, 3],
+                "name": ["Bob", "Charlie"],
+                "amount": [250, 300],  # Different column name
+            }
+        )
+
         dataset_dir = temp_dir / "dataset"
-        
+
         with DuckDBParquetHandler() as handler:
             handler.write_parquet_dataset(target_data, str(dataset_dir))
-            
+
             with pytest.raises(ValueError, match="Schema mismatch"):
                 handler.merge_parquet_dataset(
                     source=source_data,
                     target_path=str(dataset_dir),
                     key_columns="id",
-                    strategy="upsert"
+                    strategy="upsert",
                 )
 
     def test_merge_type_mismatch(self, temp_dir):
         """Test error on column type mismatch."""
-        target_data = pa.table({
-            "id": pa.array([1, 2], type=pa.int64()),
-            "value": pa.array([100, 200], type=pa.int64())
-        })
-        
-        source_data = pa.table({
-            "id": pa.array([2, 3], type=pa.int64()),
-            "value": pa.array(["250", "300"], type=pa.string())  # Wrong type
-        })
-        
+        target_data = pa.table(
+            {
+                "id": pa.array([1, 2], type=pa.int64()),
+                "value": pa.array([100, 200], type=pa.int64()),
+            }
+        )
+
+        source_data = pa.table(
+            {
+                "id": pa.array([2, 3], type=pa.int64()),
+                "value": pa.array(["250", "300"], type=pa.string()),  # Wrong type
+            }
+        )
+
         dataset_dir = temp_dir / "dataset"
-        
+
         with DuckDBParquetHandler() as handler:
             handler.write_parquet_dataset(target_data, str(dataset_dir))
-            
+
             with pytest.raises(TypeError, match="type mismatch"):
                 handler.merge_parquet_dataset(
                     source=source_data,
                     target_path=str(dataset_dir),
                     key_columns="id",
-                    strategy="upsert"
+                    strategy="upsert",
                 )
 
 
@@ -1096,10 +1140,12 @@ class TestDuckDBParquetHandlerEdgeCases:
 
     def test_special_characters_in_data(self, temp_dir):
         """Test handling of special characters in data."""
-        special_table = pa.table({
-            "text": ["hello", "world", "café", "naïve", "日本語"],
-            "symbols": ["@", "#", "$", "%", "&"],
-        })
+        special_table = pa.table(
+            {
+                "text": ["hello", "world", "café", "naïve", "日本語"],
+                "symbols": ["@", "#", "$", "%", "&"],
+            }
+        )
         parquet_file = temp_dir / "special.parquet"
 
         with DuckDBParquetHandler() as handler:
@@ -1114,11 +1160,13 @@ class TestDuckDBParquetHandlerEdgeCases:
 
     def test_null_values_handling(self, temp_dir):
         """Test handling of null values."""
-        null_table = pa.table({
-            "id": [1, 2, 3, 4, 5],
-            "name": ["Alice", None, "Charlie", None, "Eve"],
-            "age": [28, 34, None, 29, None],
-        })
+        null_table = pa.table(
+            {
+                "id": [1, 2, 3, 4, 5],
+                "name": ["Alice", None, "Charlie", None, "Eve"],
+                "age": [28, 34, None, 29, None],
+            }
+        )
         parquet_file = temp_dir / "nulls.parquet"
 
         with DuckDBParquetHandler() as handler:
@@ -1158,11 +1206,13 @@ def fragmented_dataset(temp_dir):
     with DuckDBParquetHandler() as handler:
         # Create 10 small files each with 50 rows
         for i in range(10):
-            table = pa.table({
-                "id": list(range(i * 50, i * 50 + 50)),
-                "group": [i] * 50,
-                "value": [float(x) for x in range(50)],
-            })
+            table = pa.table(
+                {
+                    "id": list(range(i * 50, i * 50 + 50)),
+                    "group": [i] * 50,
+                    "value": [float(x) for x in range(50)],
+                }
+            )
             handler.write_parquet(table, str(dataset_dir / f"part_{i}.parquet"))
     return dataset_dir
 
@@ -1275,24 +1325,136 @@ class TestDuckDBParquetHandlerMaintenance:
                 )
 
     def test_compact_stats_keys(self, fragmented_dataset):
-        """Verify statistics contain expected keys."""
+        """Verify statistics contain canonical MaintenanceStats structure."""
         with DuckDBParquetHandler() as handler:
             result = handler.compact_parquet_dataset(
                 path=str(fragmented_dataset),
                 target_mb_per_file=1,
             )
-            for k in ["before_file_count", "after_file_count", "compacted_file_count", "rewritten_bytes"]:
-                assert k in result
+            # Assert canonical stats structure from shared core
+            canonical_keys = [
+                "before_file_count",
+                "after_file_count",
+                "before_total_bytes",
+                "after_total_bytes",
+                "compacted_file_count",
+                "rewritten_bytes",
+                "compression_codec",
+                "dry_run",
+            ]
+            for key in canonical_keys:
+                assert key in result, f"Missing canonical key: {key}"
+
+            # Validate types and basic constraints
+            assert isinstance(result["before_file_count"], int)
+            assert isinstance(result["after_file_count"], int)
+            assert isinstance(result["before_total_bytes"], int)
+            assert isinstance(result["after_total_bytes"], int)
+            assert isinstance(result["compacted_file_count"], int)
+            assert isinstance(result["rewritten_bytes"], int)
+            assert isinstance(result["dry_run"], bool)
+
+            # Verify logical consistency
+            assert result["before_file_count"] >= 0
+            assert result["after_file_count"] >= 0
+            assert result["before_total_bytes"] >= 0
+            assert result["after_total_bytes"] >= 0
+            assert result["compacted_file_count"] >= 0
+            assert result["rewritten_bytes"] >= 0
 
     def test_optimize_stats_keys(self, fragmented_dataset):
-        """Verify optimize statistics contain expected keys."""
+        """Verify optimize statistics contain canonical MaintenanceStats structure."""
         with DuckDBParquetHandler() as handler:
             result = handler.optimize_parquet_dataset(
                 path=str(fragmented_dataset),
                 zorder_columns=["group", "id"],
             )
-            for k in ["before_file_count", "after_file_count", "zorder_columns", "compression_codec"]:
-                assert k in result
+            # Assert canonical stats structure from shared core
+            canonical_keys = [
+                "before_file_count",
+                "after_file_count",
+                "before_total_bytes",
+                "after_total_bytes",
+                "compacted_file_count",
+                "rewritten_bytes",
+                "compression_codec",
+                "dry_run",
+                "zorder_columns",
+            ]
+            for key in canonical_keys:
+                assert key in result, f"Missing canonical key: {key}"
+
+            # Validate optimization-specific fields
+            assert isinstance(result["zorder_columns"], list)
+            assert result["zorder_columns"] == ["group", "id"]
+            assert isinstance(result["compression_codec"], str)
+
+            # Verify logical consistency
+            assert result["before_file_count"] >= 0
+            assert result["after_file_count"] >= 0
+            assert result["before_total_bytes"] >= 0
+            assert result["after_total_bytes"] >= 0
+            assert result["compacted_file_count"] >= 0
+            assert result["rewritten_bytes"] >= 0
+            assert isinstance(result["dry_run"], bool)
+
+    def test_compact_dry_run_stats_structure(self, fragmented_dataset):
+        """Verify dry run includes planned_groups in canonical structure."""
+        with DuckDBParquetHandler() as handler:
+            result = handler.compact_parquet_dataset(
+                path=str(fragmented_dataset),
+                target_mb_per_file=1,
+                dry_run=True,
+            )
+            # Dry run should include planning metadata
+            assert result["dry_run"] is True
+            assert "planned_groups" in result
+            assert isinstance(result["planned_groups"], list)
+
+            # Should have canonical structure
+            canonical_keys = [
+                "before_file_count",
+                "after_file_count",
+                "before_total_bytes",
+                "after_total_bytes",
+                "compacted_file_count",
+                "rewritten_bytes",
+                "compression_codec",
+                "dry_run",
+                "planned_groups",
+            ]
+            for key in canonical_keys:
+                assert key in result, f"Missing canonical key in dry run: {key}"
+
+    def test_optimize_dry_run_stats_structure(self, fragmented_dataset):
+        """Verify optimization dry run includes all required fields."""
+        with DuckDBParquetHandler() as handler:
+            result = handler.optimize_parquet_dataset(
+                path=str(fragmented_dataset),
+                zorder_columns=["group", "id"],
+                dry_run=True,
+            )
+            # Dry run should include planning metadata
+            assert result["dry_run"] is True
+            assert "planned_groups" in result
+            assert isinstance(result["planned_groups"], list)
+            assert result["zorder_columns"] == ["group", "id"]
+
+            # Should have complete canonical structure
+            canonical_keys = [
+                "before_file_count",
+                "after_file_count",
+                "before_total_bytes",
+                "after_total_bytes",
+                "compacted_file_count",
+                "rewritten_bytes",
+                "compression_codec",
+                "dry_run",
+                "zorder_columns",
+                "planned_groups",
+            ]
+            for key in canonical_keys:
+                assert key in result, f"Missing canonical key in optimization dry run: {key}"
 
     def test_compact_empty_dataset_error(self, temp_dir):
         """Verify error on empty dataset path (no parquet files)."""
@@ -1314,6 +1476,56 @@ class TestDuckDBParquetHandlerMaintenance:
                 compression="zstd",
             )
             assert result["compression_codec"] == "zstd"
+
+    def test_compact_nonexistent_dataset_error(self, temp_dir):
+        """Test compaction error on non-existent dataset path."""
+        nonexistent_dir = temp_dir / "nonexistent"
+
+        with DuckDBParquetHandler() as handler:
+            with pytest.raises(FileNotFoundError, match="Dataset path.*does not exist"):
+                handler.compact_parquet_dataset(
+                    path=str(nonexistent_dir),
+                    target_mb_per_file=1,
+                )
+
+    def test_optimize_nonexistent_dataset_error(self, temp_dir):
+        """Test optimization error on non-existent dataset path."""
+        nonexistent_dir = temp_dir / "nonexistent"
+
+        with DuckDBParquetHandler() as handler:
+            with pytest.raises(FileNotFoundError, match="Dataset path.*does not exist"):
+                handler.optimize_parquet_dataset(
+                    path=str(nonexistent_dir),
+                    zorder_columns=["id"],
+                )
+
+    def test_compact_partition_filter_no_files_error(
+        self, fragmented_dataset, temp_dir
+    ):
+        """Test compaction error when partition filter excludes all files."""
+        with DuckDBParquetHandler() as handler:
+            with pytest.raises(
+                FileNotFoundError, match="No parquet files found.*matching filter"
+            ):
+                handler.compact_parquet_dataset(
+                    path=str(fragmented_dataset),
+                    target_mb_per_file=1,  # Add required parameter
+                    partition_filter=["nonexistent_partition"],
+                )
+
+    def test_optimize_partition_filter_no_files_error(
+        self, fragmented_dataset, temp_dir
+    ):
+        """Test optimization error when partition filter excludes all files."""
+        with DuckDBParquetHandler() as handler:
+            with pytest.raises(
+                FileNotFoundError, match="No parquet files found.*matching filter"
+            ):
+                handler.optimize_parquet_dataset(
+                    path=str(fragmented_dataset),
+                    zorder_columns=["id"],
+                    partition_filter=["nonexistent_partition"],
+                )
 
     def test_compact_recompression(self, fragmented_dataset):
         """Verify compaction with custom compression codec succeeds."""
@@ -1380,7 +1592,10 @@ class TestDuckDBParquetHandlerMaintenance:
                 partition_filter=["group=0/"],
             )
             assert stats_subset["before_file_count"] < stats_all["before_file_count"]
-            assert stats_subset["compacted_file_count"] <= stats_subset["before_file_count"]
+            assert (
+                stats_subset["compacted_file_count"]
+                <= stats_subset["before_file_count"]
+            )
 
     def test_compact_noop_behavior(self, fragmented_dataset):
         """Verify compaction returns unchanged stats when no groups form."""
@@ -1407,7 +1622,9 @@ class TestDuckDBParquetHandlerMaintenance:
             )
             assert live["before_file_count"] == dry["before_file_count"]
             assert live["before_total_bytes"] == dry["before_total_bytes"]
-            assert live["after_total_bytes"] <= live["before_total_bytes"]  # can shrink slightly
+            assert (
+                live["after_total_bytes"] <= live["before_total_bytes"]
+            )  # can shrink slightly
             assert live["rewritten_bytes"] <= live["before_total_bytes"]
 
     def test_query_performance_proxy(self, fragmented_dataset):

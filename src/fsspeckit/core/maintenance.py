@@ -3,12 +3,34 @@ Backend-neutral maintenance layer for parquet dataset operations.
 
 This module provides shared functionality for dataset discovery, statistics,
 and grouping algorithms used by both DuckDB and PyArrow maintenance operations.
+It serves as the authoritative implementation for maintenance planning,
+ensuring consistent behavior across different backends.
 
 Key responsibilities:
 1. Dataset discovery and file-level statistics
-2. Compaction grouping algorithms
-3. Optimization planning and validation
+2. Compaction grouping algorithms with streaming execution
+3. Optimization planning with z-order validation
 4. Canonical statistics structures
+5. Partition filtering and edge case handling
+
+Architecture:
+- Functions accept both dict format (legacy) and FileInfo objects for backward compatibility
+- All planning functions return structured results with canonical MaintenanceStats
+- Backend implementations delegate to this core for consistent behavior
+- Streaming design avoids materializing entire datasets in memory
+
+Core components:
+- FileInfo: Canonical file information with validation
+- MaintenanceStats: Canonical statistics structure across backends
+- CompactionGroup: Logical grouping of files for processing
+- collect_dataset_stats: Dataset discovery with partition filtering
+- plan_compaction_groups: Shared compaction planning algorithm
+- plan_optimize_groups: Shared optimization planning with z-order validation
+
+Usage:
+Backend functions should delegate to this module rather than implementing
+their own discovery and planning logic. This ensures that DuckDB and PyArrow
+produce identical grouping decisions and statistics structures.
 """
 
 from __future__ import annotations
@@ -24,7 +46,21 @@ from fsspeckit.core.filesystem import fsspec_filesystem
 
 @dataclass
 class FileInfo:
-    """Information about a single parquet file."""
+    """Information about a single parquet file with validation.
+
+    This canonical data structure represents file metadata across all backends.
+    It enables consistent file information handling and size-based planning.
+
+    Attributes:
+        path: File path relative to the dataset root.
+        size_bytes: File size in bytes; must be >= 0.
+        num_rows: Number of rows in the file; must be >= 0.
+
+    Note:
+        The size_bytes and num_rows values are validated to be non-negative.
+        This class is used throughout the maintenance planning pipeline
+        for consistent file metadata representation.
+    """
     path: str
     size_bytes: int
     num_rows: int
@@ -38,7 +74,28 @@ class FileInfo:
 
 @dataclass
 class MaintenanceStats:
-    """Canonical statistics structure for maintenance operations."""
+    """Canonical statistics structure for maintenance operations.
+
+    This dataclass provides the authoritative statistics format for all maintenance
+    operations across DuckDB and PyArrow backends. It ensures consistent reporting
+    and enables unified testing and validation.
+
+    Attributes:
+        before_file_count: Number of files before the operation.
+        after_file_count: Number of files after the operation.
+        before_total_bytes: Total bytes before the operation.
+        after_total_bytes: Total bytes after the operation.
+        compacted_file_count: Number of files that were compacted/rewritten.
+        rewritten_bytes: Total bytes rewritten during the operation.
+        compression_codec: Compression codec used (None if unchanged).
+        dry_run: Whether this was a dry run operation.
+        zorder_columns: Z-order columns used (for optimization operations).
+        planned_groups: File groupings planned during dry run.
+
+    Note:
+        All numeric fields are validated to be non-negative. The to_dict() method
+        provides backward compatibility with existing code expecting dictionary format.
+    """
     before_file_count: int
     after_file_count: int
     before_total_bytes: int
@@ -89,7 +146,23 @@ class MaintenanceStats:
 
 @dataclass
 class CompactionGroup:
-    """A group of files to be compacted together."""
+    """A group of files to be compacted or optimized together.
+
+    This dataclass represents a logical grouping of files that will be processed
+    together during maintenance operations. It enables streaming execution by
+    bounding the amount of data processed at once.
+
+    Attributes:
+        files: List of FileInfo objects in this group.
+        total_size_bytes: Total size of all files in this group (computed).
+        total_rows: Total rows across all files in this group (computed).
+
+    Note:
+        Must contain at least one file. The total_size_bytes and total_rows
+        are computed during initialization and used for planning decisions.
+        This structure enables per-group streaming processing without
+        materializing entire datasets.
+    """
     files: list[FileInfo]
     total_size_bytes: int = field(init=False)
     total_rows: int = field(init=False)

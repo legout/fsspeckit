@@ -695,3 +695,190 @@ class TestEdgeCases:
             assert result.schema.field("col").type == expected_type, (
                 f"Failed for {values}"
             )
+
+
+class TestPyArrowCanonicalStatsStructure:
+    """Tests for canonical MaintenanceStats structure in PyArrow maintenance operations."""
+
+    def test_compact_canonical_stats_structure(self, tmp_path):
+        """Verify compact_parquet_dataset_pyarrow returns canonical stats structure."""
+        path = tmp_path / "dataset"
+        path.mkdir()
+        table = pa.table({"id": list(range(20))})
+
+        # Create 3 small files to trigger compaction
+        for i in range(3):
+            pq.write_table(table, path / f"part-{i}.parquet")
+
+        result = compact_parquet_dataset_pyarrow(
+            str(path), target_rows_per_file=15, dry_run=False
+        )
+
+        # Assert canonical stats structure from shared core
+        canonical_keys = [
+            "before_file_count",
+            "after_file_count",
+            "before_total_bytes",
+            "after_total_bytes",
+            "compacted_file_count",
+            "rewritten_bytes",
+            "compression_codec",
+            "dry_run",
+        ]
+        for key in canonical_keys:
+            assert key in result, f"Missing canonical key: {key}"
+
+        # Validate types and basic constraints
+        assert isinstance(result["before_file_count"], int)
+        assert isinstance(result["after_file_count"], int)
+        assert isinstance(result["before_total_bytes"], int)
+        assert isinstance(result["after_total_bytes"], int)
+        assert isinstance(result["compacted_file_count"], int)
+        assert isinstance(result["rewritten_bytes"], int)
+        assert isinstance(result["dry_run"], bool)
+
+        # Verify logical consistency
+        assert result["before_file_count"] >= 0
+        assert result["after_file_count"] >= 0
+        assert result["before_total_bytes"] >= 0
+        assert result["after_total_bytes"] >= 0
+        assert result["compacted_file_count"] >= 0
+        assert result["rewritten_bytes"] >= 0
+        assert result["dry_run"] is False
+
+    def test_optimize_canonical_stats_structure(self, tmp_path):
+        """Verify optimize_parquet_dataset_pyarrow returns canonical stats structure."""
+        path = tmp_path / "dataset"
+        path.mkdir()
+        table = pa.table({"group": [1, 2, 1, 2], "id": [3, 4, 1, 2]})
+        pq.write_table(table, path / "part-0.parquet")
+
+        result = optimize_parquet_dataset_pyarrow(
+            str(path),
+            zorder_columns=["group", "id"],
+            target_rows_per_file=2,
+            dry_run=False,
+        )
+
+        # Assert canonical stats structure from shared core
+        canonical_keys = [
+            "before_file_count",
+            "after_file_count",
+            "before_total_bytes",
+            "after_total_bytes",
+            "compacted_file_count",
+            "rewritten_bytes",
+            "compression_codec",
+            "dry_run",
+            "zorder_columns",
+        ]
+        for key in canonical_keys:
+            assert key in result, f"Missing canonical key: {key}"
+
+        # Validate optimization-specific fields
+        assert isinstance(result["zorder_columns"], list)
+        assert result["zorder_columns"] == ["group", "id"]
+        assert isinstance(result["compression_codec"], str)
+
+        # Verify logical consistency
+        assert result["before_file_count"] >= 0
+        assert result["after_file_count"] >= 0
+        assert result["before_total_bytes"] >= 0
+        assert result["after_total_bytes"] >= 0
+        assert result["compacted_file_count"] >= 0
+        assert result["rewritten_bytes"] >= 0
+        assert isinstance(result["dry_run"], bool)
+
+    def test_compact_dry_run_canonical_structure(self, tmp_path):
+        """Verify compact dry run includes planned_groups in canonical structure."""
+        path = tmp_path / "dataset"
+        path.mkdir()
+        table = pa.table({"id": list(range(10))})
+
+        # Create 4 small files to trigger grouping
+        for i in range(4):
+            pq.write_table(table, path / f"part-{i}.parquet")
+
+        result = compact_parquet_dataset_pyarrow(
+            str(path), target_rows_per_file=15, dry_run=True
+        )
+
+        # Dry run should include planning metadata
+        assert result["dry_run"] is True
+        assert "planned_groups" in result
+        assert isinstance(result["planned_groups"], list)
+
+        # Should have complete canonical structure
+        canonical_keys = [
+            "before_file_count",
+            "after_file_count",
+            "before_total_bytes",
+            "after_total_bytes",
+            "compacted_file_count",
+            "rewritten_bytes",
+            "compression_codec",
+            "dry_run",
+            "planned_groups",
+        ]
+        for key in canonical_keys:
+            assert key in result, f"Missing canonical key in dry run: {key}"
+
+    def test_optimize_dry_run_canonical_structure(self, tmp_path):
+        """Verify optimization dry run includes all required fields."""
+        path = tmp_path / "dataset"
+        path.mkdir()
+        table = pa.table({"group": [1, 2], "id": [1, 2]})
+        pq.write_table(table, path / "part-0.parquet")
+
+        result = optimize_parquet_dataset_pyarrow(
+            str(path),
+            zorder_columns=["group", "id"],
+            dry_run=True,
+        )
+
+        # Dry run should include planning metadata
+        assert result["dry_run"] is True
+        assert "planned_groups" in result
+        assert isinstance(result["planned_groups"], list)
+        assert result["zorder_columns"] == ["group", "id"]
+
+        # Should have complete canonical structure
+        canonical_keys = [
+            "before_file_count",
+            "after_file_count",
+            "before_total_bytes",
+            "after_total_bytes",
+            "compacted_file_count",
+            "rewritten_bytes",
+            "compression_codec",
+            "dry_run",
+            "zorder_columns",
+            "planned_groups",
+        ]
+        for key in canonical_keys:
+            assert key in result, f"Missing canonical key in optimization dry run: {key}"
+
+    def test_canonical_stats_logical_consistency(self, tmp_path):
+        """Test logical consistency of canonical stats across operations."""
+        path = tmp_path / "dataset"
+        path.mkdir()
+        table = pa.table({"id": list(range(5)), "value": [float(x) for x in range(5)]})
+
+        # Create initial files
+        for i in range(2):
+            pq.write_table(table, path / f"part-{i}.parquet")
+
+        # Test compaction logical consistency
+        result = compact_parquet_dataset_pyarrow(
+            str(path), target_rows_per_file=20, dry_run=False
+        )
+
+        # After compaction: should have fewer files but same total content
+        assert result["after_file_count"] <= result["before_file_count"]
+        assert result["compacted_file_count"] > 0
+        assert result["rewritten_bytes"] > 0
+
+        # Re-read to verify actual filesystem state
+        stats_after = collect_dataset_stats_pyarrow(str(path))
+        assert result["after_file_count"] == len(stats_after["files"])
+        assert result["after_total_bytes"] == stats_after["total_bytes"]

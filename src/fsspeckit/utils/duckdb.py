@@ -1057,6 +1057,10 @@ class DuckDBParquetHandler:
     ) -> dict[str, Any]:
         """Collect file-level statistics for a parquet dataset using shared core logic.
 
+        This method delegates to the shared ``fsspeckit.core.maintenance.collect_dataset_stats``
+        function, ensuring consistent dataset discovery and statistics across both DuckDB
+        and PyArrow backends.
+
         Args:
             path: Dataset directory path.
             partition_filter: Optional list of partition prefix filters (e.g. ["date=2025-11-04"]).
@@ -1066,8 +1070,14 @@ class DuckDBParquetHandler:
                 files: list of file info dicts {path, size_bytes, num_rows}
                 total_bytes: sum of sizes
                 total_rows: sum of rows
+
         Raises:
             FileNotFoundError: If path does not exist or has no parquet files.
+
+        Note:
+            This is a thin wrapper around the shared core function. See
+            :func:`fsspeckit.core.maintenance.collect_dataset_stats` for the
+            authoritative implementation.
         """
         from fsspeckit.core.maintenance import collect_dataset_stats
 
@@ -1089,6 +1099,9 @@ class DuckDBParquetHandler:
     ) -> dict[str, Any]:
         """Compact a parquet dataset directory into fewer larger files using shared planning.
 
+        This function delegates compaction planning to the shared core module,
+        ensuring consistent behavior across DuckDB and PyArrow backends.
+
         Groups small files based on size (MB) and/or row thresholds, rewrites grouped
         files into new parquet files, optionally changing compression. Supports
         dry-run mode returning planned groups without writing.
@@ -1102,7 +1115,13 @@ class DuckDBParquetHandler:
             dry_run: If True, plan only without modifying files.
 
         Returns:
-            Statistics dict including before/after counts and optional plan.
+            Statistics dict following canonical MaintenanceStats format, including
+            before/after counts and optional plan when dry_run=True.
+
+        Note:
+            This function delegates dataset discovery and compaction planning to the
+            shared ``fsspeckit.core.maintenance`` module for consistent behavior
+            with the PyArrow backend.
         """
         from fsspeckit.core.maintenance import plan_compaction_groups, MaintenanceStats
 
@@ -1198,6 +1217,9 @@ class DuckDBParquetHandler:
     ) -> dict[str, Any]:
         """Optimize a parquet dataset by clustering (approximate z-order) using shared planning.
 
+        This function delegates optimization planning to the shared core module,
+        ensuring consistent behavior across DuckDB and PyArrow backends.
+
         Reads dataset, orders rows by given columns, optionally groups into sized chunks
         similar to compaction, rewrites dataset (overwrite semantics). Supports dry-run.
 
@@ -1211,7 +1233,13 @@ class DuckDBParquetHandler:
             dry_run: If True, plan only.
 
         Returns:
-            Statistics dict; may include planned grouping if dry-run.
+            Statistics dict following canonical MaintenanceStats format; may include
+            planned grouping if dry-run=True.
+
+        Note:
+            This function delegates optimization planning and validation to the
+            shared ``fsspeckit.core.maintenance.plan_optimize_groups`` function,
+            ensuring consistent behavior with the PyArrow backend.
         """
         from fsspeckit.core.maintenance import plan_optimize_groups, MaintenanceStats
 

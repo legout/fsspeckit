@@ -47,6 +47,10 @@ def collect_dataset_stats_pyarrow(
 ) -> dict[str, Any]:
     """Collect file-level statistics for a parquet dataset using shared core logic.
 
+    This function delegates to the shared ``fsspeckit.core.maintenance.collect_dataset_stats``
+    function, ensuring consistent dataset discovery and statistics across both DuckDB
+    and PyArrow backends.
+
     The helper walks the given dataset directory on the provided filesystem,
     discovers parquet files (recursively), and returns basic statistics:
 
@@ -74,6 +78,11 @@ def collect_dataset_stats_pyarrow(
     Raises:
         FileNotFoundError: If the path does not exist or no parquet files
             match the optional partition filter.
+
+    Note:
+        This is a thin wrapper around the shared core function. See
+        :func:`fsspeckit.core.maintenance.collect_dataset_stats` for the
+        authoritative implementation.
     """
     from fsspeckit.core.maintenance import collect_dataset_stats
 
@@ -99,9 +108,44 @@ def compact_parquet_dataset_pyarrow(
     files into new parquet files, and optionally changes compression. Supports a
     dry-run mode that returns the compaction plan without modifying files.
 
-    The implementation is group-based and streaming: it reads only the files in
-    a given group into memory when processing that group and never materializes
-    the entire dataset as a single table.
+    The implementation uses the shared core planning algorithm for consistent
+    behavior across backends. It processes data in a group-based, streaming fashion:
+    it reads only the files in a given group into memory when processing that group
+    and never materializes the entire dataset as a single table.
+
+    Args:
+        path: Dataset root directory (local path or fsspec URL).
+        target_mb_per_file: Optional max output size per file; must be > 0.
+        target_rows_per_file: Optional max rows per output file; must be > 0.
+        partition_filter: Optional list of partition prefixes (e.g. ``["date=2025-11-15"]``)
+            used to limit both stats collection and rewrites to matching paths.
+        compression: Optional parquet compression codec; defaults to ``"snappy"``.
+        dry_run: When ``True`` the function returns a plan + before/after stats
+            without reading or writing any parquet data.
+        filesystem: Optional ``fsspec.AbstractFileSystem`` to reuse existing FS clients.
+
+    Returns:
+        A stats dictionary describing before/after file counts, total bytes,
+        rewritten bytes, and optional ``planned_groups`` when ``dry_run`` is enabled.
+        The structure follows the canonical ``MaintenanceStats`` format from the shared core.
+
+    Raises:
+        ValueError: If thresholds are invalid or no files match partition filter.
+        FileNotFoundError: If the path does not exist.
+
+    Example:
+        >>> result = compact_parquet_dataset_pyarrow(
+        ...     "/path/to/dataset",
+        ...     target_mb_per_file=64,
+        ...     dry_run=True
+        ... )
+        >>> print(f"Files before: {result['before_file_count']}")
+        >>> print(f"Files after: {result['after_file_count']}")
+
+    Note:
+        This function delegates dataset discovery and compaction planning to the
+        shared ``fsspeckit.core.maintenance`` module, ensuring consistent behavior
+        across DuckDB and PyArrow backends.
     """
     from fsspeckit.core.maintenance import plan_compaction_groups, MaintenanceStats
 
@@ -191,13 +235,17 @@ def optimize_parquet_dataset_pyarrow(
 ) -> dict[str, Any]:
     """Cluster parquet files by ``zorder_columns`` while rewriting groups on disk.
 
+    This function uses the shared core planning algorithm for consistent optimization
+    behavior across backends. It processes data in a streaming, per-group fashion
+    that avoids materializing the entire dataset.
+
     The helper enumerates individual parquet files under ``path``, optionally
     filtering them by ``partition_filter`` prefixes so we never materialize the
-    entire dataset with ``dataset.to_table()``. Each compaction/optimization
-    group is streamed file-by-file, sorted by ``zorder_columns`` in memory, and
-    then rewritten to an ``optimized-*.parquet`` file while the original inputs
-    are deleted only after a successful write. Use dry-run mode to inspect the
-    planned groups/metrics before any data is touched.
+    entire dataset with ``dataset.to_table()``. Each optimization group is streamed
+    file-by-file, sorted by ``zorder_columns`` in memory, and then rewritten to an
+    ``optimized-*.parquet`` file while the original inputs are deleted only after
+    a successful write. Use dry-run mode to inspect the planned groups/metrics
+    before any data is touched.
 
     Args:
         path: Dataset root directory (local path or fsspec URL).
@@ -214,12 +262,24 @@ def optimize_parquet_dataset_pyarrow(
     Returns:
         A stats dictionary describing before/after file counts, total bytes,
         rewritten bytes, ``zorder_columns``, and optional ``planned_groups`` when
-        ``dry_run`` is enabled.
+        ``dry_run`` is enabled. The structure follows the canonical ``MaintenanceStats``
+        format from the shared core.
 
     Raises:
         ValueError: If thresholds are invalid or if any ``zorder_columns`` are missing.
-    """
+        FileNotFoundError: If the path does not exist or no parquet files are found.
 
+    Note:
+        This function delegates optimization planning and validation to the shared
+        ``fsspeckit.core.maintenance.plan_optimize_groups`` function, ensuring
+        consistent behavior with DuckDB backend.
+    """
+    from fsspeckit.core.maintenance import (
+        MaintenanceStats,
+        plan_optimize_groups,
+    )
+
+    # Use shared core validation
     if not zorder_columns:
         raise ValueError("zorder_columns must be a non-empty list")
     if target_mb_per_file is not None and target_mb_per_file <= 0:
@@ -227,148 +287,118 @@ def optimize_parquet_dataset_pyarrow(
     if target_rows_per_file is not None and target_rows_per_file <= 0:
         raise ValueError("target_rows_per_file must be > 0")
 
+    # Collect dataset stats using shared core
     stats = collect_dataset_stats_pyarrow(
         path=path, filesystem=filesystem, partition_filter=partition_filter
     )
     files = stats["files"]
-    before_file_count = len(files)
-    before_total_bytes = stats["total_bytes"]
+
+    if not files:
+        return {
+            "before_file_count": 0,
+            "after_file_count": 0,
+            "before_total_bytes": 0,
+            "after_total_bytes": 0,
+            "compacted_file_count": 0,
+            "rewritten_bytes": 0,
+            "compression_codec": compression,
+            "dry_run": dry_run,
+            "zorder_columns": list(zorder_columns),
+        }
 
     fs = filesystem or fsspec_filesystem("file")
 
+    # Get schema for validation (sample first file)
     sample_path = str(files[0]["path"])
     with fs.open(sample_path, "rb") as fh:
         sample_table = pq.read_table(fh)
-    available_cols = set(sample_table.column_names)
-    missing = [col for col in zorder_columns if col not in available_cols]
-    if missing:
-        raise ValueError(
-            f"Missing z-order columns: {', '.join(missing)}. "
-            f"Available columns: {', '.join(sorted(available_cols))}"
-        )
 
-    size_threshold_bytes = (
-        target_mb_per_file * 1024 * 1024 if target_mb_per_file is not None else None
+    # Use shared core planning with z-order validation
+    result = plan_optimize_groups(
+        files,
+        zorder_columns=zorder_columns,
+        target_mb_per_file=target_mb_per_file,
+        target_rows_per_file=target_rows_per_file,
+        sample_schema=sample_table,
     )
 
+    groups = result["groups"]
+    planned_stats = result["planned_stats"]
+
+    # Handle dry run
     if dry_run:
-        groups: list[list[dict[str, Any]]] = []
-        current_group: list[dict[str, Any]] = []
-        current_size = 0
-        current_rows = 0
-
-        def flush_group() -> None:
-            nonlocal current_group, current_size, current_rows
-            if current_group:
-                groups.append(current_group)
-                current_group = []
-                current_size = 0
-                current_rows = 0
-
-        for file_info in sorted(files, key=lambda x: int(x["size_bytes"])):
-            size_bytes = int(file_info["size_bytes"])
-            num_rows = int(file_info["num_rows"])
-            would_exceed_size = (
-                size_threshold_bytes is not None
-                and current_size + size_bytes > size_threshold_bytes
-                and current_group
-            )
-            would_exceed_rows = (
-                target_rows_per_file is not None
-                and current_rows + num_rows > target_rows_per_file
-                and current_group
-            )
-            if would_exceed_size or would_exceed_rows:
-                flush_group()
-            current_group.append(file_info)
-            current_size += size_bytes
-            current_rows += num_rows
-        flush_group()
-
-        after_file_count = len(groups)
-        planned_groups = [[fi["path"] for fi in group] for group in groups]
-        return {
-            "before_file_count": before_file_count,
-            "after_file_count": after_file_count,
-            "before_total_bytes": before_total_bytes,
-            "after_total_bytes": before_total_bytes,
-            "compacted_file_count": before_file_count,
-            "rewritten_bytes": before_total_bytes,
-            "compression_codec": compression,
-            "dry_run": True,
-            "zorder_columns": list(zorder_columns),
-            "planned_groups": planned_groups,
-        }
+        final_stats = MaintenanceStats(
+            before_file_count=planned_stats.before_file_count,
+            after_file_count=planned_stats.after_file_count,
+            before_total_bytes=planned_stats.before_total_bytes,
+            after_total_bytes=planned_stats.after_total_bytes,
+            compacted_file_count=planned_stats.compacted_file_count,
+            rewritten_bytes=planned_stats.rewritten_bytes,
+            compression_codec=compression,
+            dry_run=True,
+            zorder_columns=list(zorder_columns),
+            planned_groups=planned_stats.planned_groups,
+        )
+        return final_stats.to_dict()
 
     codec = compression or "snappy"
+    written_files = []
 
-    tables: list[pa.Table] = []
-    for file_info in files:
-        filename = str(file_info["path"])
-        with fs.open(filename, "rb") as fh:
-            tables.append(pq.read_table(fh))
-    if not tables:
-        return {
-            "before_file_count": before_file_count,
-            "after_file_count": before_file_count,
-            "before_total_bytes": before_total_bytes,
-            "after_total_bytes": before_total_bytes,
-            "compacted_file_count": 0,
-            "rewritten_bytes": 0,
-            "compression_codec": codec,
-            "dry_run": False,
-            "zorder_columns": list(zorder_columns),
-        }
+    # Process each optimization group in streaming fashion
+    for group_idx, group in enumerate(groups):
+        if len(group.files) == 0:
+            continue
 
-    combined = pa.concat_tables(tables, promote=True)
-    sort_keys = [(col, "ascending") for col in zorder_columns]
-    combined_sorted = combined.sort_by(sort_keys)
+        # Read tables for this group only (streaming per-group)
+        tables: list[pa.Table] = []
+        for file_info in group.files:
+            file_path = str(file_info.path)
+            with fs.open(file_path, "rb") as fh:
+                tables.append(pq.read_table(fh))
 
-    chunks: list[pa.Table] = []
-    num_rows = combined_sorted.num_rows
+        if not tables:
+            continue
 
-    if target_rows_per_file is not None and target_rows_per_file > 0:
-        for start in range(0, num_rows, target_rows_per_file):
-            end = min(start + target_rows_per_file, num_rows)
-            chunks.append(combined_sorted.slice(start, end - start))
-    elif size_threshold_bytes is not None and num_rows > 0:
-        avg_bytes_per_row = before_total_bytes / max(num_rows, 1)
-        est_rows_per_chunk = int(size_threshold_bytes / max(avg_bytes_per_row, 1))
-        if est_rows_per_chunk <= 0:
-            est_rows_per_chunk = num_rows
-        for start in range(0, num_rows, est_rows_per_chunk):
-            end = min(start + est_rows_per_chunk, num_rows)
-            chunks.append(combined_sorted.slice(start, end - start))
-    else:
-        chunks = [combined_sorted]
+        # Sort the combined group data by z-order columns
+        combined = pa.concat_tables(tables, promote=True)
+        sort_keys = [(col, "ascending") for col in zorder_columns]
+        combined_sorted = combined.sort_by(sort_keys)
 
-    for idx, chunk in enumerate(chunks):
-        out_name = f"optimized-{idx:05d}.parquet"
+        # Write sorted group to output file
+        out_name = f"optimized-{group_idx:05d}.parquet"
         out_path = str(Path(path) / out_name)
         with fs.open(out_path, "wb") as fh:
-            pq.write_table(chunk, fh, compression=codec)
+            pq.write_table(combined_sorted, fh, compression=codec)
 
-    for file_info in files:
-        filename = str(file_info["path"])
-        try:
-            fs.rm(filename)
-        except Exception:
-            print(f"Warning: failed to delete '{filename}' during optimize")
+        written_files.append(out_path)
 
+        # Delete original files in this group
+        for file_info in group.files:
+            file_path = str(file_info.path)
+            try:
+                fs.rm(file_path)
+            except Exception:
+                print(f"Warning: failed to delete '{file_path}' during optimize")
+
+    # Recompute stats after optimization
     stats_after = collect_dataset_stats_pyarrow(
         path=path, filesystem=fs, partition_filter=partition_filter
     )
-    return {
-        "before_file_count": before_file_count,
-        "after_file_count": len(stats_after["files"]),
-        "before_total_bytes": before_total_bytes,
-        "after_total_bytes": stats_after["total_bytes"],
-        "compacted_file_count": before_file_count,
-        "rewritten_bytes": stats_after["total_bytes"],
-        "compression_codec": codec,
-        "dry_run": False,
-        "zorder_columns": list(zorder_columns),
-    }
+
+    # Create final stats
+    final_stats = MaintenanceStats(
+        before_file_count=planned_stats.before_file_count,
+        after_file_count=len(stats_after["files"]),
+        before_total_bytes=planned_stats.before_total_bytes,
+        after_total_bytes=stats_after["total_bytes"],
+        compacted_file_count=planned_stats.compacted_file_count,
+        rewritten_bytes=stats_after["total_bytes"],
+        compression_codec=codec,
+        dry_run=False,
+        zorder_columns=list(zorder_columns),
+    )
+
+    return final_stats.to_dict()
 
 
 def _normalize_key_columns(key_columns: list[str] | str) -> list[str]:
