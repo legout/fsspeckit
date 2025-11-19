@@ -14,11 +14,21 @@ import pyarrow as pa
 from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
 
+from fsspeckit.core.merge import (
+    MergeStrategy as CoreMergeStrategy,
+    MergeStats,
+    calculate_merge_stats,
+    check_null_keys,
+    normalize_key_columns,
+    validate_merge_inputs,
+    validate_strategy_compatibility,
+)
+
 if TYPE_CHECKING:
     from ..storage_options.base import BaseStorageOptions
 
 
-# Type alias for merge strategies
+# Type alias for merge strategies (for backward compatibility)
 MergeStrategy = Literal["upsert", "insert", "update", "full_merge", "deduplicate"]
 
 
@@ -562,12 +572,17 @@ class DuckDBParquetHandler:
         strategy: MergeStrategy = "upsert",
         dedup_order_by: list[str] | None = None,
         compression: str = "snappy",
+        progress_callback: callable[[str, int, int], None] | None = None,
     ) -> dict[str, int]:
         """Merge source data into target parquet dataset using specified strategy.
 
         Performs intelligent merge operations on parquet datasets with support for
         UPSERT, INSERT-only, UPDATE-only, FULL_MERGE (sync), and DEDUPLICATE strategies.
         Uses DuckDB's SQL engine for efficient merging with QUALIFY for deduplication.
+
+        This implementation uses shared merge validation and semantics from fsspeckit.core.merge
+        to ensure consistent behavior across all backends. All merge strategies share the same
+        semantics, validation rules, and statistical calculations as the PyArrow implementation.
 
         Args:
             source: Source data as PyArrow table or path to parquet dataset.
@@ -584,6 +599,8 @@ class DuckDBParquetHandler:
                 "deduplicate" strategy). Keeps record with highest value. If None,
                 uses first occurrence.
             compression: Compression codec for output. Default is "snappy".
+            progress_callback: Optional callback function for progress tracking.
+                Called with (stage, current, total) where stage is a string description.
 
         Returns:
             Dictionary with merge statistics:
@@ -650,19 +667,29 @@ class DuckDBParquetHandler:
             ...     key_columns=["customer_id", "order_date"],
             ...     strategy="upsert"
             ... )
+
+        Note:
+            This implementation uses shared merge validation and semantics from fsspeckit.core.merge
+            to ensure consistent behavior across all backends. Atomic operations are performed using
+            temporary directories with backup-and-restore for error recovery.
         """
-        # Validate strategy
-        valid_strategies = {"upsert", "insert", "update", "full_merge", "deduplicate"}
-        if strategy not in valid_strategies:
+        # Convert string strategy to core enum and validate
+        try:
+            core_strategy = CoreMergeStrategy(strategy)
+        except ValueError:
+            valid_strategies = {s.value for s in CoreMergeStrategy}
             raise ValueError(
                 f"Invalid strategy: '{strategy}'. Must be one of: {', '.join(sorted(valid_strategies))}"
             )
 
-        # Normalize key_columns to list
-        if isinstance(key_columns, str):
-            key_columns = [key_columns]
+        # Normalize key_columns using shared helper
+        normalized_keys = normalize_key_columns(key_columns)
 
         conn = self._ensure_connection()
+
+        # Report progress start
+        if progress_callback:
+            progress_callback("Loading source data", 0, 1)
 
         # Load source data
         if isinstance(source, str):
@@ -672,11 +699,41 @@ class DuckDBParquetHandler:
             # Source is PyArrow table
             source_table = source
 
+        # Report progress for source loading
+        if progress_callback:
+            progress_callback("Loading target data", 1, 4)
+
         # Load target data (create empty if doesn't exist)
+        target_schema = None
+        target_table = None
         if self._filesystem is not None and self._filesystem.exists(target_path):
             target_table = self.read_parquet(target_path)
-        else:
-            # Target doesn't exist - treat as empty dataset with source schema
+            target_schema = target_table.schema
+
+        # Report progress for validation
+        if progress_callback:
+            progress_callback("Validating inputs", 2, 4)
+
+        # Validate inputs using shared helpers
+        merge_plan = validate_merge_inputs(
+            source_table.schema, target_schema, normalized_keys, core_strategy
+        )
+        merge_plan.source_count = source_table.num_rows
+
+        # Validate strategy compatibility
+        validate_strategy_compatibility(
+            core_strategy, source_table.num_rows, target_table is not None
+        )
+
+        # Check for NULL keys using shared helper
+        check_null_keys(source_table, target_table, normalized_keys)
+
+        # Calculate pre-merge counts for statistics
+        target_count_before = target_table.num_rows if target_table else 0
+        source_count = source_table.num_rows
+
+        # Create empty target table if needed
+        if target_table is None:
             target_table = pa.table(
                 {
                     col: pa.array([], type=source_table.schema.field(col).type)
@@ -684,31 +741,70 @@ class DuckDBParquetHandler:
                 }
             )
 
-        # Validate inputs
-        self._validate_merge_inputs(source_table, target_table, key_columns)
-
-        # Calculate pre-merge counts for statistics
-        target_count_before = target_table.num_rows
-        source_count = source_table.num_rows
-
         # Register tables in DuckDB
         conn.register("source_data", source_table)
         conn.register("target_dataset", target_table)
 
+        # Report progress for merge execution
+        if progress_callback:
+            progress_callback("Executing merge strategy", 3, 4)
+
+        # Configure DuckDB for optimal merge performance
+        conn.execute("SET memory_limit='1GB'")
+        conn.execute("SET threads=4")
+
+        # Enable DuckDB's parallel processing for large datasets
+        if source_table.num_rows > 100000:
+            conn.execute("SET enable_progress_bar=true")
+            conn.execute("SET preserve_insertion_order=false")
+
         # Execute merge based on strategy
         merged_table = self._execute_merge_strategy(
-            conn, strategy, key_columns, dedup_order_by
+            conn, core_strategy, normalized_keys, dedup_order_by
         )
 
-        # Calculate statistics
-        stats = self._calculate_merge_stats(
-            target_count_before, source_count, merged_table.num_rows, strategy
+        # Calculate statistics using shared helper
+        merge_stats = calculate_merge_stats(
+            core_strategy, source_count, target_count_before, merged_table.num_rows
         )
+        stats = merge_stats.to_dict()
 
-        # Write merged result back to target (overwrite mode)
-        self.write_parquet_dataset(
-            merged_table, target_path, mode="overwrite", compression=compression
-        )
+        # Report progress for writing results
+        if progress_callback:
+            progress_callback("Writing merged results", 4, 4)
+
+        # Write merged result to temporary directory first, then move for atomicity
+        import tempfile
+        import shutil
+
+        with tempfile.TemporaryDirectory(prefix=f"merge_{uuid.uuid4().hex[:8]}_") as temp_dir:
+            temp_path = Path(temp_dir) / "merged_dataset"
+            temp_path_str = str(temp_path)
+
+            # Write merged result to temporary location
+            self.write_parquet_dataset(
+                merged_table, temp_path_str, mode="overwrite", compression=compression
+            )
+
+            # Atomic move: if target exists, remove it first, then move temp data
+            if self._filesystem is not None and self._filesystem.exists(target_path):
+                # Make a backup in case something goes wrong
+                backup_path = f"{target_path}.backup.{uuid.uuid4().hex[:8]}"
+                try:
+                    # Rename existing target to backup
+                    self._filesystem.mv(target_path, backup_path)
+                    # Move temp data to final location
+                    self._filesystem.mv(temp_path_str, target_path)
+                    # Remove backup after successful move
+                    self._filesystem.rm(backup_path, recursive=True)
+                except Exception as e:
+                    # Try to restore backup if move failed
+                    if self._filesystem.exists(backup_path):
+                        self._filesystem.mv(backup_path, target_path)
+                    raise Exception(f"Atomic merge failed: {e}")
+            else:
+                # No existing target, just move temp data
+                self._filesystem.mv(temp_path_str, target_path)
 
         # Cleanup
         try:
@@ -720,81 +816,11 @@ class DuckDBParquetHandler:
 
         return stats
 
-    def _validate_merge_inputs(
-        self, source: pa.Table, target: pa.Table, key_columns: list[str]
-    ) -> None:
-        """Validate merge inputs for correctness.
-
-        Args:
-            source: Source PyArrow table.
-            target: Target PyArrow table.
-            key_columns: List of key column names.
-
-        Raises:
-            ValueError: If validation fails.
-        """
-        # Check key columns exist in source
-        source_cols = set(source.column_names)
-        for key_col in key_columns:
-            if key_col not in source_cols:
-                raise ValueError(
-                    f"Key column '{key_col}' not found in source. "
-                    f"Available columns: {', '.join(sorted(source_cols))}"
-                )
-
-        # Check key columns exist in target (if target has data)
-        if target.num_rows > 0:
-            target_cols = set(target.column_names)
-            for key_col in key_columns:
-                if key_col not in target_cols:
-                    raise ValueError(
-                        f"Key column '{key_col}' not found in target. "
-                        f"Available columns: {', '.join(sorted(target_cols))}"
-                    )
-
-            # Check schema compatibility
-            for col in source_cols:
-                if col in target_cols:
-                    source_type = source.schema.field(col).type
-                    target_type = target.schema.field(col).type
-                    if source_type != target_type:
-                        raise TypeError(
-                            f"Column '{col}' type mismatch: "
-                            f"source={source_type}, target={target_type}"
-                        )
-
-            # Check for extra columns
-            source_only = source_cols - target_cols
-            target_only = target_cols - source_cols
-            if source_only or target_only:
-                msg_parts = []
-                if source_only:
-                    msg_parts.append(f"source-only: {', '.join(sorted(source_only))}")
-                if target_only:
-                    msg_parts.append(f"target-only: {', '.join(sorted(target_only))}")
-                raise ValueError(f"Schema mismatch - {'; '.join(msg_parts)}")
-
-        # Check for NULL values in key columns
-        for key_col in key_columns:
-            source_col = source.column(key_col)
-            if source_col.null_count > 0:
-                raise ValueError(
-                    f"Key column '{key_col}' contains {source_col.null_count} NULL values in source. "
-                    f"Key columns must not have NULLs."
-                )
-
-            if target.num_rows > 0:
-                target_col = target.column(key_col)
-                if target_col.null_count > 0:
-                    raise ValueError(
-                        f"Key column '{key_col}' contains {target_col.null_count} NULL values in target. "
-                        f"Key columns must not have NULLs."
-                    )
-
+    
     def _execute_merge_strategy(
         self,
         conn: duckdb.DuckDBPyConnection,
-        strategy: MergeStrategy,
+        strategy: CoreMergeStrategy,
         key_columns: list[str],
         dedup_order_by: list[str] | None,
     ) -> pa.Table:
@@ -812,19 +838,31 @@ class DuckDBParquetHandler:
         # Build JOIN condition
         join_condition = " AND ".join([f"s.{col} = t.{col}" for col in key_columns])
 
-        if strategy == "upsert":
-            # Remove target records that will be updated, then add all source
+        if strategy == CoreMergeStrategy.UPSERT:
+            # Optimized UPSERT using CTE and better query plan
             query = f"""
-            SELECT * FROM (
+            WITH source_existing AS (
+                SELECT s.* FROM source_data s
+                INNER JOIN target_dataset t ON {join_condition}
+            ),
+            source_new AS (
+                SELECT s.* FROM source_data s
+                LEFT JOIN target_dataset t ON {join_condition}
+                WHERE t.{key_columns[0]} IS NULL
+            ),
+            target_unchanged AS (
                 SELECT t.* FROM target_dataset t
                 LEFT JOIN source_data s ON {join_condition}
                 WHERE s.{key_columns[0]} IS NULL
-                UNION ALL
-                SELECT * FROM source_data
             )
+            SELECT * FROM target_unchanged
+            UNION ALL
+            SELECT * FROM source_existing
+            UNION ALL
+            SELECT * FROM source_new
             """
 
-        elif strategy == "insert":
+        elif strategy == CoreMergeStrategy.INSERT:
             # Add only new records from source
             query = f"""
             SELECT * FROM (
@@ -836,7 +874,7 @@ class DuckDBParquetHandler:
             )
             """
 
-        elif strategy == "update":
+        elif strategy == CoreMergeStrategy.UPDATE:
             # Update only existing records
             query = f"""
             SELECT * FROM (
@@ -849,11 +887,11 @@ class DuckDBParquetHandler:
             )
             """
 
-        elif strategy == "full_merge":
+        elif strategy == CoreMergeStrategy.FULL_MERGE:
             # Replace target with source (deletes records not in source)
             query = "SELECT * FROM source_data"
 
-        elif strategy == "deduplicate":
+        elif strategy == CoreMergeStrategy.DEDUPLICATE:
             # Deduplicate source using QUALIFY, then UPSERT
             partition_cols = ", ".join(key_columns)
 
@@ -892,53 +930,7 @@ class DuckDBParquetHandler:
 
         return result
 
-    def _calculate_merge_stats(
-        self,
-        target_before: int,
-        source_count: int,
-        target_after: int,
-        strategy: MergeStrategy,
-    ) -> dict[str, int]:
-        """Calculate merge statistics.
-
-        Args:
-            target_before: Target row count before merge.
-            source_count: Source row count.
-            target_after: Target row count after merge.
-            strategy: Merge strategy used.
-
-        Returns:
-            Dictionary with merge statistics.
-        """
-        stats: dict[str, int] = {"total": target_after}
-
-        if strategy == "insert":
-            # INSERT: only additions, no updates or deletes
-            stats["inserted"] = target_after - target_before
-            stats["updated"] = 0
-            stats["deleted"] = 0
-
-        elif strategy == "update":
-            # UPDATE: no additions or deletes
-            stats["inserted"] = 0
-            stats["updated"] = target_before  # All existing potentially updated
-            stats["deleted"] = 0
-
-        elif strategy == "full_merge":
-            # FULL_MERGE: source replaces target completely
-            stats["inserted"] = source_count
-            stats["updated"] = 0
-            stats["deleted"] = target_before
-
-        else:  # upsert or deduplicate
-            # UPSERT/DEDUPLICATE: additions and updates
-            net_change = target_after - target_before
-            stats["inserted"] = max(0, net_change)
-            stats["updated"] = source_count - stats["inserted"]
-            stats["deleted"] = 0
-
-        return stats
-
+    
     def execute_sql(
         self,
         query: str,

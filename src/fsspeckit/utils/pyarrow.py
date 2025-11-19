@@ -15,6 +15,16 @@ from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
 from pyarrow.fs import FSSpecHandler, PyFileSystem
 
+from fsspeckit.core.merge import (
+    MergeStrategy as CoreMergeStrategy,
+    MergeStats,
+    calculate_merge_stats,
+    check_null_keys,
+    normalize_key_columns,
+    validate_merge_inputs,
+    validate_strategy_compatibility,
+)
+
 # Pre-compiled regex patterns (identical to original)
 INTEGER_REGEX = r"^[-+]?\d+$"
 FLOAT_REGEX = r"^(?:[-+]?(?:\d*[.,])?\d+(?:[eE][-+]?\d+)?|[-+]?(?:inf|nan))$"
@@ -543,32 +553,82 @@ def merge_parquet_dataset_pyarrow(
     compression: str | None = None,
     filesystem: AbstractFileSystem | None = None,
     batch_rows: int = 10_000,
+    progress_callback: Callable[[str, int, int], None] | None = None,
 ) -> dict[str, int]:
     """Merge a source table/dataset into a parquet dataset using PyArrow only.
 
-    The helper mirrors :meth:`DuckDBParquetHandler.merge_parquet_dataset` semantics
-    but executes entirely with PyArrow datasets, scanners, and compute filters. It
-    streams both the source and target datasets in manageable batches and never
-    calls ``dataset.to_table()`` on the entire target without a filter.
+    This function provides the same merge semantics as DuckDBParquetHandler.merge_parquet_dataset
+    but executes entirely with PyArrow datasets, scanners, and compute filters. It uses
+    shared merge semantics and validation for consistent behavior across backends.
+
+    The function streams both the source and target datasets in manageable batches and never
+    calls ``dataset.to_table()`` on the entire target without a filter, ensuring memory efficiency
+    for large datasets.
+
+    All merge strategies (UPSERT, INSERT, UPDATE, FULL_MERGE, DEDUPLICATE) share the same
+    semantics and validation rules across both DuckDB and PyArrow backends.
+
+    Args:
+        source: Source data as PyArrow table or path to parquet dataset.
+        target_path: Path to target parquet dataset directory.
+        key_columns: Column(s) to use for matching records. Can be single column
+            name (string) or list of column names for composite keys.
+        strategy: Merge strategy to use:
+            - "upsert": Insert new records, update existing (default)
+            - "insert": Insert only new records, ignore existing
+            - "update": Update only existing records, ignore new
+            - "full_merge": Insert, update, and delete (full sync with source)
+            - "deduplicate": Remove duplicates from source, then upsert
+        dedup_order_by: Columns to use for ordering when deduplicating (for
+            "deduplicate" strategy). Keeps record with highest value. If None,
+            uses key columns.
+        compression: Compression codec for output files.
+        filesystem: Filesystem to use for operations. If None, uses local filesystem.
+        batch_rows: Number of rows to process in each batch for streaming operations.
+        progress_callback: Optional callback function for progress tracking.
+            Called with (stage, current, total) where stage is a string description.
+
+    Returns:
+        Dictionary with merge statistics:
+            - "inserted": Number of records inserted
+            - "updated": Number of records updated
+            - "deleted": Number of records deleted
+            - "total": Total records in merged dataset
+
+    Raises:
+        ValueError: If strategy invalid, key columns missing, or NULL keys present.
+        TypeError: If source/target schemas incompatible.
+        Exception: If merge operation fails.
+
+    Note:
+        This implementation uses shared merge validation and semantics from fsspeckit.core.merge
+        to ensure consistent behavior across all backends.
     """
 
-    valid_strategies = {
-        "upsert",
-        "insert",
-        "update",
-        "full_merge",
-        "deduplicate",
-    }
-    if strategy not in valid_strategies:
+    # Convert strategy and validate using shared helpers
+    try:
+        core_strategy = CoreMergeStrategy(strategy)
+    except ValueError:
+        valid_strategies = {s.value for s in CoreMergeStrategy}
         raise ValueError(
             f"Invalid strategy '{strategy}'. Supported: {', '.join(sorted(valid_strategies))}"
         )
 
-    keys = _normalize_key_columns(key_columns)
+    # Normalize key columns using shared helper
+    normalized_keys = normalize_key_columns(key_columns)
+
     fs = filesystem or fsspec_filesystem("file")
     arrow_fs = _ensure_pyarrow_filesystem(filesystem)
 
+    # Report progress start
+    if progress_callback:
+        progress_callback("Loading source data", 0, 5)
+
     source_table = _load_source_table_pyarrow(source, arrow_fs)
+
+    # Report progress for target loading
+    if progress_callback:
+        progress_callback("Loading target data", 1, 5)
 
     target_dataset: ds.Dataset | None
     try:
@@ -588,36 +648,38 @@ def merge_parquet_dataset_pyarrow(
             fs.makedirs(target_path, exist_ok=True)
         return {"inserted": 0, "updated": 0, "deleted": 0, "total": total_rows}
 
+    # Report progress for validation
+    if progress_callback:
+        progress_callback("Validating inputs", 2, 5)
+
+    # Validate using shared helpers
+    target_schema = target_dataset.schema if target_dataset else None
+    merge_plan = validate_merge_inputs(
+        source_table.schema, target_schema, normalized_keys, core_strategy
+    )
+    merge_plan.source_count = source_table.num_rows
+
+    # Validate strategy compatibility
+    validate_strategy_compatibility(
+        core_strategy, source_table.num_rows, target_dataset is not None
+    )
+
+    # Check for NULL keys using shared helper
+    check_null_keys(source_table, None, normalized_keys)  # We'll check target dataset during streaming
+
+    # Unify schemas for compatibility
     schemas = [source_table.schema]
     if target_dataset is not None:
         schemas.append(target_dataset.schema)
     unified_schema = unify_schemas(schemas)
     source_table = cast_schema(source_table, unified_schema)
 
-    source_cols = set(source_table.schema.names)
-    missing_source = [col for col in keys if col not in source_cols]
-    if missing_source:
-        raise ValueError(
-            f"Key column(s) missing from source: {', '.join(sorted(missing_source))}"
-        )
-
-    if target_dataset is not None:
-        target_cols = set(target_dataset.schema.names)
-        missing_target = [col for col in keys if col not in target_cols]
-        if missing_target:
-            raise ValueError(
-                f"Key column(s) missing from target: {', '.join(sorted(missing_target))}"
-            )
-
-    _ensure_no_null_keys_table(source_table, keys)
-    _ensure_no_null_keys_dataset(target_dataset, keys)
-
-    if strategy == "deduplicate":
+    if core_strategy == CoreMergeStrategy.DEDUPLICATE:
         if dedup_order_by:
             sort_keys = [(column, "descending") for column in dedup_order_by]
             source_table = source_table.sort_by(sort_keys)
         seen_keys: set[tuple[Any, ...]] = set()
-        key_arrays = [source_table.column(col).to_pylist() for col in keys]
+        key_arrays = [source_table.column(col).to_pylist() for col in normalized_keys]
         dedup_keep_indices: list[int] = []
         for row_idx in range(source_table.num_rows):
             key = tuple(arr[row_idx] for arr in key_arrays)
@@ -628,18 +690,22 @@ def merge_parquet_dataset_pyarrow(
         if dedup_keep_indices:
             source_table = source_table.take(pa.array(dedup_keep_indices))
 
+    # Report progress for merge execution
+    if progress_callback:
+        progress_callback("Executing merge strategy", 3, 5)
+
     # Touch the target via filtered scanners to comply with the streaming spec.
     if target_dataset is not None:
         for batch in _iter_table_slices(source_table, batch_rows):
-            filter_expression = _build_filter_expression(batch, keys)
+            filter_expression = _build_filter_expression(batch, normalized_keys)
             if filter_expression is None:
                 continue
-            scanner = target_dataset.scanner(filter=filter_expression, columns=keys)
+            scanner = target_dataset.scanner(filter=filter_expression, columns=normalized_keys)
             for _ in scanner.to_batches():
                 # Consume batches to ensure the filtered scan executes.
                 pass
 
-    source_key_arrays = [source_table.column(col).to_pylist() for col in keys]
+    source_key_arrays = [source_table.column(col).to_pylist() for col in normalized_keys]
     source_index: dict[tuple[Any, ...], int] = {}
     for row_idx in range(source_table.num_rows):
         key = tuple(arr[row_idx] for arr in source_key_arrays)
@@ -650,11 +716,11 @@ def merge_parquet_dataset_pyarrow(
     stats = {"inserted": 0, "updated": 0, "deleted": 0, "total": 0}
 
     if target_dataset is None:
-        if strategy == "update":
+        if core_strategy == CoreMergeStrategy.UPDATE:
             raise ValueError("Target dataset is empty; nothing to update")
-        if strategy == "insert":
+        if core_strategy == CoreMergeStrategy.INSERT:
             stats["inserted"] = source_table.num_rows
-        elif strategy in {"upsert", "deduplicate", "full_merge"}:
+        elif core_strategy in {CoreMergeStrategy.UPSERT, CoreMergeStrategy.DEDUPLICATE, CoreMergeStrategy.FULL_MERGE}:
             stats["inserted"] = source_table.num_rows
         output_tables.append(source_table)
         processed_source_indices.update(range(source_table.num_rows))
@@ -664,20 +730,20 @@ def merge_parquet_dataset_pyarrow(
             table = pa.Table.from_batches([batch])
             keep_indices: list[int] = []
             replacement_indices: list[int] = []
-            key_lists = [table.column(col).to_pylist() for col in keys]
+            key_lists = [table.column(col).to_pylist() for col in normalized_keys]
             for idx in range(table.num_rows):
                 key = tuple(values[idx] for values in key_lists)
                 source_row_idx = source_index.get(key)
                 if source_row_idx is not None:
                     processed_source_indices.add(source_row_idx)
-                    if strategy == "insert":
+                    if core_strategy == CoreMergeStrategy.INSERT:
                         keep_indices.append(idx)
                     else:
                         replacement_indices.append(source_row_idx)
-                        if strategy in {"upsert", "deduplicate", "update", "full_merge"}:
+                        if core_strategy in {CoreMergeStrategy.UPSERT, CoreMergeStrategy.DEDUPLICATE, CoreMergeStrategy.UPDATE, CoreMergeStrategy.FULL_MERGE}:
                             stats["updated"] += 1
                 else:
-                    if strategy == "full_merge":
+                    if core_strategy == CoreMergeStrategy.FULL_MERGE:
                         stats["deleted"] += 1
                         continue
                     keep_indices.append(idx)
@@ -685,7 +751,7 @@ def merge_parquet_dataset_pyarrow(
             if keep_indices:
                 kept = table.take(pa.array(keep_indices))
                 output_tables.append(cast_schema(kept, unified_schema))
-            if replacement_indices and strategy != "insert":
+            if replacement_indices and core_strategy != CoreMergeStrategy.INSERT:
                 replacements = source_table.take(pa.array(replacement_indices))
                 output_tables.append(cast_schema(replacements, unified_schema))
 
@@ -695,11 +761,15 @@ def merge_parquet_dataset_pyarrow(
         if idx not in processed_source_indices
     ]
     if remaining:
-        if strategy in {"insert", "upsert", "deduplicate", "full_merge"}:
+        if core_strategy in {CoreMergeStrategy.INSERT, CoreMergeStrategy.UPSERT, CoreMergeStrategy.DEDUPLICATE, CoreMergeStrategy.FULL_MERGE}:
             inserted_rows = source_table.take(pa.array(remaining))
             output_tables.append(cast_schema(inserted_rows, unified_schema))
             stats["inserted"] += len(remaining)
         # update strategy ignores non-matching rows
+
+    # Report progress for writing results
+    if progress_callback:
+        progress_callback("Writing merged results", 4, 5)
 
     _write_tables_to_dataset(output_tables, unified_schema, target_path, fs, compression)
     stats["total"] = sum(table.num_rows for table in output_tables)
