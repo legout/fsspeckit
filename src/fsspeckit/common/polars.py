@@ -5,7 +5,7 @@ import re
 from typing import Literal
 from polars.exceptions import InvalidOperationError
 
-from .datetime import get_timedelta_str, get_timestamp_column
+from fsspeckit.common.datetime import get_timedelta_str, get_timestamp_column
 
 # Pre-compiled regex patterns (identical to original)
 INTEGER_REGEX = r"^[-+]?\d+$"

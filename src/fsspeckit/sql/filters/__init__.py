@@ -4,8 +4,8 @@ import pyarrow as pa
 import pyarrow.compute as pc
 from sqlglot import exp, parse_one
 
-from .datetime import timestamp_from_string
-from .polars import pl
+from fsspeckit.common.datetime import timestamp_from_string
+from fsspeckit.common.polars import pl
 
 
 def sql2pyarrow_filter(string: str, schema: pa.Schema) -> pc.Expression:

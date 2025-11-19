@@ -13,15 +13,15 @@ import pyarrow.parquet as pq
 from fsspec import AbstractFileSystem
 # from pydala.dataset import ParquetDataset
 
-from ..utils.misc import path_to_glob, run_parallel
-from ..utils.polars import opt_dtype as opt_dtype_pl
-from ..utils.polars import pl
+from fsspeckit.common.misc import path_to_glob, run_parallel
+from fsspeckit.common.polars import opt_dtype as opt_dtype_pl
+from fsspeckit.common.polars import pl
 
-# from ..utils.polars import unify_schemas as unfify_schemas_pl
-from ..utils.pyarrow import cast_schema, convert_large_types_to_normal
-from ..utils.pyarrow import opt_dtype as opt_dtype_pa
-from ..utils.pyarrow import unify_schemas as unify_schemas_pa
-from ..utils.types import dict_to_dataframe, to_pyarrow_table
+# from fsspeckit.common.polars import unify_schemas as unfify_schemas_pl
+from fsspeckit.datasets.pyarrow import cast_schema, convert_large_types_to_normal
+from fsspeckit.datasets.pyarrow import opt_dtype as opt_dtype_pa
+from fsspeckit.datasets.pyarrow import unify_schemas as unify_schemas_pa
+from fsspeckit.common.types import dict_to_dataframe, to_pyarrow_table
 
 if importlib.util.find_spec("pandas") is not None:
     import pandas as pd

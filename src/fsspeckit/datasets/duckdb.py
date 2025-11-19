@@ -6,7 +6,7 @@ DuckDB provides excellent parquet support with SQL analytics capabilities.
 """
 
 from pathlib import Path
-from typing import Any, Literal, TYPE_CHECKING
+from typing import Any, Callable, Literal, TYPE_CHECKING
 import uuid
 
 import duckdb
@@ -25,7 +25,7 @@ from fsspeckit.core.merge import (
 )
 
 if TYPE_CHECKING:
-    from ..storage_options.base import BaseStorageOptions
+    from fsspeckit.storage_options.base import BaseStorageOptions
 
 
 # Type alias for merge strategies (for backward compatibility)
@@ -572,7 +572,7 @@ class DuckDBParquetHandler:
         strategy: MergeStrategy = "upsert",
         dedup_order_by: list[str] | None = None,
         compression: str = "snappy",
-        progress_callback: callable[[str, int, int], None] | None = None,
+        progress_callback: Callable[[str, int, int], None] | None = None,
     ) -> dict[str, int]:
         """Merge source data into target parquet dataset using specified strategy.
 

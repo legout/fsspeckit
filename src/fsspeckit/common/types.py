@@ -6,7 +6,7 @@ import pandas as pd
 import polars as pl
 import pyarrow as pa
 
-from .pyarrow import convert_large_types_to_normal
+from fsspeckit.datasets.pyarrow import convert_large_types_to_normal
 
 
 def dict_to_dataframe(
