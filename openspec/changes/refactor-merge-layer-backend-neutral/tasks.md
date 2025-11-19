@@ -11,13 +11,13 @@
 
 ## 2. Backend-Neutral Merge Core
 
-- [ ] 2.1 Create `src/fsspeckit/core/merge.py` (or similar module) for backend-neutral helpers.
-- [ ] 2.2 Implement helper to normalize and validate `key_columns` input.
-- [ ] 2.3 Implement helper for NULL-key detection on a generic “table descriptor” abstraction.
-- [ ] 2.4 Implement schema compatibility helper that can be reused by both DuckDB and PyArrow backends.
-- [ ] 2.5 Implement strategy semantics helpers that define which records are considered inserts, updates, deletes for each strategy.
-- [ ] 2.6 Implement a small statistics object / helper that accumulates `"inserted"`, `"updated"`, `"deleted"`, `"total"` from actual operations.
-- [ ] 2.7 Add focused unit tests for `core.merge` helpers (pure Python / PyArrow), independent of DuckDB or PyArrow datasets.
+- [x] 2.1 Create `src/fsspeckit/core/merge.py` (or similar module) for backend-neutral helpers.
+- [x] 2.2 Implement helper to normalize and validate `key_columns` input.
+- [x] 2.3 Implement helper for NULL-key detection on a generic "table descriptor" abstraction.
+- [x] 2.4 Implement schema compatibility helper that can be reused by both DuckDB and PyArrow backends.
+- [x] 2.5 Implement strategy semantics helpers that define which records are considered inserts, updates, deletes for each strategy.
+- [x] 2.6 Implement a small statistics object / helper that accumulates `"inserted"`, `"updated"`, `"deleted"`, `"total"` from actual operations.
+- [x] 2.7 Add focused unit tests for `core.merge` helpers (pure Python / PyArrow), independent of DuckDB or PyArrow datasets.
 
 ## 3. DuckDB Backend Refactor
 
