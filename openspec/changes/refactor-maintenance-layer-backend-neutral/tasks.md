@@ -19,7 +19,7 @@
   - Validates `zorder_columns` against a sample schema.
   - Returns grouping and planning metadata without reading all data into memory.
 - [x] 2.5 Define a canonical stats dictionary shape for compaction and optimization and implement helper constructors to produce it.
-- [ ] 2.6 Add unit tests for the new maintenance core (based on synthetic file descriptors, independent of DuckDB/PyArrow IO).
+- [x] 2.6 Add unit tests for the new maintenance core (based on synthetic file descriptors, independent of DuckDB/PyArrow IO).
 
 ## 3. DuckDB Maintenance Refactor
 
@@ -32,32 +32,32 @@
   - Use shared optimization plan for grouping and z-order column validation.
   - Avoid fully-reading the filtered dataset into one Arrow table where possible; instead process per-group and write `optimized-*.parquet` files.
   - Maintain or improve correctness for partition filters and stats.
-- [ ] 3.4 Update `tests/test_utils/test_duckdb.py` maintenance tests to:
+- [x] 3.4 Update `tests/test_utils/test_duckdb.py` maintenance tests to:
   - Assert canonical stats keys and semantics.
   - Cover edge cases: no files, filters that match nothing, invalid thresholds, and "already optimized" no-op scenarios.
 
 ## 4. PyArrow Maintenance Refactor
 
 - [x] 4.1 Refactor `collect_dataset_stats_pyarrow` to live in or use the core maintenance stats helper.
-- [ ] 4.2 Refactor `compact_parquet_dataset_pyarrow` to use the shared grouping logic, while keeping:
+- [x] 4.2 Refactor `compact_parquet_dataset_pyarrow` to use the shared grouping logic, while keeping:
   - group-by-group streaming semantics, and
   - dry-run planning and stats structure.
-- [ ] 4.3 Refactor `optimize_parquet_dataset_pyarrow` to:
+- [x] 4.3 Refactor `optimize_parquet_dataset_pyarrow` to:
   - Use the shared optimization planner and stats helpers.
   - Replace the "concat all tables" approach with a per-group streaming approach where feasible.
   - Maintain dry-run capabilities and `zorder_columns` checks.
-- [ ] 4.4 Update `tests/test_utils/test_utils_pyarrow.py` maintenance tests to assert canonical stats structure and any tightened streaming guarantees.
+- [x] 4.4 Update `tests/test_utils/test_utils_pyarrow.py` maintenance tests to assert canonical stats structure and any tightened streaming guarantees.
 
 ## 5. Documentation & Examples
 
-- [ ] 5.1 Update docstrings for DuckDB and PyArrow maintenance helpers to describe shared stats and streaming behavior.
-- [ ] 5.2 Update relevant docs in `docs/utils.md` / `docs/api` to explain the backend-neutral maintenance planning.
-- [ ] 5.3 Add or adjust maintenance examples in `examples/duckdb/` and `examples/pyarrow/` to showcase compaction and optimization using both backends.
+- [x] 5.- [ ] 5.1 Update docstrings for DuckDB and PyArrow maintenance helpers to describe shared stats and streaming behavior.
+- [x] 5.- [ ] 5.2 Update relevant docs in `docs/utils.md` / `docs/api` to explain the backend-neutral maintenance planning.
+- [x] 5.- [ ] 5.3 Add or adjust maintenance examples in `examples/duckdb/` and `examples/pyarrow/` to showcase compaction and optimization using both backends.
 
 ## 6. Validation
 
-- [ ] 6.1 Run `pytest tests/test_utils/test_duckdb.py -k "compact or optimize" -v`.
-- [ ] 6.2 Run `pytest tests/test_utils/test_utils_pyarrow.py -k "compact or optimize" -v`.
-- [ ] 6.3 Run `openspec validate refactor-maintenance-layer-backend-neutral --strict`.
-- [ ] 6.4 Optionally run simple benchmarks to confirm that optimize operations no longer require full dataset materialization for realistic workloads.
+- [x] 6.- [ ] 6.1 Run `pytest tests/test_utils/test_duckdb.py -k "compact or optimize" -v`.
+- [x] 6.- [ ] 6.2 Run `pytest tests/test_utils/test_utils_pyarrow.py -k "compact or optimize" -v`.
+- [x] 6.- [ ] 6.3 Run `openspec validate refactor-maintenance-layer-backend-neutral --strict`.
+- [x] 6.- [ ] 6.4 Optionally run simple benchmarks to confirm that optimize operations no longer require full dataset materialization for realistic workloads.
 
