@@ -2,11 +2,19 @@
 
 Welcome to the `fsspeckit` API reference documentation. This section provides detailed information on the various modules, classes, and functions available in the library.
 
+> **Package Structure**: fsspeckit is organized into domain packages. See [Architecture](../architecture.md) for details.
+
 ## Core Modules
 
 *   [`fsspeckit.core.base`](fsspeckit.core.base.md)
 
 *   [`fsspeckit.core.ext`](fsspeckit.core.ext.md)
+
+*   [`fsspeckit.core.filesystem`](fsspeckit.core.filesystem.md)
+
+*   [`fsspeckit.core.merge`](fsspeckit.core.merge.md)
+
+*   [`fsspeckit.core.maintenance`](fsspeckit.core.maintenance.md)
 
 ## Storage Options
 
@@ -18,18 +26,32 @@ Welcome to the `fsspeckit` API reference documentation. This section provides de
 
 *   [`fsspeckit.storage_options.git`](fsspeckit.storage_options.git.md)
 
-## Utils
+## Datasets
 
-*   [`fsspeckit.utils.datetime`](fsspeckit.utils.datetime.md)
+*   [`fsspeckit.datasets`](fsspeckit.datasets.md)
 
-*   [`fsspeckit.utils.logging`](fsspeckit.utils.logging.md)
+*   [`fsspeckit.datasets.duckdb`](fsspeckit.datasets.duckdb.md)
 
-*   [`fsspeckit.utils.misc`](fsspeckit.utils.misc.md)
+*   [`fsspeckit.datasets.pyarrow`](fsspeckit.datasets.pyarrow.md)
 
-*   [`fsspeckit.utils.polars`](fsspeckit.utils.polars.md)
+## SQL
 
-*   [`fsspeckit.utils.pyarrow`](fsspeckit.utils.pyarrow.md)
+*   [`fsspeckit.sql`](fsspeckit.sql.md)
 
-*   [`fsspeckit.utils.sql`](fsspeckit.utils.sql.md)
+*   [`fsspeckit.sql.filters`](fsspeckit.sql.filters.md)
 
-*   [`fsspeckit.utils.types`](fsspeckit.utils.types.md)
+## Common
+
+*   [`fsspeckit.common.datetime`](fsspeckit.common.datetime.md)
+
+*   [`fsspeckit.common.logging`](fsspeckit.common.logging.md)
+
+*   [`fsspeckit.common.misc`](fsspeckit.common.misc.md)
+
+*   [`fsspeckit.common.polars`](fsspeckit.common.polars.md)
+
+*   [`fsspeckit.common.types`](fsspeckit.common.types.md)
+
+## Utils (Backwards Compatibility)
+
+*   [`fsspeckit.utils`](fsspeckit.utils.md) - Re-exports from domain packages for backwards compatibility

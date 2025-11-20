@@ -1,15 +1,20 @@
-# Utils Module
+# Utilities Reference
 
-The `fsspeckit.utils` module provides a collection of utility functions that simplify common tasks such as logging, parallel processing, data type conversions, and schema transformations.
+This page documents utilities available in fsspeckit. The utilities are organized into domain packages for better discoverability and maintainability.
 
-## Logging
+> **Package Layout Overview**: fsspeckit is organized into domain packages - see [Architecture](architecture.md) for details.
+> **Backwards Compatibility**: All imports from `fsspeckit.utils` continue to work unchanged.
 
-### `setup_logging`
+## Cross-Cutting Utilities (`fsspeckit.common`)
+
+### Logging
+
+#### `setup_logging()`
 
 Configure logging throughout your application with loguru:
 
 ```python
-from fsspeckit.utils import setup_logging
+from fsspeckit.common.logging import setup_logging
 
 # Basic setup
 setup_logging()
@@ -24,14 +29,14 @@ setup_logging(level="DEBUG", format_string="{time} | {level} | {message}")
 **Environment Variables:**
 - `fsspeckit_LOG_LEVEL` - Set the logging level (default: INFO)
 
-## Parallel Processing
+### Parallel Processing
 
-### `run_parallel`
+#### `run_parallel()`
 
 Execute a function across multiple inputs using parallel threads with optional progress bar:
 
 ```python
-from fsspeckit.utils import run_parallel
+from fsspeckit.common.misc import run_parallel
 
 def process_file(path, multiplier=1):
     return len(path) * multiplier
@@ -48,894 +53,213 @@ results = run_parallel(
 
 **Parameters:**
 - `func` - Function to apply to each item
-- `items` - List of items to process
-- `n_jobs` - Number of parallel jobs (default: 1)
-- `verbose` - Show progress bar (default: False)
-- `backend` - Parallel backend ('threading' or 'loky')
-- `**kwargs` - Additional keyword arguments passed to func
+- `items` - List of inputs to process
+- `n_jobs` - Number of parallel threads (default: CPU count)
+- `backend` - Parallel backend: "threading" or "process" (default: "threading")
 
-## File Synchronization
+### File System Operations
 
-### `sync_files`
-
-Synchronize files from source to destination, supporting efficient server-side copy when both paths are on the same filesystem:
+#### File Synchronization
 
 ```python
-from fsspeckit.utils import sync_files
+from fsspeckit.common.misc import sync_files, sync_dir
 
-# Copy files with optional filtering
-synced = sync_files(
-    fs,
-    source_paths=["/source/file1.txt", "/source/file2.txt"],
-    target_path="/destination/",
-    overwrite=True,
+# Sync individual files
+sync_files(
+    source_paths=["/data/file1.txt", "/data/file2.txt"],
+    fs_target=filesystem("s3://bucket/"),
     verbose=True
 )
-```
 
-### `sync_dir`
-
-Recursively sync directories between filesystems:
-
-```python
-from fsspeckit.utils import sync_dir
-
-# Sync entire directory
+# Sync directories recursively
 sync_dir(
-    fs_source,
-    source_path="/source/data/",
-    fs_target,
-    target_path="/backup/data/",
-    overwrite=False,
-    verbose=True
+    source_dir="/data/",
+    fs_target=filesystem("s3://bucket/"),
+    pattern="*.parquet",
+    delete=True
 )
 ```
 
-**Performance Note:** When source and target are on the same filesystem, `sync_dir` performs server-side copy for improved performance.
-
-## Partitioning Utilities
-
-### `get_partitions_from_path`
-
-Extract partition information from a file path in Hive-style partition format:
+#### Path Utilities
 
 ```python
-from fsspeckit.utils import get_partitions_from_path
+from fsspeckit.common.misc import get_partitions_from_path
 
-# Extract partitions from path like "year=2023/month=10/day=15/data.parquet"
-partitions = get_partitions_from_path("/data/year=2023/month=10/day=15/data.parquet")
-# Returns: {"year": "2023", "month": "10", "day": "15"}
+# Extract partition information from paths
+partitions = get_partitions_from_path("/data/year=2023/month=01/file.parquet")
+# Returns: {'year': '2023', 'month': '01'}
 ```
 
-### `path_to_glob`
+### Type Conversion
 
-Convert a path with partition placeholders to a glob pattern:
-
-```python
-from fsspeckit.utils import path_to_glob
-
-# Convert partition path to glob pattern
-pattern = path_to_glob("/data/year=*/month=*/day=*/data.parquet")
-# Returns: "/data/year=*/month=*/day=*/data.parquet"
-```
-
-## Type Conversion
-
-### `dict_to_dataframe`
-
-Convert dictionaries or lists of dictionaries to Polars DataFrame:
+#### DataFrame Conversion
 
 ```python
-from fsspeckit.utils import dict_to_dataframe
+from fsspeckit.common.types import dict_to_dataframe, to_pyarrow_table
 
-# Single dict
+# Convert dict to DataFrame
 data = {"col1": [1, 2, 3], "col2": [4, 5, 6]}
 df = dict_to_dataframe(data)
 
-# List of dicts (records format)
-records = [
-    {"name": "Alice", "age": 30},
-    {"name": "Bob", "age": 25}
-]
-df = dict_to_dataframe(records)
+# Convert to PyArrow table
+table = to_pyarrow_table(df)
 ```
 
-### `to_pyarrow_table`
-
-Convert various data types to PyArrow Table:
+#### DateTime Utilities
 
 ```python
-from fsspeckit.utils import to_pyarrow_table
+from fsspeckit.common.datetime import timestamp_from_string, get_timestamp_column
 
-# From Polars DataFrame
-table = to_pyarrow_table(polars_df)
+# Parse timestamp strings
+ts = timestamp_from_string("2023-01-15 10:30:00")
+ts_with_tz = timestamp_from_string("2023-01-15T10:30:00Z", tz="UTC")
 
-# From Pandas DataFrame
-table = to_pyarrow_table(pandas_df)
-
-# From dictionary
-data = {"col1": [1, 2, 3], "col2": [4, 5, 6]}
-table = to_pyarrow_table(data)
-
-# From list of dicts
-records = [{"a": 1}, {"a": 2}]
-table = to_pyarrow_table(records)
+# Find timestamp column in DataFrame
+timestamp_cols = get_timestamp_column(df)
 ```
 
-## Datetime Utilities
-
-### `timestamp_from_string`
-
-Parse timestamp strings using standard library (zoneinfo-aware):
+#### Polars Optimization
 
 ```python
-from fsspeckit.utils import timestamp_from_string
-from datetime import datetime
+from fsspeckit.common.polars import opt_dtype_pl
 
-# Parse ISO format
-ts = timestamp_from_string("2023-10-15T10:30:00")
+# Optimize DataFrame data types
+df_optimized = opt_dtype_pl(df, shrink_numerics=True)
 
-# Parse with timezone
-ts = timestamp_from_string("2023-10-15T10:30:00+02:00")
-
-# Returns: datetime object
+# Optimize specific columns
+df_optimized = opt_dtype_pl(df, columns=["numeric_col"])
 ```
 
-### `get_timedelta_str`
+## Dataset Operations (`fsspeckit.datasets`)
 
-Get a human-readable time difference string:
+### DuckDB Dataset Handler
+
+#### `DuckDBParquetHandler`
+
+High-performance parquet dataset operations using DuckDB:
 
 ```python
-from fsspeckit.utils import get_timedelta_str
-from datetime import datetime
+from fsspeckit.datasets import DuckDBParquetHandler
 
-start = datetime(2023, 1, 1)
-end = datetime(2023, 1, 5, 12, 30, 45)
+with DuckDBParquetHandler() as handler:
+    # Dataset maintenance operations
+    handler.compact_parquet_dataset(
+        path="/data/events/",
+        target_rows_per_file=500_000
+    )
 
-diff_str = get_timedelta_str(start, end)
-# Returns: "4 days 12:30:45" (or similar format)
+    # Data analytics
+    handler.optimize_parquet_dataset(
+        path="/data/events/",
+        zorder_columns=["user_id", "timestamp"]
+    )
 ```
 
-## Data Type Optimization
+### PyArrow Dataset Helpers
 
-### Polars Data Type Optimization
-
-#### `opt_dtype`
-
-Automatically optimize Polars column data types to reduce memory usage:
+#### Schema Management
 
 ```python
-from fsspeckit.utils import opt_dtype_pl
-import polars as pl
+from fsspeckit.datasets import cast_schema, convert_large_types_to_normal
 
-# Optimize a single column
-df = pl.DataFrame({"id": [1, 2, 3], "count": [100, 200, 300]})
-optimized = opt_dtype_pl(df)
+# Convert to standard schema
+standard_schema = convert_large_types_normal(original_schema)
 
-# Or use as DataFrame extension:
-df_opt = df.opt_dtype  # Custom extension method
+# Cast table to schema
+table_casted = cast_schema(table, target_schema)
 ```
 
-You can tune `sample_size` and `sample_method` when calling `opt_dtype_pl` (or `df.opt_dtype`) to keep the regex heuristics bounded. The defaults (1024 rows, `sample_method="first"`) provide a good balance between inference accuracy and memory usage, and the inferred schema is based solely on the sampled rows before the full column is cast.
-
-**Optimizations include:**
-- Int64 → Int32 when range fits
-- Float64 → Float32 when precision allows
-- Large string → small string
-- Categorical encoding for repetitive strings
-
-#### `opt_dtype_pa`
-
-PyArrow equivalent for type optimization:
+#### Data Type Optimization
 
 ```python
-from fsspeckit.utils import opt_dtype_pa
+from fsspeckit.datasets import opt_dtype_pa
 
-# Optimize PyArrow table
-table = pa.table({"id": [1, 2, 3], "count": [100, 200, 300]})
-optimized = opt_dtype_pa(table)
+# Optimize PyArrow table data types
+table_optimized = opt_dtype_pa(table)
 ```
 
-The PyArrow helper exposes the same `sample_size`/`sample_method` knobs so you can limit the inference subset before the full table is cast, with the schema derived entirely from the sampled values.
-
-## Schema Utilities
-
-### `cast_schema`
-
-Unify schemas across multiple tables/dataframes:
+#### Dataset Merging
 
 ```python
-from fsspeckit.utils import cast_schema
+from fsspeckit.datasets.pyarrow import merge_parquet_dataset_pyarrow
 
-# Cast one schema to match another
-target_schema = table1.schema
-cast_table2 = cast_schema(table2, target_schema)
+# Merge multiple datasets
+merge_parquet_pyarrow(
+    dataset_paths=["/data/part1/", "/data/part2/"],
+    target_path="/data/merged/",
+    key_columns=["id"]
+)
 ```
 
-### `convert_large_types_to_normal`
+## SQL Filtering (`fsspeckit.sql`)
 
-Convert large_string/large_binary to normal string/binary types:
+### SQL to Expression Translation
 
-```python
-from fsspeckit.utils import convert_large_types_to_normal
+#### `sql2pyarrow_filter()`
 
-# Convert large types in PyArrow table
-table = convert_large_types_to_normal(table)
-
-# Useful for compatibility with systems that don't support large types
-```
-
-## SQL-to-Expression Conversion
-
-### `sql2pyarrow_filter`
-
-Convert SQL WHERE clause to PyArrow filter expression for use with `pyarrow.dataset.Scanner`:
+Convert SQL WHERE clauses to PyArrow filter expressions:
 
 ```python
-from fsspeckit.utils import sql2pyarrow_filter
+from fsspeckit.sql.filters import sql2pyarrow_filter
+
 import pyarrow as pa
-import pyarrow.dataset as ds
 
-# Define schema
 schema = pa.schema([
-    ("age", pa.int32()),
+    ("id", pa.int64()),
     ("name", pa.string()),
-    ("active", pa.bool_()),
-    ("created_at", pa.timestamp("us", "UTC")),
-    ("category", pa.string())
+    ("timestamp", pa.timestamp("us")),
+    ("value", pa.float64())
 ])
 
-# Create filter from SQL
-expr = sql2pyarrow_filter(
-    "age > 25 AND name = 'Alice' AND active = true",
-    schema
-)
-
-# Apply to dataset scanner
-dataset = ds.dataset("/path/to/parquet", format="parquet")
-filtered = dataset.to_table(filter=expr)
-
-# Also works with table filtering
-table = pa.table({...})
-filtered_table = table.filter(expr)
+# Convert SQL to PyArrow filter
+filter_expr = sql2pyarrow_filter("name = 'test' AND value > 100", schema)
 ```
 
-**Key Features for PyArrow Integration:**
-- Returns `pyarrow.compute.Expression` objects compatible with `dataset.to_table(filter=expr)`
-- Handles timestamp, date, and time literals with proper timezone support
-- Supports boolean literals (`true`, `false`, `1`, `0`)
-- Works with IN/NOT IN lists for efficient filtering
-- Compatible with row-level pruning in PyArrow datasets
+#### `sql2polars_filter()`
 
-### `sql2polars_filter`
-
-Convert SQL WHERE clause to Polars filter expression:
+Convert SQL WHERE clauses to Polars expressions:
 
 ```python
-from fsspeckit.utils import sql2polars_filter
+from fsspeckit.sql.filters import sql2polars_filter
 
-# Create filter expression
-expr = sql2polars_filter("age > 25 AND status = 'active'")
-
-# Apply to DataFrame
-filtered_df = df.filter(expr)
-```
-
-**Supported SQL syntax:**
-- **Comparison operators**: `=`, `!=`, `>`, `>=`, `<`, `<=`
-- **Logical operators**: `AND`, `OR`, `NOT` with parentheses for grouping
-- **In operator**: `IN (val1, val2, ...)` and `NOT IN (val1, val2, ...)`
-- **Null checks**: `IS NULL`, `IS NOT NULL`
-- **Boolean literals**: `true`, `false`, `True`, `False`, `1`, `0`
-- **Datetime literals**: ISO format strings for timestamp/date/time columns
-  - Timestamps: `'2023-01-01T10:30:00'` or `'2023-01-01T10:30:00+02:00'`
-  - Dates: `'2023-01-01'`
-  - Times: `'10:30:00'`
-- **Complex expressions**: Nested combinations with parentheses, e.g. `(age > 30 AND score > 85) OR category = 'A'`
-
-## DuckDB Parquet Handler
-
-### `DuckDBParquetHandler`
-
-High-performance parquet dataset operations using DuckDB with fsspec integration for local and remote storage.
-
-#### Basic Usage
-
-```python
-from fsspeckit.utils import DuckDBParquetHandler
-import pyarrow as pa
-
-# Create sample data
-table = pa.table({'id': [1, 2, 3], 'name': ['Alice', 'Bob', 'Charlie']})
-
-# Write and read parquet files
-with DuckDBParquetHandler() as handler:
-    handler.write_parquet(table, "/tmp/data.parquet")
-    result = handler.read_parquet("/tmp/data.parquet")
-```
-
-#### Dataset Write Operations
-
-Write to parquet datasets with automatic unique filenames:
-
-```python
-# Basic dataset write
-with DuckDBParquetHandler() as handler:
-    handler.write_parquet_dataset(table, "/data/sales/")
-    # Creates: /data/sales/part-a1b2c3d4.parquet
-```
-
-**Append Mode (Incremental Updates)**
-
-```python
-# Day 1 - initial load
-handler.write_parquet_dataset(batch1, "/data/sales/", mode="append")
-
-# Day 2 - add new data (preserves Day 1 file)
-handler.write_parquet_dataset(batch2, "/data/sales/", mode="append")
-
-# Read combined dataset
-all_data = handler.read_parquet("/data/sales/")
-```
-
-**Overwrite Mode (Replace Dataset)**
-
-```python
-# Replace entire dataset
-handler.write_parquet_dataset(
-    new_data,
-    "/data/sales/",
-    mode="overwrite"  # Deletes existing parquet files
-)
-```
-
-**Split Large Tables**
-
-```python
-# Split into multiple files with max 100k rows each
-handler.write_parquet_dataset(
-    large_table,
-    "/data/sales/",
-    max_rows_per_file=100000
-)
-```
-
-**Custom Filename Templates**
-
-```python
-# Custom filename pattern
-handler.write_parquet_dataset(
-    table,
-    "/data/sales/",
-    basename_template="sales_{}.parquet"
-)
-# Creates: sales_a1b2c3d4.parquet
-```
-
-#### Dataset Merge Operations
-
-Intelligently merge parquet datasets with multiple strategies for CDC, incremental loads, and synchronization:
-
-**Basic UPSERT (Change Data Capture)**
-
-```python
-with DuckDBParquetHandler() as handler:
-    # Initial data
-    initial = pa.table({
-        'customer_id': [1, 2, 3],
-        'name': ['Alice', 'Bob', 'Charlie'],
-        'balance': [100, 200, 300]
-    })
-    handler.write_parquet_dataset(initial, "/data/customers/")
-    
-    # CDC changes: Update customer 2, add customer 4
-    changes = pa.table({
-        'customer_id': [2, 4],
-        'name': ['Bob', 'Diana'],
-        'balance': [250, 400]
-    })
-    
-    # Merge with UPSERT strategy
-    stats = handler.merge_parquet_dataset(
-        source=changes,
-        target_path="/data/customers/",
-        key_columns="customer_id",
-        strategy="upsert"
-    )
-    
-    print(stats)
-    # {'inserted': 1, 'updated': 1, 'deleted': 0, 'total': 4}
-```
-
-**Available Merge Strategies**
-
-1. **UPSERT** - Insert new records and update existing ones (default for CDC)
-   ```python
-   # Best for: Change data capture, general updates
-   handler.merge_parquet_dataset(
-       source=changes,
-       target_path="/data/",
-       key_columns="id",
-       strategy="upsert"
-   )
-   ```
-
-2. **INSERT** - Add only new records, ignore existing (append-only)
-   ```python
-   # Best for: Event logs, audit trails, immutable data
-   handler.merge_parquet_dataset(
-       source=new_events,
-       target_path="/data/events/",
-       key_columns="event_id",
-       strategy="insert"
-   )
-   ```
-
-3. **UPDATE** - Update only existing records, ignore new ones
-   ```python
-   # Best for: Dimension table updates (SCD Type 1)
-   handler.merge_parquet_dataset(
-       source=updates,
-       target_path="/data/products/",
-       key_columns="product_id",
-       strategy="update"
-   )
-   ```
-
-4. **FULL_MERGE** - Complete synchronization (insert, update, delete)
-   ```python
-   # Best for: Full snapshots, complete syncs
-   handler.merge_parquet_dataset(
-       source=fresh_snapshot,
-       target_path="/data/inventory/",
-       key_columns="sku",
-       strategy="full_merge"
-   )
-   ```
-
-5. **DEDUPLICATE** - Remove duplicates, keeping most recent
-   ```python
-   # Best for: Deduplication, handling duplicate records
-   handler.merge_parquet_dataset(
-       source=data_with_duplicates,
-       target_path="/data/transactions/",
-       key_columns="transaction_id",
-       strategy="deduplicate",
-       dedup_order_by=["timestamp"]  # Keep highest timestamp
-   )
-   ```
-
-**Composite Key Support**
-
-Merge on multiple columns for complex uniqueness requirements:
-
-```python
-# Merge on user + date combination
-handler.merge_parquet_dataset(
-    source=daily_metrics,
-    target_path="/data/user_metrics/",
-    key_columns=["user_id", "date"],  # Composite key
-    strategy="upsert"
-)
-```
-
-**Source from Path or Table**
-
-```python
-# Source as PyArrow table
-handler.merge_parquet_dataset(
-    source=pa_table,
-    target_path="/data/target/",
-    key_columns="id",
-    strategy="upsert"
-)
-
-# Source as path to dataset
-handler.merge_parquet_dataset(
-    source="/data/source/",  # Path to parquet dataset
-    target_path="/data/target/",
-    key_columns="id",
-    strategy="upsert"
-)
-```
-
-**Merge with Compression**
-
-```python
-# Merge and recompress with better algorithm
-handler.merge_parquet_dataset(
-    source=new_data,
-    target_path="/data/",
-    key_columns="id",
-    strategy="upsert",
-    compression="zstd"  # High compression ratio
-)
-```
-
-**Merge Statistics**
-
-All merge operations return detailed statistics:
-
-```python
-stats = handler.merge_parquet_dataset(...)
-
-print(f"Inserted: {stats['inserted']}")  # New records added
-print(f"Updated: {stats['updated']}")    # Existing records updated
-print(f"Deleted: {stats['deleted']}")    # Records removed (FULL_MERGE only)
-print(f"Total: {stats['total']}")        # Final record count
-```
-
-**Validation and Error Handling**
-
-The merge operation performs comprehensive validation:
-
-```python
-try:
-    handler.merge_parquet_dataset(
-        source=data,
-        target_path="/data/",
-        key_columns="id",
-        strategy="upsert"
-    )
-except ValueError as e:
-    # Handles: Missing key columns, NULL keys, schema mismatches
-    print(f"Merge validation failed: {e}")
-except TypeError as e:
-    # Handles: Column type mismatches
-    print(f"Type error: {e}")
-```
-
-**Best Practices for Merging**
-
-1. **Choose the right strategy** - UPSERT for CDC, INSERT for events, UPDATE for dimensions
-2. **Use composite keys** - When uniqueness depends on multiple columns
-3. **Validate schemas first** - Ensure source and target schemas match
-4. **Monitor statistics** - Track inserted/updated/deleted counts
-5. **Handle NULL keys** - Key columns must not contain NULL values
-6. **Test with small datasets** - Verify merge logic before production
-7. **Use DEDUPLICATE** - Clean data before merging if duplicates exist
-8. **Optimize with QUALIFY** - DuckDB's QUALIFY clause optimizes deduplication
-
-**Performance Characteristics**
-
-| Strategy | Time Complexity | Best For | Deletes Data |
-|----------|----------------|----------|--------------|
-| UPSERT | O(n + m) | CDC, general updates | No |
-| INSERT | O(n + m) | Append-only loads | No |
-| UPDATE | O(n + m) | Dimension updates | No |
-| FULL_MERGE | O(n + m) | Full synchronization | Yes |
-| DEDUPLICATE | O(n + m) | Duplicate removal | Yes |
-
-*n = target rows, m = source rows*
-
-See `examples/duckdb/duckdb_merge_example.py` for comprehensive examples of all strategies.
-
-#### Dataset Maintenance Operations
-
-Large parquet datasets inevitably accumulate many tiny files or become poorly clustered for selective queries. `DuckDBParquetHandler` ships two maintenance helpers that operate directly against your dataset directory without leaving behind temporary SQLite/Delta assets:
-
-1. `compact_parquet_dataset` — consolidates small files into right-sized chunks while preserving schema, statistics, and (optionally) recompressing the output.
-2. `optimize_parquet_dataset` — rewrites the dataset ordered by a multi-column z-order style key to improve predicate pushdown locality.
-
-**Inspect Current Fragmentation**
-
-```python
-with DuckDBParquetHandler(storage_options=options) as handler:
-    stats = handler.compact_parquet_dataset(
-        path="s3://bucket/events/",
-        target_mb_per_file=128,
-        dry_run=True,  # no writes, just inspection
-    )
-
-print(stats["before"]["file_count"], "files before compaction")
-print(stats["plan"][0])  # proposed merge groups
-```
-
-`dry_run=True` returns a dictionary with `before`, `after`, and `plan` keys so you can review the intended merges inside CI/CD before touching storage.
-
-**Compact a Dataset**
-
-```python
-with DuckDBParquetHandler() as handler:
-    stats = handler.compact_parquet_dataset(
-        path="/data/sales/",
-        target_mb_per_file=256,
-        compression="zstd",  # optional recompression
-        max_files_per_group=32,
-    )
-
-print(f"Reduced files from {stats['before']['file_count']} to {stats['after']['file_count']}")
-```
-
-**Optimize with Z-Order Style Ordering**
-
-```python
-with DuckDBParquetHandler() as handler:
-    stats = handler.optimize_parquet_dataset(
-        path="/data/events/",
-        zorder_columns=["user_id", "event_date"],
-        target_mb_per_file=256,
-        partition_filter=["date=2025-11-10"],
-    )
-
-print(f"Clustered {stats['after']['file_count']} files covering filtered partitions")
-```
-
-The optimizer rewrites files ordered by the provided columns using a lexicographic interleave approximation (not a full Morton curve). For write-after-read safety, it always writes into a temporary staging area, validates row counts, and then swaps the files in place.
-
-**Dry-Run Safety + Partition Filters**
-
-- Pass `dry_run=True` to either method to inspect their impact.
-- Provide `partition_filter=["date=2025-11-04"]` to limit work to specific partitions without scanning unrelated data.
-- `max_files_per_group` and `target_rows_per_file` let you bound resource use when compaction happens during active ingestion.
-
-**Returned Statistics**
-
-Both helpers return metrics that make it easy to alert/monitor:
-
-```python
-{
-    "before": {"file_count": 147, "total_rows": 9_800_000, "total_bytes": 24_000_000_000},
-    "after": {"file_count": 32, "total_rows": 9_800_000, "total_bytes": 22_000_000_000},
-    "plan": [
-        {"group_id": 1, "inputs": ["part-0001.parquet", ...], "output": "part-compact-0001.parquet"}
-    ],
-}
-```
-
-**Best Practices**
-
-1. **Always dry-run in CI** before letting automation rewrite production buckets.
-2. **Set realistic thresholds** (`target_mb_per_file` or `target_rows_per_file`) that align with your downstream query engines.
-3. **Use partition filters** to keep compaction scoped to “hot” partitions during live ingestion.
-4. **Recompress during maintenance** if your historic data still uses gzip/snappy and you prefer zstd.
-5. **Alternate optimize + compact** — run optimization first to recluster, then compaction to materialize polished files.
-
-**Limitations & Future Work**
-
-- Current z-ordering uses a deterministic interleave approximation and does not yet adapt to partition cardinality; true partition-aware curves are on the roadmap.
-- File sizing relies on static thresholds; adaptive sizing driven by per-row-group statistics is a future enhancement.
-
-See `examples/duckdb/duckdb_compact_example.py` and `examples/duckdb/duckdb_optimize_example.py` for end-to-end scripts that mirror production workflows.
-
-#### PyArrow Parquet Maintenance
-
-Some deployments cannot bundle DuckDB but still need dataset maintenance. The
-PyArrow helpers mirror the DuckDB behavior while working directly with
-`pyarrow` + `fsspec`:
-
-- `collect_dataset_stats_pyarrow` — metadata-only scan that returns file sizes
-  and row counts (optionally filtered by partition prefixes).
-- `compact_parquet_dataset_pyarrow` — rewrites groups of small files into
-  right-sized `compact-*.parquet` outputs.
-- `optimize_parquet_dataset_pyarrow` — reclusters files ordered by
-  `zorder_columns`, optionally combined with compaction thresholds.
-
-```python
-from fsspeckit.utils.pyarrow import (
-    collect_dataset_stats_pyarrow,
-    compact_parquet_dataset_pyarrow,
-    optimize_parquet_dataset_pyarrow,
-)
-
-# Keep stats/maintenance scoped via partition prefixes so we never materialize
-# an entire dataset with dataset.to_table()
-stats = collect_dataset_stats_pyarrow(
-    "s3://bucket/events/",
-    partition_filter=["date=2025-11-15"],
-)
-
-plan = compact_parquet_dataset_pyarrow(
-    "s3://bucket/events/",
-    target_rows_per_file=250_000,
-    partition_filter=["date=2025-11-15"],
-    dry_run=True,
-)
-print("Planned compaction groups:", plan["planned_groups"])
-
-optimize = optimize_parquet_dataset_pyarrow(
-    "s3://bucket/events/",
-    zorder_columns=["user_id", "event_ts"],
-    target_mb_per_file=256,
-    partition_filter=["date=2025-11-15"],
-)
-print("Optimization rewrote", optimize["compacted_file_count"], "files")
-```
-
-Pair maintenance with filtered materialization when you need to inspect the
-results:
-
-```python
-import pyarrow.dataset as ds
-
-dataset = ds.dataset("s3://bucket/events/")
-hot_partition = dataset.to_table(filter=ds.field("date") == "2025-11-15")
-print("Materialized rows for hot partition:", hot_partition.num_rows)
-```
-
-**Best Practices**
-
-1. Always set `partition_filter` (or `pyarrow.dataset` filters) so the helpers
-   only touch relevant directories.
-2. Avoid calling `dataset.to_table()` without a filter—large datasets will not
-   fit in memory.
-3. Use `dry_run=True` inside CI/CD to capture planned groups and metrics before
-   writing.
-4. Prefer a z-order optimization pass prior to compaction when you need better
-   predicate locality.
-
-See `examples/pyarrow/pyarrow_compact_example.py` and
-`examples/pyarrow/pyarrow_optimize_example.py` for runnable scripts mirroring
-production workflows without DuckDB.
-
-### PyArrow Parquet Merge
-
-`merge_parquet_dataset_pyarrow` mirrors `DuckDBParquetHandler.merge_parquet_dataset`
-when you need UPSERT/INSERT/UPDATE/FULL_MERGE/DEDUPLICATE semantics without a
-DuckDB dependency. It runs entirely on PyArrow datasets and scanners:
-
-```python
-from fsspeckit.utils.pyarrow import merge_parquet_dataset_pyarrow
-import pyarrow as pa
-
-source = pa.table({
-    "user_id": [11, 12, 13],
-    "tier": ["gold", "silver", "basic"],
-})
-
-stats = merge_parquet_dataset_pyarrow(
-    source,
-    target_path="/data/customers/",
-    key_columns="user_id",
-    strategy="upsert",
-)
-
-print(stats)
-# {'inserted': 1, 'updated': 2, 'deleted': 0, 'total': 2_450}
-```
-
-- **Streaming + filters**: the helper processes the source in batches and builds
-  `pyarrow.dataset` filter expressions (single keys use `field("key").isin(...)`,
-  composite keys become ORs of AND clauses) so the target scanner only loads
-  matching rows per batch.
-- **Strategies**: `strategy` matches the DuckDB helper — UPSERT merges new +
-  existing, INSERT ignores collisions, UPDATE only applies to existing rows,
-  FULL_MERGE deletes rows missing from the source, and DEDUPLICATE sorts by
-  `dedup_order_by` before performing an UPSERT.
-- **Result stats**: the helper returns `{"inserted": int, "updated": int,
-  "deleted": int, "total": int}` for monitoring/alerting.
-- **Memory safety**: target scanning happens via batch iterators; the code never
-  calls `dataset.to_table()` without filters and rewrites output files in new
-  `merge-*.parquet` chunks with configurable compression.
-
-For path-based sources (e.g. staging directories), pass the directory string as
-`source`. When `strategy="deduplicate"`, set `dedup_order_by=["timestamp"]` (or
-similar) to keep the newest record per key.
-
-#### SQL Query Execution
-
-Execute SQL queries on parquet data:
-
-```python
-with DuckDBParquetHandler() as handler:
-    handler.write_parquet(table, "/tmp/data.parquet")
-    
-    # Simple query
-    result = handler.execute_sql(
-        "SELECT * FROM parquet_scan('/tmp/data.parquet') WHERE id > 1"
-    )
-    
-    # Parameterized query
-    result = handler.execute_sql(
-        "SELECT * FROM parquet_scan('/tmp/data.parquet') WHERE id BETWEEN ? AND ?",
-        parameters=[1, 3]
-    )
-    
-    # Aggregation
-    result = handler.execute_sql("""
-        SELECT name, COUNT(*) as count
-        FROM parquet_scan('/tmp/data.parquet')
-        GROUP BY name
-    """)
-```
-
-#### Remote Storage Integration
-
-Works seamlessly with S3, GCS, Azure through fsspec:
-
-```python
-from fsspeckit.storage_options import AwsStorageOptions
-
-options = AwsStorageOptions(
-    access_key_id="YOUR_KEY",
-    secret_access_key="YOUR_SECRET",
-    region="us-east-1"
-)
-
-with DuckDBParquetHandler(storage_options=options) as handler:
-    # Write to S3
-    handler.write_parquet_dataset(table, "s3://bucket/data/")
-    
-    # Read from S3
-    result = handler.read_parquet("s3://bucket/data/")
-    
-    # Query S3 data
-    result = handler.execute_sql(
-        "SELECT * FROM parquet_scan('s3://bucket/data/*.parquet')"
-    )
-```
-
-#### Key Features
-
-- **Unique Filenames**: UUID-based generation prevents collisions
-- **Write Modes**: Append (default) or overwrite
-- **File Splitting**: Control file size with `max_rows_per_file`
-- **Compression**: Support for snappy, gzip, zstd, lz4, brotli
-- **Column Selection**: Read only needed columns for efficiency
-- **SQL Analytics**: Full DuckDB SQL capabilities on parquet data
-
-#### Best Practices
-
-1. **Use append mode for incremental updates** - Safer default, no accidental data loss
-2. **Keep files reasonably sized** - 10-100 MB per file using `max_rows_per_file`
-3. **Organize hierarchically** - Use year/month/day directory structure
-4. **Choose appropriate compression** - 'snappy' for speed, 'zstd' for better compression
-5. **Periodic compaction** - Consolidate many small files when using append mode
-
-See `examples/duckdb/duckdb_dataset_write_example.py` for comprehensive examples.
-
-## Dependency Checking
-
-### `check_optional_dependency`
-
-Verify that optional dependencies are installed:
-
-```python
-from fsspeckit.utils import check_optional_dependency
-
-# Check for a dependency
-try:
-    check_optional_dependency("polars")
-except ImportError as e:
-    print(f"Optional dependency missing: {e}")
-```
-
-## Filesystem Comparison
-
-### `check_fs_identical`
-
-Compare two filesystems to verify they contain identical data:
-
-```python
-from fsspeckit.utils import check_fs_identical
-
-# Compare local directories
-fs1 = filesystem("/path1")
-fs2 = filesystem("/path2")
-
-identical = check_fs_identical(fs1, "/data", fs2, "/data")
-```
-
-## Polars DataFrame Extensions
-
-When using fsspeckit with Polars, additional methods are automatically added to DataFrames:
-
-```python
 import polars as pl
-from fsspeckit import filesystem
 
-df = pl.DataFrame({
-    "date": ["2023-01-01", "2023-02-15"],
-    "category": ["A", "B"],
-    "value": [100, 200]
-})
-
-# Access optimized dtypes
-df_opt = df.opt_dtype
-
-# Create partition columns from date
-df_with_parts = df.with_datepart_columns("date")
-
-# Drop columns with all null values
-df_clean = df.drop_null_columns()
+# Convert SQL to Polars filter
+filter_expr = sql2polars_filter("name == 'test' AND value > 100")
 ```
+
+## Backwards Compatibility (`fsspeckit.utils`)
+
+The `fsspeckit.utils` module provides a backwards-compatible façade that re-exports selected helpers from the domain packages.
+
+### Legacy Import Examples
+
+```python
+# These imports continue to work for backwards compatibility
+from fsspeckit.utils import (
+    setup_logging,
+    run_parallel,
+    DuckDBParquetHandler,
+    sql2pyarrow_filter,
+    dict_to_dataframe,
+    to_pyarrow_table,
+    opt_dtype_pl,
+    opt_dtype_pa
+)
+```
+
+### Migration Recommendation
+
+For new code, prefer importing directly from domain packages:
+
+```python
+# Recommended (new code)
+from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.common.logging import setup_logging
+from fsspeckit.sql.filters import sql2pyarrow_filter
+
+# Legacy (existing code - still works)
+from fsspeckit.utils import DuckDBParquetHandler, setup_logging, sql2pyarrow_filter
+```
+
+For detailed migration instructions, see the [Migration Guide](../MIGRATION_GUIDE.md).

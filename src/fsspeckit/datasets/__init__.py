@@ -9,7 +9,10 @@ This package contains dataset-specific functionality including:
 from .duckdb import DuckDBParquetHandler, MergeStrategy
 from .pyarrow import (
     cast_schema,
+    collect_dataset_stats_pyarrow,
+    compact_parquet_dataset_pyarrow,
     convert_large_types_to_normal,
+    optimize_parquet_dataset_pyarrow,
     opt_dtype as opt_dtype_pa,
     unify_schemas as unify_schemas_pa,
 )
@@ -20,7 +23,10 @@ __all__ = [
     "MergeStrategy",
     # PyArrow utilities
     "cast_schema",
+    "collect_dataset_stats_pyarrow",
+    "compact_parquet_dataset_pyarrow",
     "convert_large_types_to_normal",
+    "optimize_parquet_dataset_pyarrow",
     "opt_dtype_pa",
     "unify_schemas_pa",
 ]

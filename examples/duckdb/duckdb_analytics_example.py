@@ -19,7 +19,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from fsspeckit.utils import DuckDBParquetHandler
+from fsspeckit.datasets import DuckDBParquetHandler
 
 
 def generate_sales_data(days=90, daily_transactions=50):

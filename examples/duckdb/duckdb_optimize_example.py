@@ -9,7 +9,7 @@ from pathlib import Path
 import pyarrow as pa
 import pyarrow.compute as pc
 
-from fsspeckit.utils import DuckDBParquetHandler
+from fsspeckit.datasets import DuckDBParquetHandler
 
 
 def _build_events_table(seed: int) -> pa.Table:

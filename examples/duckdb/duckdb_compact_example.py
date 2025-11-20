@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pyarrow as pa
 
-from fsspeckit.utils import DuckDBParquetHandler
+from fsspeckit.datasets import DuckDBParquetHandler
 
 
 def _seed_fragmented_dataset(handler: DuckDBParquetHandler, dataset_path: Path) -> None:

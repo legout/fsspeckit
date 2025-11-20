@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 
 import pyarrow as pa
 
-from fsspeckit.utils import DuckDBParquetHandler
+from fsspeckit.datasets import DuckDBParquetHandler
 
 
 def create_sample_data(num_rows=100, offset=0):

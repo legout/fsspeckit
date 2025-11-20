@@ -7,9 +7,22 @@ Enhanced utilities and extensions for fsspec filesystems with multi-format I/O s
 `fsspeckit` is a comprehensive toolkit that extends [fsspec](https://filesystem-spec.readthedocs.io/) with:
 
 - **Multi-cloud storage configuration** - Easy setup for AWS S3, Google Cloud Storage, Azure Storage, GitHub, and GitLab
-- **Enhanced caching** - Improved caching filesystem with monitoring and path preservation  
+- **Enhanced caching** - Improved caching filesystem with monitoring and path preservation
 - **Extended I/O operations** - Read/write operations for JSON, CSV, Parquet with Polars/PyArrow integration
-- **Utility functions** - Type conversion, parallel processing, and data transformation helpers
+- **Domain-specific packages** - Organized into logical packages for better discoverability
+
+## Package Structure
+
+`fsspeckit` is organized into domain-specific packages:
+
+- **`fsspeckit.core`** - Core filesystem APIs and backend-neutral planning logic
+- **`fsspeckit.storage_options`** - Multi-cloud storage configuration classes
+- **`fsspeckit.datasets`** - Dataset-level operations (DuckDB & PyArrow helpers)
+- **`fsspeckit.sql`** - SQL-to-filter translation helpers
+- **`fsspeckit.common`** - Cross-cutting utilities (logging, parallelism, type conversion)
+- **`fsspeckit.utils`** - Backwards-compatible façade that re-exports from domain packages
+
+> **Note:** The `fsspeckit.utils` module is maintained for backwards compatibility. New code should import directly from the domain packages for better discoverability.
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/legout/fsspeckit)
 
@@ -77,7 +90,7 @@ fs = filesystem("s3", storage_options=options)
 ### DuckDB Parquet Maintenance
 
 ```python
-from fsspeckit.utils import DuckDBParquetHandler
+from fsspeckit.datasets import DuckDBParquetHandler
 
 with DuckDBParquetHandler() as handler:
     # Inspect fragmentation without writing
@@ -251,7 +264,7 @@ data = fs.cat("deep/nested/path/file.txt")
 ### Parallel Processing
 
 ```python
-from fsspeckit.utils import run_parallel
+from fsspeckit.common import run_parallel
 
 # Run function in parallel
 def process_file(path, multiplier=1):
@@ -269,7 +282,7 @@ results = run_parallel(
 ### Type Conversion
 
 ```python
-from fsspeckit.utils import dict_to_dataframe, to_pyarrow_table
+from fsspeckit.common.types import dict_to_dataframe, to_pyarrow_table
 
 # Convert dict to DataFrame
 data = {"col1": [1, 2, 3], "col2": [4, 5, 6]}
@@ -282,11 +295,24 @@ table = to_pyarrow_table(df)
 ### Logging
 
 ```python
-from fsspeckit.utils import setup_logging
+from fsspeckit.common.logging import setup_logging
 
 # Configure logging
 setup_logging(level="DEBUG", format_string="{time} | {level} | {message}")
 ```
+
+## Migration Guide
+
+The package structure was refactored in version X.X.0 to improve discoverability and organization.
+
+**For new code**, use the canonical imports from domain packages:
+- Dataset operations: `from fsspeckit.datasets import ...`
+- SQL helpers: `from fsspeckit.sql import ...`
+- Common utilities: `from fsspeckit.common import ...`
+
+**For existing code**, all `fsspeckit.utils` imports continue to work unchanged.
+
+For detailed migration instructions, see the [Migration Guide](MIGRATION_GUIDE.md).
 
 ## Dependencies
 

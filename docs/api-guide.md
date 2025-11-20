@@ -305,10 +305,12 @@ fs.sync_cache()
 
 ## Helper Utilities
 
+> **Note**: fsspeckit utilities are organized into domain packages. See [Architecture](architecture.md) for details.
+
 ### Parallel Processing
 
 ```python
-from fsspeckit.utils import run_parallel
+from fsspeckit.common.misc import run_parallel
 
 def process(item):
     return len(item)
@@ -324,7 +326,7 @@ results = run_parallel(
 ### Type Conversions
 
 ```python
-from fsspeckit.utils import (
+from fsspeckit.common.types import (
     dict_to_dataframe,
     to_pyarrow_table
 )
@@ -340,7 +342,7 @@ table = to_pyarrow_table(df)
 
 ```python
 import polars as pl
-from fsspeckit.utils import opt_dtype_pl
+from fsspeckit.common import opt_dtype_pl
 
 # Optimize DataFrame
 df = pl.read_csv("data.csv")
@@ -353,7 +355,7 @@ df_opt = df.opt_dtype
 ### SQL Filtering
 
 ```python
-from fsspeckit.utils import sql2pyarrow_filter
+from fsspeckit.sql.filters import sql2pyarrow_filter
 import pyarrow as pa
 
 schema = pa.schema([("age", pa.int32()), ("name", pa.string())])
@@ -364,7 +366,7 @@ filtered_table = dataset.to_table(filter=expr)
 ### File Synchronization
 
 ```python
-from fsspeckit.utils import sync_dir
+from fsspeckit.common.misc import sync_dir
 
 # Sync directories
 sync_dir(
@@ -475,7 +477,7 @@ except Exception as e:
     print(f"Error: {e}")
 
 # Check optional dependencies
-from fsspeckit.utils import check_optional_dependency
+from fsspeckit.common.misc import check_optional_dependency
 try:
     check_optional_dependency("deltalake")
 except ImportError:

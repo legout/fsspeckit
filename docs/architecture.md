@@ -10,26 +10,56 @@ At its core, `fsspeckit` builds upon the `fsspec` (Filesystem Spec) library, whi
 - **Enhancing I/O Operations**: It provides extended read/write capabilities for common data formats like JSON, CSV, and Parquet, with integrations for high-performance libraries like Polars and PyArrow.
 - **Improving Caching**: The library includes an enhanced caching mechanism that preserves directory structures and offers better monitoring.
 
-## Core Components
+## Domain Package Architecture
 
-The `fsspeckit` library is organized into several key modules:
+The `fsspeckit` library is organized into domain-specific packages that provide clear boundaries and improved discoverability:
 
-### `core`
+### `fsspeckit.core`
 
-This module contains the fundamental extensions to `fsspec`. It includes the `filesystem` function, which acts as a central factory for creating `fsspec` compatible filesystem objects, potentially with enhanced features like caching and extended I/O. The `DirFileSystem` class is also part of this module, providing specialized handling for directory-based filesystems.
+Contains the fundamental filesystem APIs and backend-neutral planning logic:
+- `filesystem()` - Central factory for creating fsspec-compatible filesystem objects
+- `DirFileSystem` - Specialized handling for directory-based filesystems
+- `MonitoredSimpleCacheFileSystem` - Enhanced caching with monitoring
+- `GitLabFileSystem` - GitLab repository access
+- Backend-neutral merge and maintenance planning in `core.merge` and `core.maintenance`
 
-### `storage_options`
+### `fsspeckit.storage_options`
 
-This module is dedicated to managing storage configurations for different backends. It defines various `StorageOptions` classes (e.g., `AwsStorageOptions`, `GcsStorageOptions`, `AzureStorageOptions`, `GitHubStorageOptions`, `GitLabStorageOptions`) that encapsulate the necessary parameters for connecting to specific storage services. It also includes utility functions for inferring protocols from URIs and merging storage options.
+Manages storage configurations for cloud and Git providers:
+- `AwsStorageOptions` - AWS S3 configuration
+- `GcsStorageOptions` - Google Cloud Storage configuration
+- `AzureStorageOptions` - Azure Storage configuration
+- `GitHubStorageOptions` - GitHub repository access
+- `GitLabStorageOptions` - GitLab repository access
+- Utility functions for protocol inference and option merging
 
-### `utils`
+### `fsspeckit.datasets`
 
-The `utils` module provides a collection of general-purpose utility functions that support various operations within `fsspeckit`. These include:
+Dataset-level operations for large-scale data processing:
+- `DuckDBParquetHandler` - High-performance DuckDB parquet operations
+- PyArrow dataset helpers for merge, compaction, and optimization
+- Schema management and type conversion utilities
+- Backend-neutral planning delegates to core modules
 
-- **Parallel Processing**: Functions like `run_parallel` for executing tasks concurrently.
-- **Type Conversion**: Utilities such as `dict_to_dataframe` and `to_pyarrow_table` for data manipulation.
-- **Logging**: A setup for consistent logging across the library.
-- **PyArrow and Polars Integration**: A lot of utility functions, e.g. for optimizing data types and schemas when working with PyArrow tables and Polars DataFrames.
+### `fsspeckit.sql`
+
+SQL-to-filter translation helpers for data filtering:
+- `sql2pyarrow_filter` - Convert SQL to PyArrow filter expressions
+- `sql2polars_filter` - Convert SQL to Polars filter expressions
+- SQL parsing and table name extraction utilities
+
+### `fsspeckit.common`
+
+Cross-cutting utilities shared across all domains:
+- **Logging**: `setup_logging()`, `get_logger()` for consistent logging
+- **Parallel Processing**: `run_parallel()` for concurrent operations
+- **Type Conversion**: `dict_to_dataframe()`, `to_pyarrow_table()` for data manipulation
+- **DateTime Utilities**: Timestamp parsing and timezone handling
+- **Polars Helpers**: DataFrame optimization and manipulation utilities
+
+### `fsspeckit.utils`
+
+Backwards-compatible façade that re-exports selected helpers from domain packages. This module ensures existing code continues to work while new code should import directly from the appropriate domain packages.
 
 
 ## Diagrams
@@ -38,19 +68,39 @@ The `utils` module provides a collection of general-purpose utility functions th
 
 ```mermaid
 graph TD
-    A[fsspeckit] --> B(Core Module)
-    A --> C(Storage Options Module)
-    A --> D(Utils Module)
-    B --> E[Extends fsspec]
-    C --> F{Cloud Providers}
-    C --> G{Git Platforms}
-    D --> H[Parallel Processing]
-    D --> I[Type Conversion]
-    D --> J[Logging]
-    D --> K[PyArrow/Polars Integration]
-    F --> L(AWS S3)
-    F --> M(Google Cloud Storage)
-    F --> N(Azure Storage)
-    G --> O(GitHub)
-    G --> P(GitLab)
+    A[fsspeckit] --> B[Core Package]
+    A --> C[Storage Options]
+    A --> D[Datasets Package]
+    A --> E[SQL Package]
+    A --> F[Common Package]
+    A --> G[Utils Façade]
+
+    B --> H[Filesystem APIs]
+    B --> I[Caching & Monitoring]
+    B --> J[Merge/Maintenance Logic]
+
+    C --> K[Cloud Providers]
+    C --> L[Git Platforms]
+
+    D --> M[DuckDB Handlers]
+    D --> N[PyArrow Dataset Ops]
+    D --> J
+
+    E --> O[SQL Filter Translation]
+    E --> F
+
+    F --> P[Parallel Processing]
+    F --> Q[Type Conversion]
+    F --> R[Logging]
+    F --> S[DateTime Utils]
+    F --> T[Polars Helpers]
+
+    G --> U[Backwards Compatibility]
+    G --> V[Re-exports from Domain Packages]
+
+    K --> W(AWS S3)
+    K --> X(Google Cloud)
+    K --> Y(Azure Storage)
+    L --> Z(GitHub)
+    L --> AA(GitLab)
 ```

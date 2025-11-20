@@ -20,7 +20,7 @@ import pyarrow as pa
 
 from fsspeckit import filesystem
 from fsspeckit.storage_options import AwsStorageOptions, LocalStorageOptions
-from fsspeckit.utils import DuckDBParquetHandler
+from fsspeckit.datasets import DuckDBParquetHandler
 
 
 def create_sample_data():

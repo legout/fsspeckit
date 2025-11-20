@@ -16,7 +16,7 @@ import time
 import numpy as np
 import pyarrow as pa
 
-from fsspeckit.utils import DuckDBParquetHandler
+from fsspeckit.datasets import DuckDBParquetHandler
 
 
 random.seed(7)

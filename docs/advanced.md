@@ -2,6 +2,37 @@
 
 `fsspeckit` extends the capabilities of `fsspec` to provide a more robust and feature-rich experience for handling diverse file systems and data formats. This section delves into advanced features, configurations, and performance tips to help you get the most out of the library.
 
+## Domain Package Organization
+
+The refactored `fsspeckit` architecture organizes functionality into domain-specific packages, making it easier to discover and use the right tools for each task. This design improves maintainability and provides clearer separation of concerns.
+
+### Choosing the Right Package
+
+For optimal experience, import from the appropriate domain package:
+
+- **Dataset Operations**: Use `fsspeckit.datasets` for DuckDB and PyArrow dataset operations
+- **SQL Filtering**: Use `fsspeckit.sql` for SQL-to-filter translation
+- **General Utilities**: Use `fsspeckit.common` for logging, parallel processing, type conversion
+- **Backwards Compatibility**: `fsspeckit.utils` continues to work for existing code
+
+### Import Examples by Use Case
+
+```python
+# Dataset operations (recommended)
+from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets.pyarrow import merge_parquet_dataset_pyarrow
+
+# SQL filtering
+from fsspeckit.sql.filters import sql2pyarrow_filter
+
+# Common utilities
+from fsspeckit.common.logging import setup_logging
+from fsspeckit.common.misc import run_parallel
+
+# Backwards compatible (legacy)
+from fsspeckit.utils import DuckDBParquetHandler  # Still works
+```
+
 ## Unified Filesystem Creation with `filesystem`
 
 The `fsspeckit.core.filesystem` function offers a centralized and enhanced way to instantiate `fsspec` filesystem objects. It supports:
@@ -13,7 +44,7 @@ The `fsspeckit.core.filesystem` function offers a centralized and enhanced way t
 **Example: Cached S3 Filesystem with Structured Options**
 
 ```python
-from fsspeckit.core import filesystem
+from fsspeckit import filesystem  # Top-level import for convenience
 from fsspeckit.storage_options import AwsStorageOptions
 
 # Configure S3 options using the structured class

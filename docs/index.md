@@ -13,6 +13,7 @@ This library aims to simplify complex data operations across various file system
 - **Enhanced Caching and Monitoring**: Improve performance and gain insights into your data operations with built-in caching mechanisms and monitoring capabilities.
 - **Batch Processing and Parallel Operations**: Efficiently handle large datasets and execute operations in parallel for improved throughput.
 - **Directory-like Filesystem**: Interact with nested data structures as if they were traditional directories, even on object stores.
+- **Domain-Specific Packages**: Organized into logical packages (`core`, `datasets`, `sql`, `common`) for better discoverability and cleaner APIs.
 
 ## Get Started
 

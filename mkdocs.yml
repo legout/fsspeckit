@@ -20,19 +20,29 @@ nav:
       - Core:
           - fsspeckit.core.base: api/fsspeckit.core.base.md
           - fsspeckit.core.ext: api/fsspeckit.core.ext.md
+          - fsspeckit.core.filesystem: api/fsspeckit.core.filesystem.md
+          - fsspeckit.core.merge: api/fsspeckit.core.merge.md
+          - fsspeckit.core.maintenance: api/fsspeckit.core.maintenance.md
       - Storage Options:
           - fsspeckit.storage_options.base: api/fsspeckit.storage_options.base.md
           - fsspeckit.storage_options.cloud: api/fsspeckit.storage_options.cloud.md
           - fsspeckit.storage_options.core: api/fsspeckit.storage_options.core.md
           - fsspeckit.storage_options.git: api/fsspeckit.storage_options.git.md
-      - Utils:
-          - fsspeckit.utils.datetime: api/fsspeckit.utils.datetime.md
-          - fsspeckit.utils.logging: api/fsspeckit.utils.logging.md
-          - fsspeckit.utils.misc: api/fsspeckit.utils.misc.md
-          - fsspeckit.utils.polars: api/fsspeckit.utils.polars.md
-          - fsspeckit.utils.pyarrow: api/fsspeckit.utils.pyarrow.md
-          - fsspeckit.utils.sql: api/fsspeckit.utils.sql.md
-          - fsspeckit.utils.types: api/fsspeckit.utils.types.md
+      - Datasets:
+          - fsspeckit.datasets: api/fsspeckit.datasets.md
+          - fsspeckit.datasets.duckdb: api/fsspeckit.datasets.duckdb.md
+          - fsspeckit.datasets.pyarrow: api/fsspeckit.datasets.pyarrow.md
+      - SQL:
+          - fsspeckit.sql: api/fsspeckit.sql.md
+          - fsspeckit.sql.filters: api/fsspeckit.sql.filters.md
+      - Common:
+          - fsspeckit.common.datetime: api/fsspeckit.common.datetime.md
+          - fsspeckit.common.logging: api/fsspeckit.common.logging.md
+          - fsspeckit.common.misc: api/fsspeckit.common.misc.md
+          - fsspeckit.common.polars: api/fsspeckit.common.polars.md
+          - fsspeckit.common.types: api/fsspeckit.common.types.md
+      - Utils (Backwards Compatibility):
+          - fsspeckit.utils: api/fsspeckit.utils.md
 
 theme:
   name: material

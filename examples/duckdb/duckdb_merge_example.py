@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pyarrow as pa
 
-from fsspeckit.utils import DuckDBParquetHandler
+from fsspeckit.datasets import DuckDBParquetHandler
 
 
 def example_1_upsert_cdc_workflow():

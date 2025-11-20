@@ -14,7 +14,7 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
-from fsspeckit.utils.pyarrow import (
+from fsspeckit.datasets import (
     collect_dataset_stats_pyarrow,
     compact_parquet_dataset_pyarrow,
 )

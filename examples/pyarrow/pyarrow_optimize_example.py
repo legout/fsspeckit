@@ -13,7 +13,7 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
-from fsspeckit.utils.pyarrow import optimize_parquet_dataset_pyarrow
+from fsspeckit.datasets import optimize_parquet_dataset_pyarrow
 
 
 def bootstrap_dataset(dataset_path: Path) -> None:
