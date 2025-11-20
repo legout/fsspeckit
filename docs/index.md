@@ -21,5 +21,5 @@ Ready to dive in? Check out our [Quickstart Guide](quickstart.md) to begin using
 
 ## Badges
 
-[![GitHub](https://img.shields.io/badge/GitHub-fs--utils-blue?logo=github)](https://github.com/legout/fsspeckit)
+[![GitHub](https://img.shields.io/badge/GitHub-fsspeckit-blue?logo=github)](https://github.com/legout/fsspeckit)
 [![PyPI](https://img.shields.io/badge/PyPI-fsspeckit-blue?logo=pypi)](https://pypi.org/project/fsspeckit)
