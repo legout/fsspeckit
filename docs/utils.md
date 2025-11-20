@@ -262,4 +262,4 @@ from fsspeckit.sql.filters import sql2pyarrow_filter
 from fsspeckit.utils import DuckDBParquetHandler, setup_logging, sql2pyarrow_filter
 ```
 
-For detailed migration instructions, see the [Migration Guide](../MIGRATION_GUIDE.md).
+For detailed migration instructions, see the [Migration Guide](https://github.com/legout/fsspeckit/blob/main/MIGRATION_GUIDE.md).

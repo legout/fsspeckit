@@ -10,12 +10,6 @@ Welcome to the `fsspeckit` API reference documentation. This section provides de
 
 *   [`fsspeckit.core.ext`](fsspeckit.core.ext.md)
 
-*   [`fsspeckit.core.filesystem`](fsspeckit.core.filesystem.md)
-
-*   [`fsspeckit.core.merge`](fsspeckit.core.merge.md)
-
-*   [`fsspeckit.core.maintenance`](fsspeckit.core.maintenance.md)
-
 ## Storage Options
 
 *   [`fsspeckit.storage_options.base`](fsspeckit.storage_options.base.md)
@@ -26,32 +20,20 @@ Welcome to the `fsspeckit` API reference documentation. This section provides de
 
 *   [`fsspeckit.storage_options.git`](fsspeckit.storage_options.git.md)
 
-## Datasets
-
-*   [`fsspeckit.datasets`](fsspeckit.datasets.md)
-
-*   [`fsspeckit.datasets.duckdb`](fsspeckit.datasets.duckdb.md)
-
-*   [`fsspeckit.datasets.pyarrow`](fsspeckit.datasets.pyarrow.md)
-
-## SQL
-
-*   [`fsspeckit.sql`](fsspeckit.sql.md)
-
-*   [`fsspeckit.sql.filters`](fsspeckit.sql.filters.md)
-
-## Common
-
-*   [`fsspeckit.common.datetime`](fsspeckit.common.datetime.md)
-
-*   [`fsspeckit.common.logging`](fsspeckit.common.logging.md)
-
-*   [`fsspeckit.common.misc`](fsspeckit.common.misc.md)
-
-*   [`fsspeckit.common.polars`](fsspeckit.common.polars.md)
-
-*   [`fsspeckit.common.types`](fsspeckit.common.types.md)
-
 ## Utils (Backwards Compatibility)
 
-*   [`fsspeckit.utils`](fsspeckit.utils.md) - Re-exports from domain packages for backwards compatibility
+*   [`fsspeckit.utils.datetime`](fsspeckit.utils.datetime.md) - Date and time utilities
+
+*   [`fsspeckit.utils.logging`](fsspeckit.utils.logging.md) - Logging configuration and utilities
+
+*   [`fsspeckit.utils.misc`](fsspeckit.utils.misc.md) - Miscellaneous utility functions
+
+*   [`fsspeckit.utils.polars`](fsspeckit.utils.polars.md) - Polars DataFrame utilities
+
+*   [`fsspeckit.utils.pyarrow`](fsspeckit.utils.pyarrow.md) - PyArrow utilities and integrations
+
+*   [`fsspeckit.utils.sql`](fsspeckit.utils.sql.md) - SQL query and filter utilities
+
+*   [`fsspeckit.utils.types`](fsspeckit.utils.types.md) - Type definitions and utilities
+
+> **Note**: API documentation for the new domain packages (datasets, sql, common) will be added in a future update. The utils modules above provide backwards compatibility for all functionality.
