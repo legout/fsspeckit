@@ -10,15 +10,22 @@ nav:
   - Quickstart: quickstart.md
   - Architecture: architecture.md
   - Advanced Usage: advanced.md
-  - Utils Module: utils.md
+  - Utils Reference: utils.md
   - Examples: examples.md
   - API Guide: api-guide.md
   - Contributing: contributing.md
   - API Reference:
       - api/index.md
+      - Domain Packages:
+          - fsspeckit.datasets: api/fsspeckit.datasets.md
+          - fsspeckit.sql.filters: api/fsspeckit.sql.filters.md
+          - fsspeckit.common: api/fsspeckit.common.md
       - Core:
           - fsspeckit.core.base: api/fsspeckit.core.base.md
           - fsspeckit.core.ext: api/fsspeckit.core.ext.md
+          - fsspeckit.core.filesystem: api/fsspeckit.core.filesystem.md
+          - fsspeckit.core.maintenance: api/fsspeckit.core.maintenance.md
+          - fsspeckit.core.merge: api/fsspeckit.core.merge.md
       - Storage Options:
           - fsspeckit.storage_options.base: api/fsspeckit.storage_options.base.md
           - fsspeckit.storage_options.cloud: api/fsspeckit.storage_options.cloud.md

@@ -1,0 +1,3 @@
+# fsspeckit.common
+
+::: fsspeckit.common

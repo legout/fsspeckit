@@ -1,0 +1,3 @@
+# fsspeckit.datasets
+
+::: fsspeckit.datasets
