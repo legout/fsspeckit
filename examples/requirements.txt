@@ -1,0 +1,67 @@
+# fsspeckit Examples Requirements
+# Install with: pip install -r requirements.txt
+
+# Core fsspeckit packages
+fsspeckit[datasets,sql,common,storage_options]
+
+# Core data processing libraries
+pyarrow>=10.0.0
+duckdb>=0.8.0
+pandas>=1.5.0
+polars>=0.16.0
+
+# Cloud storage providers
+boto3>=1.26.0              # AWS S3
+azure-storage-blob>=12.14.0  # Azure Blob Storage
+google-cloud-storage>=2.7.0  # Google Cloud Storage
+
+# SQL and database connectivity
+sqlalchemy>=1.4.0
+psycopg2-binary>=2.9.0       # PostgreSQL
+mysql-connector-python>=8.0.0  # MySQL
+
+# Performance and monitoring
+psutil>=5.9.0                # System resource monitoring
+prometheus-client>=0.15.0    # Metrics collection
+memory-profiler>=0.60.0      # Memory profiling
+pympler>=0.9                 # Memory leak detection
+
+# Async and parallel processing
+asyncio-compat>=0.1.0        # Async compatibility
+aiofiles>=22.1.0             # Async file operations
+
+# Configuration and validation
+pydantic>=1.10.0             # Data validation
+pyyaml>=6.0                  # YAML configuration files
+python-dotenv>=0.21.0        # Environment variable management
+
+# Logging and observability
+structlog>=22.3.0            # Structured logging
+rich>=12.6.0                 # Pretty console output
+
+# Testing and development
+pytest>=7.2.0
+pytest-asyncio>=0.20.0
+pytest-cov>=4.0.0
+pytest-mock>=3.10.0
+
+# Code quality and formatting
+black>=22.10.0               # Code formatting
+isort>=5.11.0                # Import sorting
+flake8>=5.0.0                # Linting
+mypy>=0.991                  # Type checking
+
+# Documentation and examples
+jupyter>=1.0.0                # Jupyter notebooks
+matplotlib>=3.6.0            # Plotting
+seaborn>=0.12.0              # Statistical visualization
+tqdm>=4.64.0                 # Progress bars
+
+# Security and cryptography
+cryptography>=38.0.0         # Encryption and security
+bcrypt>=4.0.0                # Password hashing
+
+# Development tools (optional)
+ipython>=8.7.0               # Enhanced Python REPL
+jupyterlab>=3.5.0            # Jupyter Lab interface
+notebook>=6.5.0              # Jupyter notebooks
