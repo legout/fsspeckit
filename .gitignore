@@ -7,3 +7,6 @@ docs/site/
 coverage.xml
 site/**
 site/
+.venv/
+.DS_Store
+.python-version
