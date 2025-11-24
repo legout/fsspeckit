@@ -5,8 +5,8 @@ from typing import Any
 
 from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
-from obstore.store import S3Store
 from obstore.fsspec import FsspecStore
+from obstore.store import S3Store
 
 from .base import BaseStorageOptions
 

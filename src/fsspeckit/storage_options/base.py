@@ -6,7 +6,7 @@ from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
 
 
-class BaseStorageOptions(msgspec.Struct):
+class BaseStorageOptions(msgspec.Struct, frozen=False):
     """Base class for filesystem storage configuration options.
 
     Provides common functionality for all storage option classes including:
