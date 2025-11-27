@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fsspeckit"
-version = "0.4.2"
+version = "0.5.0"
 description = "Enhanced utilities and extensions for fsspec, storage_options and obstore with multi-format I/O support."
 readme = "README.md"
 license = "MIT"
@@ -44,20 +44,32 @@ dependencies = [
     "loguru>=0.7.0",
     "joblib>=1.5.0",
     "rich>=14.0.0",
-    "polars>=1.30.0",
-    "pandas>=2.2.0",
-    "pyarrow>=20.0.0",
-    "orjson>=3.11.0",
-    "sqlglot>=27.16.3",
     "obstore>=0.8.2",
-    "duckdb>=1.0.0",
 ]
+[polars]
 
 [project.optional-dependencies]
 aws = ["boto3>=1.26.0", "s3fs>=2025.1.0"]
 gcp = ["gcsfs>=2025.1.0"]
 azure = ["adlfs>=2024.12.0"]
-
+dependencies = [
+    "polars>=1.30.0",
+]
+[datasets]
+dependencies = [
+    "polars>=1.30.0",
+    "pandas>=2.2.0",
+    "pyarrow>=20.0.0",
+    "duckdb>=1.4.0",
+    "sqlglot>=27.16.3",
+    "orjson>=3.11.0",
+]
+[sql]
+dependencies = [
+    "duckdb>=1.4.0",
+    "sqlglot>=27.16.3",
+    "orjson>=3.11.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/legout/fsspeckit"
