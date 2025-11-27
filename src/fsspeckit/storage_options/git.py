@@ -5,7 +5,7 @@ import os
 from .base import BaseStorageOptions
 
 
-class GitHubStorageOptions(BaseStorageOptions):
+class GitHubStorageOptions(BaseStorageOptions, frozen=False):
     """GitHub repository storage configuration options.
 
     Provides access to files in GitHub repositories with support for:
@@ -133,7 +133,7 @@ class GitHubStorageOptions(BaseStorageOptions):
         return {k: v for k, v in kwargs.items() if v is not None}
 
 
-class GitLabStorageOptions(BaseStorageOptions):
+class GitLabStorageOptions(BaseStorageOptions, frozen=False):
     """GitLab repository storage configuration options.
 
     Provides access to files in GitLab repositories with support for:

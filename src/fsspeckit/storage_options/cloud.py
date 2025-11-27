@@ -31,7 +31,7 @@ def _parse_bool(value: Any) -> bool | None:
     return None
 
 
-class AzureStorageOptions(BaseStorageOptions):
+class AzureStorageOptions(BaseStorageOptions, frozen=False):
     """Azure Storage configuration options.
 
     Provides configuration for Azure storage services:
@@ -89,11 +89,13 @@ class AzureStorageOptions(BaseStorageOptions):
     client_secret: str | None = None
     sas_token: str | None = None
 
-    def __post_init__(self) -> None:
+    @property
+    def _normalized_protocol(self) -> str:
+        """Get the normalized protocol (lowercase with validation)."""
         protocol = (self.protocol or "az").lower()
         if protocol not in {"az", "abfs", "adl"}:
             raise ValueError("Azure protocol must be one of 'az', 'abfs', or 'adl'")
-        object.__setattr__(self, "protocol", protocol)
+        return protocol
 
     @classmethod
     def from_env(cls) -> "AzureStorageOptions":
@@ -144,7 +146,7 @@ class AzureStorageOptions(BaseStorageOptions):
             'mystorageacct'
         """
         env = {
-            "AZURE_STORAGE_PROTOCOL": self.protocol,
+            "AZURE_STORAGE_PROTOCOL": self._normalized_protocol,
             "AZURE_STORAGE_ACCOUNT_NAME": self.account_name,
             "AZURE_STORAGE_ACCOUNT_KEY": self.account_key,
             "AZURE_STORAGE_CONNECTION_STRING": self.connection_string,
@@ -171,7 +173,7 @@ class AzureStorageOptions(BaseStorageOptions):
         return {k: v for k, v in kwargs.items() if v is not None}
 
 
-class GcsStorageOptions(BaseStorageOptions):
+class GcsStorageOptions(BaseStorageOptions, frozen=False):
     """Google Cloud Storage configuration options.
 
     Provides configuration for GCS access with support for:
@@ -218,11 +220,13 @@ class GcsStorageOptions(BaseStorageOptions):
     endpoint_url: str | None = None
     timeout: int | None = None
 
-    def __post_init__(self) -> None:
+    @property
+    def _normalized_protocol(self) -> str:
+        """Get the normalized protocol (always 'gs' if valid)."""
         protocol = (self.protocol or "gs").lower()
         if protocol not in {"gs", "gcs"}:
             raise ValueError("GCS protocol must be 'gs' or 'gcs'")
-        object.__setattr__(self, "protocol", "gs")
+        return "gs"
 
     @classmethod
     def from_env(cls) -> "GcsStorageOptions":
@@ -300,7 +304,7 @@ class GcsStorageOptions(BaseStorageOptions):
         return {k: v for k, v in kwargs.items() if v is not None}
 
 
-class AwsStorageOptions(BaseStorageOptions):
+class AwsStorageOptions(BaseStorageOptions, frozen=False):
     """AWS S3 storage configuration options.
 
     Provides comprehensive configuration for S3 access with support for:
@@ -356,30 +360,36 @@ class AwsStorageOptions(BaseStorageOptions):
     anonymous: bool | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "protocol", "s3")
-
-        canonical_allow_invalid = _parse_bool(self.allow_invalid_certificates)
-        alias_value = _parse_bool(self.allow_invalid_certs)
-
-        if alias_value is not None:
+        # Handle deprecation warning for allow_invalid_certs
+        if self.allow_invalid_certs is not None:
             warnings.warn(
                 "allow_invalid_certs is deprecated; use allow_invalid_certificates",
                 DeprecationWarning,
                 stacklevel=2,
             )
 
+    @property
+    def _parsed_allow_invalid_certificates(self) -> bool | None:
+        """Get the parsed allow_invalid_certificates value, handling the deprecated alias."""
+        canonical_allow_invalid = _parse_bool(self.allow_invalid_certificates)
+        alias_value = _parse_bool(self.allow_invalid_certs)
+
         if canonical_allow_invalid is None:
             canonical_allow_invalid = alias_value
         elif alias_value is not None and canonical_allow_invalid != alias_value:
             canonical_allow_invalid = alias_value
 
-        allow_http = _parse_bool(self.allow_http)
-        anonymous = _parse_bool(self.anonymous)
+        return canonical_allow_invalid
 
-        object.__setattr__(self, "allow_invalid_certificates", canonical_allow_invalid)
-        object.__setattr__(self, "allow_invalid_certs", None)
-        object.__setattr__(self, "allow_http", allow_http)
-        object.__setattr__(self, "anonymous", anonymous)
+    @property
+    def _parsed_allow_http(self) -> bool | None:
+        """Get the parsed allow_http value."""
+        return _parse_bool(self.allow_http)
+
+    @property
+    def _parsed_anonymous(self) -> bool | None:
+        """Get the parsed anonymous value."""
+        return _parse_bool(self.anonymous)
 
     @classmethod
     def create(
@@ -615,7 +625,7 @@ class AwsStorageOptions(BaseStorageOptions):
         }
 
         # Handle anonymous access
-        if self.anonymous:
+        if self._parsed_anonymous:
             fsspec_kwargs["anon"] = True
         else:
             # Include credentials only if not anonymous
@@ -629,10 +639,12 @@ class AwsStorageOptions(BaseStorageOptions):
 
         verify_value = (
             None
-            if self.allow_invalid_certificates is None
-            else not self.allow_invalid_certificates
+            if self._parsed_allow_invalid_certificates is None
+            else not self._parsed_allow_invalid_certificates
         )
-        use_ssl_value = None if self.allow_http is None else not self.allow_http
+        use_ssl_value = (
+            None if self._parsed_allow_http is None else not self._parsed_allow_http
+        )
 
         client_kwargs = {
             "region_name": self.region,
@@ -697,7 +709,7 @@ class AwsStorageOptions(BaseStorageOptions):
         }
 
         # Handle anonymous access
-        if not self.anonymous:
+        if not self._parsed_anonymous:
             obstore_kwargs.update(
                 {
                     "access_key_id": self.access_key_id,
@@ -707,8 +719,8 @@ class AwsStorageOptions(BaseStorageOptions):
             )
 
         merged_client_options = {
-            "allow_invalid_certificates": self.allow_invalid_certificates,
-            "allow_http": self.allow_http,
+            "allow_invalid_certificates": self._parsed_allow_invalid_certificates,
+            "allow_http": self._parsed_allow_http,
             **(client_options or {}),
         }
         merged_client_options = {
@@ -741,9 +753,9 @@ class AwsStorageOptions(BaseStorageOptions):
             "AWS_SESSION_TOKEN": self.session_token,
             "AWS_ENDPOINT_URL": self.endpoint_url,
             "AWS_DEFAULT_REGION": self.region,
-            "ALLOW_INVALID_CERTIFICATES": self.allow_invalid_certificates,
-            "AWS_ALLOW_HTTP": self.allow_http,
-            "AWS_S3_ANONYMOUS": self.anonymous,
+            "ALLOW_INVALID_CERTIFICATES": self._parsed_allow_invalid_certificates,
+            "AWS_ALLOW_HTTP": self._parsed_allow_http,
+            "AWS_S3_ANONYMOUS": self._parsed_anonymous,
         }
         env = {k: str(v) for k, v in env.items() if v is not None}
         os.environ.update(env)  # type: ignore[arg-type]

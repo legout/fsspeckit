@@ -35,8 +35,9 @@ def test_aws_allow_invalid_certs_alias_warns():
     with pytest.warns(DeprecationWarning):
         options = AwsStorageOptions(allow_invalid_certs=True)
 
-    assert options.allow_invalid_certificates is True
-    assert options.allow_invalid_certs is None
+    assert options._parsed_allow_invalid_certificates is True
+    # allow_invalid_certs field is no longer modified, we check the original input value
+    assert options.allow_invalid_certs is True
 
 
 def test_aws_to_fsspec_kwargs_filters_none_values():
@@ -113,7 +114,7 @@ def test_aws_env_roundtrip(monkeypatch: pytest.MonkeyPatch):
 
 def test_gcs_protocol_normalisation():
     options = GcsStorageOptions(protocol="gcs")
-    assert options.protocol == "gs"
+    assert options._normalized_protocol == "gs"
 
 
 def test_azure_protocol_validation_and_kwargs():
@@ -123,7 +124,9 @@ def test_azure_protocol_validation_and_kwargs():
     assert kwargs["account_key"] == "key"
 
     with pytest.raises(ValueError):
-        AzureStorageOptions(protocol="blob")
+        # Access the property to trigger validation
+        invalid_options = AzureStorageOptions(protocol="blob")
+        _ = invalid_options._normalized_protocol
 
 
 def test_aws_anonymous_explicit_flag():
