@@ -2,118 +2,118 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://legout.github.io/fsspeckit/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/advanced/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api-guide/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/architecture/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/contributing/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/examples/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/installation/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/quickstart/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/utils/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.common/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.core.base/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.core.ext/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.core.filesystem/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.core.maintenance/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.core.merge/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.datasets/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.sql.filters/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.storage_options.base/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.storage_options.cloud/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.storage_options.core/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.storage_options.git/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.utils.datetime/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.utils.logging/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.utils.misc/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.utils.polars/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.utils.pyarrow/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.utils.sql/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.utils.types/</loc>
-         <lastmod>2025-11-21</lastmod>
+         <lastmod>2025-11-27</lastmod>
     </url>
 </urlset>
