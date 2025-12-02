@@ -14,6 +14,9 @@ try:
     __version__ = importlib.metadata.version("fsspeckit")
 except importlib.metadata.PackageNotFoundError:
     __version__ = "0.5.0-dev"
+except Exception:
+    # Fallback for any other import issues during development
+    __version__ = "0.5.0-dev"
 
 
 from .core import AbstractFileSystem, DirFileSystem, filesystem, get_filesystem
