@@ -11,8 +11,17 @@ This package contains utilities that are shared across different components:
 from .datetime import get_timestamp_column, get_timedelta_str, timestamp_from_string
 from .logging import get_logger, setup_logging
 from .misc import get_partitions_from_path, run_parallel, sync_dir, sync_files
-from .polars import opt_dtype as opt_dtype_pl, pl
 from .types import dict_to_dataframe, to_pyarrow_table
+
+# Conditionally import polars utilities
+try:
+    from .polars import opt_dtype as opt_dtype_pl, pl
+
+    _POLARS_UTILS_AVAILABLE = True
+except ImportError:
+    opt_dtype_pl = None
+    pl = None
+    _POLARS_UTILS_AVAILABLE = False
 
 __all__ = [
     # datetime utilities
@@ -27,7 +36,7 @@ __all__ = [
     "run_parallel",
     "sync_dir",
     "sync_files",
-    # polars utilities
+    # polars utilities (may be None if polars not installed)
     "opt_dtype_pl",
     "pl",
     # type conversion utilities

@@ -2,11 +2,12 @@
 
 ## Progress Overview
 
-**Overall Progress:** 4/18 tasks completed (22%)
+**Overall Progress:** 8/18 tasks completed (44%)
 
 **Phase Progress:**
 - Phase 1: Core Infrastructure - 2/2 tasks completed ✅
-- Phase 2: Common Modules Refactoring - 2/4 tasks completed  
+- Phase 2: Common Modules Refactoring - 3/4 tasks completed
+- Phase 3: Dataset Modules Refactoring - 2/3 tasks completed  
 - Phase 3: Dataset Modules Refactoring - 0/3 tasks completed
 - Phase 4: Core and SQL Modules - 0/3 tasks completed
 - Phase 5: Testing and Validation - 0/3 tasks completed
@@ -50,23 +51,23 @@
    - [x] Implement conditional loading for datetime utilities
    - [x] Add graceful fallbacks when dependencies missing
 
-6. [ ] **Update common/__init__.py**
-   - [ ] Review and update imports based on refactored modules
-   - [ ] Ensure conditional imports work properly
+6. [x] **Update common/__init__.py**
+   - [x] Review and update imports based on refactored modules
+   - [x] Ensure conditional imports work properly
 
 ### Phase 3: Dataset Modules Refactoring
 
 - [ ] **Phase 3: Dataset Modules Refactoring**
 
-7. [ ] **Refactor datasets/pyarrow.py**
-   - [ ] Remove unconditional polars import
-   - [ ] Implement conditional loading for polars features
-   - [ ] Maintain core PyArrow functionality without polars
+7. [x] **Refactor datasets/pyarrow.py**
+   - [x] Remove unconditional polars import
+   - [x] Implement conditional loading for polars features
+   - [x] Maintain core PyArrow functionality without polars
 
-8. [ ] **Refactor datasets/duckdb.py**
-   - [ ] Add conditional imports for duckdb and pyarrow
-   - [ ] Implement lazy loading with proper error handling
-   - [ ] Add feature detection for available capabilities
+8. [x] **Refactor datasets/duckdb.py**
+   - [x] Add conditional imports for duckdb and pyarrow
+   - [x] Implement lazy loading with proper error handling
+   - [x] Add feature detection for available capabilities
 
 9. [ ] **Update datasets/__init__.py**
    - [ ] Implement conditional submodule imports

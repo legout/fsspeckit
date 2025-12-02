@@ -5,12 +5,17 @@ datasets using DuckDB with support for various filesystems through fsspec.
 DuckDB provides excellent parquet support with SQL analytics capabilities.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
-from typing import Any, Callable, Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Callable, Literal
 import uuid
 
-import duckdb
-import pyarrow as pa
+if TYPE_CHECKING:
+    import duckdb
+    import pyarrow as pa
+    from fsspeckit.storage_options.base import BaseStorageOptions
+
 from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
 
@@ -23,9 +28,6 @@ from fsspeckit.core.merge import (
     validate_merge_inputs,
     validate_strategy_compatibility,
 )
-
-if TYPE_CHECKING:
-    from fsspeckit.storage_options.base import BaseStorageOptions
 
 
 # Type alias for merge strategies (for backward compatibility)
@@ -152,13 +154,17 @@ class DuckDBParquetHandler:
             # Default to local filesystem
             self._filesystem = fsspec_filesystem("file")
 
-    def _ensure_connection(self) -> duckdb.DuckDBPyConnection:
+    def _ensure_connection(self) -> Any:  # Returns duckdb.DuckDBPyConnection
         """Ensure DuckDB connection is initialized and filesystem is registered.
 
         Returns:
             Active DuckDB connection.
         """
         if self._connection is None:
+            from fsspeckit.common.optional import _import_duckdb
+
+            duckdb = _import_duckdb()
+
             self._connection = duckdb.connect(":memory:")
             self._register_filesystem()
         return self._connection
@@ -777,7 +783,9 @@ class DuckDBParquetHandler:
         import tempfile
         import shutil
 
-        with tempfile.TemporaryDirectory(prefix=f"merge_{uuid.uuid4().hex[:8]}_") as temp_dir:
+        with tempfile.TemporaryDirectory(
+            prefix=f"merge_{uuid.uuid4().hex[:8]}_"
+        ) as temp_dir:
             temp_path = Path(temp_dir) / "merged_dataset"
             temp_path_str = str(temp_path)
 
@@ -816,7 +824,6 @@ class DuckDBParquetHandler:
 
         return stats
 
-    
     def _execute_merge_strategy(
         self,
         conn: duckdb.DuckDBPyConnection,
@@ -930,7 +937,6 @@ class DuckDBParquetHandler:
 
         return result
 
-    
     def execute_sql(
         self,
         query: str,
@@ -1295,7 +1301,9 @@ class DuckDBParquetHandler:
             paths = [file_info.path for file_info in group.files]
             all_paths_sql = ",".join([f"'{p}'" for p in paths])
 
-            query = f"SELECT * FROM parquet_scan([{all_paths_sql}]) ORDER BY {order_clause}"
+            query = (
+                f"SELECT * FROM parquet_scan([{all_paths_sql}]) ORDER BY {order_clause}"
+            )
             ordered_table = conn.execute(query).arrow()
             if hasattr(ordered_table, "read_all"):
                 ordered_table = ordered_table.read_all()
@@ -1336,7 +1344,9 @@ class DuckDBParquetHandler:
                     pass
 
         # Recompute stats after optimization
-        stats_after = self._collect_dataset_stats(path, partition_filter=partition_filter)
+        stats_after = self._collect_dataset_stats(
+            path, partition_filter=partition_filter
+        )
 
         # Create final stats
         final_stats = MaintenanceStats(
