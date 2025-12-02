@@ -7,7 +7,7 @@ import polars as pl
 import pyarrow as pa
 import pandas as pd
 
-from fsspeckit.utils.datetime import (
+from fsspeckit.common.datetime import (
     get_timestamp_column,
     get_timedelta_str,
     timestamp_from_string,

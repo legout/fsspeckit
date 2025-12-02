@@ -7,7 +7,7 @@ import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 import pytest
 
-from fsspeckit.utils.pyarrow import merge_parquet_dataset_pyarrow
+from fsspeckit.datasets.pyarrow import merge_parquet_dataset_pyarrow
 
 
 def _read_dataset_table(path: str) -> pa.Table:
@@ -48,10 +48,18 @@ class TestMergeParquetDatasetPyArrow:
         source_dir = tmp_path / "source"
         target.mkdir()
         source_dir.mkdir()
-        pq.write_table(pa.table({"id": [1], "value": ["keep"]}), target / "part-0.parquet")
-        pq.write_table(pa.table({"id": [2], "value": ["existing"]}), target / "part-1.parquet")
-        pq.write_table(pa.table({"id": [2], "value": ["dupe"]}), source_dir / "part-0.parquet")
-        pq.write_table(pa.table({"id": [3], "value": ["new"]}), source_dir / "part-1.parquet")
+        pq.write_table(
+            pa.table({"id": [1], "value": ["keep"]}), target / "part-0.parquet"
+        )
+        pq.write_table(
+            pa.table({"id": [2], "value": ["existing"]}), target / "part-1.parquet"
+        )
+        pq.write_table(
+            pa.table({"id": [2], "value": ["dupe"]}), source_dir / "part-0.parquet"
+        )
+        pq.write_table(
+            pa.table({"id": [3], "value": ["new"]}), source_dir / "part-1.parquet"
+        )
 
         stats = merge_parquet_dataset_pyarrow(
             str(source_dir),
@@ -134,7 +142,10 @@ class TestMergeParquetDatasetPyArrow:
     def test_deduplicate_keeps_preferred_row(self, tmp_path):
         target = tmp_path / "target"
         target.mkdir()
-        pq.write_table(pa.table({"id": [1], "value": ["orig"], "ts": [1]}), target / "part-0.parquet")
+        pq.write_table(
+            pa.table({"id": [1], "value": ["orig"], "ts": [1]}),
+            target / "part-0.parquet",
+        )
 
         source = pa.table(
             {

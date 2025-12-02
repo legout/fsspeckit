@@ -8,7 +8,7 @@ import pyarrow.parquet as pq
 import polars as pl
 from datetime import datetime
 
-from fsspeckit.utils.pyarrow import (
+from fsspeckit.datasets.pyarrow import (
     opt_dtype,
     unify_schemas,
     cast_schema,
@@ -293,7 +293,7 @@ class TestParquetDatasetMaintenance:
         pq.write_table(table, file1)
         pq.write_table(table, file2)
 
-        from fsspeckit.utils.pyarrow import collect_dataset_stats_pyarrow
+        from fsspeckit.datasets.pyarrow import collect_dataset_stats_pyarrow
 
         stats = collect_dataset_stats_pyarrow(str(path))
         assert stats["total_rows"] == 6
@@ -309,7 +309,7 @@ class TestParquetDatasetMaintenance:
         for i in range(4):
             pq.write_table(table, path / f"part-{i}.parquet")
 
-        from fsspeckit.utils.pyarrow import compact_parquet_dataset_pyarrow
+        from fsspeckit.datasets.pyarrow import compact_parquet_dataset_pyarrow
 
         files_before = sorted(p.name for p in path.glob("*.parquet"))
         dry = compact_parquet_dataset_pyarrow(
@@ -342,7 +342,7 @@ class TestParquetDatasetMaintenance:
         )
         pq.write_table(table, path / "part-0.parquet")
 
-        from fsspeckit.utils.pyarrow import optimize_parquet_dataset_pyarrow
+        from fsspeckit.datasets.pyarrow import optimize_parquet_dataset_pyarrow
 
         files_before = sorted(p.name for p in path.glob("*.parquet"))
         dry = optimize_parquet_dataset_pyarrow(
@@ -370,7 +370,7 @@ class TestParquetDatasetMaintenance:
         )
         pq.write_table(table, path / "part-0.parquet")
 
-        from fsspeckit.utils.pyarrow import (
+        from fsspeckit.datasets.pyarrow import (
             optimize_parquet_dataset_pyarrow,
             collect_dataset_stats_pyarrow,
         )
@@ -445,7 +445,10 @@ class TestParquetDatasetMaintenance:
         )
 
         assert live["dry_run"] is False
-        assert sorted(p.name for p in untouched_partition.glob("*.parquet")) == before_other
+        assert (
+            sorted(p.name for p in untouched_partition.glob("*.parquet"))
+            == before_other
+        )
         compacted = list(base.glob("compact-*.parquet"))
         assert compacted, "Filtered partition should receive rewritten files"
 
@@ -494,14 +497,20 @@ class TestParquetDatasetMaintenance:
         assert optimized_files, "Optimizer should rewrite dataset"
         for file_path in optimized_files:
             table = pq.read_table(file_path)
-            pairs = list(zip(table.column("group").to_pylist(), table.column("value").to_pylist()))
+            pairs = list(
+                zip(
+                    table.column("group").to_pylist(), table.column("value").to_pylist()
+                )
+            )
             assert pairs == sorted(pairs)
 
     def test_merge_parquet_dataset_pyarrow_simple(self, tmp_path):
         """merge_parquet_dataset_pyarrow should upsert rows with minimal input."""
         path = tmp_path / "merge-target"
         path.mkdir()
-        pq.write_table(pa.table({"id": [1], "value": ["base"]}), path / "part-0.parquet")
+        pq.write_table(
+            pa.table({"id": [1], "value": ["base"]}), path / "part-0.parquet"
+        )
         source = pa.table({"id": [1, 2], "value": ["new", "insert"]})
 
         stats = merge_parquet_dataset_pyarrow(
@@ -856,7 +865,9 @@ class TestPyArrowCanonicalStatsStructure:
             "planned_groups",
         ]
         for key in canonical_keys:
-            assert key in result, f"Missing canonical key in optimization dry run: {key}"
+            assert key in result, (
+                f"Missing canonical key in optimization dry run: {key}"
+            )
 
     def test_canonical_stats_logical_consistency(self, tmp_path):
         """Test logical consistency of canonical stats across operations."""

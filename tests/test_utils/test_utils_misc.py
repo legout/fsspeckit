@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from fsspeckit.utils.misc import run_parallel, get_partitions_from_path
+from fsspeckit.common.misc import run_parallel, get_partitions_from_path
 
 
 class TestRunParallel:

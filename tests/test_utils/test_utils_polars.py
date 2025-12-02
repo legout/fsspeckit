@@ -5,7 +5,7 @@ import polars as pl
 import pyarrow as pa
 from datetime import datetime, timezone
 
-from fsspeckit.utils.polars import (
+from fsspeckit.common.polars import (
     opt_dtype,
     unnest_all,
     explode_all,
@@ -64,9 +64,7 @@ class TestOptDtype:
             time_unit="us", time_zone=None
         )
         assert result.schema["compact"] == pl.Datetime(time_unit="us", time_zone=None)
-        assert result.schema["with_tz"] == pl.Datetime(
-            time_unit="us", time_zone="UTC"
-        )
+        assert result.schema["with_tz"] == pl.Datetime(time_unit="us", time_zone="UTC")
 
     def test_timezone_handling(self):
         """Test timezone parameter handling."""
