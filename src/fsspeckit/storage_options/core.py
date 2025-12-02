@@ -47,7 +47,7 @@ class LocalStorageOptions(BaseStorageOptions):
 
     protocol: str = "file"
     auto_mkdir: bool = False
-    mode: int | None = None
+    mode: Union[int, None] = None
 
     def to_fsspec_kwargs(self) -> dict:
         """Convert options to fsspec filesystem arguments.

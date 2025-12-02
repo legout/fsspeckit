@@ -1,6 +1,7 @@
 """Git-based storage options for GitHub and GitLab."""
 
 import os
+from typing import Union
 
 from .base import BaseStorageOptions
 
@@ -48,11 +49,11 @@ class GitHubStorageOptions(BaseStorageOptions, frozen=False):
     """
 
     protocol: str = "github"
-    org: str | None = None
-    repo: str | None = None
-    ref: str | None = None
-    token: str | None = None
-    api_url: str | None = None
+    org: Union[str, None] = None
+    repo: Union[str, None] = None
+    ref: Union[str, None] = None
+    token: Union[str, None] = None
+    api_url: Union[str, None] = None
 
     @classmethod
     def from_env(cls) -> "GitHubStorageOptions":
@@ -146,7 +147,7 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
     Attributes:
         protocol (str): Always "gitlab" for GitLab storage
         base_url (str): GitLab instance URL, defaults to gitlab.com
-        project_id (str | int): Project ID number
+        project_id (Union[str, int]): Project ID number
         project_name (str): Project name/path
         ref (str): Git reference (branch, tag, or commit SHA)
         token (str): GitLab personal access token
@@ -176,10 +177,10 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
 
     protocol: str = "gitlab"
     base_url: str = "https://gitlab.com"
-    project_id: str | int | None = None
-    project_name: str | None = None
-    ref: str | None = None
-    token: str | None = None
+    project_id: Union[str, int] | None = None
+    project_name: Union[str, None] = None
+    ref: Union[str, None] = None
+    token: Union[str, None] = None
     api_version: str = "v4"
 
     def __post_init__(self) -> None:

@@ -27,6 +27,21 @@ from fsspeckit.core.merge import (
     validate_strategy_compatibility,
 )
 
+# Import shared schema utilities - will be available after module restructuring
+try:
+    from fsspeckit.common.schema import (
+        unify_schemas,
+        standardize_schema_timezones,
+        dominant_timezone_per_column,
+        convert_large_types_to_normal,
+        cast_schema,
+        remove_empty_columns,
+    )
+    from fsspeckit.common.partitions import get_partitions_from_path
+except ImportError:
+    # Fallback to local implementations during transition
+    pass
+
 # Pre-compiled regex patterns (identical to original)
 INTEGER_REGEX = r"^[-+]?\d+$"
 FLOAT_REGEX = r"^(?:[-+]?(?:\d*[.,])?\d+(?:[eE][-+]?\d+)?|[-+]?(?:inf|nan))$"
@@ -804,69 +819,8 @@ def merge_parquet_dataset_pyarrow(
     return stats
 
 
-def convert_large_types_to_normal(schema: pa.Schema) -> pa.Schema:
-    """
-    Convert large types in a PyArrow schema to their standard types.
-
-    Args:
-        schema (pa.Schema): The PyArrow schema to convert.
-
-    Returns:
-        pa.Schema: A new PyArrow schema with large types converted to standard types.
-    """
-    # Define mapping of large types to standard types
-    type_mapping = {
-        pa.large_string(): pa.string(),
-        pa.large_binary(): pa.binary(),
-        pa.large_utf8(): pa.utf8(),
-        pa.large_list(pa.null()): pa.list_(pa.null()),
-        pa.large_list_view(pa.null()): pa.list_view(pa.null()),
-    }
-    # Convert fields
-    new_fields = []
-    for field in schema:
-        field_type = field.type
-        # Check if type exists in mapping
-        if field_type in type_mapping:
-            new_field = pa.field(
-                name=field.name,
-                type=type_mapping[field_type],
-                nullable=field.nullable,
-                metadata=field.metadata,
-            )
-            new_fields.append(new_field)
-        # Handle large lists with nested types
-        elif isinstance(field_type, pa.LargeListType):
-            new_field = pa.field(
-                name=field.name,
-                type=pa.list_(
-                    type_mapping[field_type.value_type]
-                    if field_type.value_type in type_mapping
-                    else field_type.value_type
-                ),
-                nullable=field.nullable,
-                metadata=field.metadata,
-            )
-            new_fields.append(new_field)
-        # Handle dictionary with large_string, large_utf8, or large_binary values
-        elif isinstance(field_type, pa.DictionaryType):
-            new_field = pa.field(
-                name=field.name,
-                type=pa.dictionary(
-                    field_type.index_type,
-                    type_mapping[field_type.value_type]
-                    if field_type.value_type in type_mapping
-                    else field_type.value_type,
-                    field_type.ordered,
-                ),
-                # nullable=field.nullable,
-                metadata=field.metadata,
-            )
-            new_fields.append(new_field)
-        else:
-            new_fields.append(field)
-
-    return pa.schema(new_fields)
+# TODO: Import from fsspeckit.common.schema after module restructuring
+# convert_large_types_to_normal is now available from fsspeckit.common.schema
 
 
 def dominant_timezone_per_column(

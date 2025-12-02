@@ -1,7 +1,7 @@
 import configparser
 import os
 import warnings
-from typing import Any
+from typing import Any, Union
 
 from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
@@ -11,7 +11,7 @@ from obstore.store import S3Store
 from .base import BaseStorageOptions
 
 
-def _parse_bool(value: Any) -> bool | None:
+def _parse_bool(value: Any) -> Union[bool, None]:
     """Parse a boolean-like value from env/config entries.
 
     Accepts actual booleans, strings (case-insensitive), and returns ``None``
@@ -81,13 +81,13 @@ class AzureStorageOptions(BaseStorageOptions, frozen=False):
     """
 
     protocol: str
-    account_name: str | None = None
-    account_key: str | None = None
-    connection_string: str | None = None
-    tenant_id: str | None = None
-    client_id: str | None = None
-    client_secret: str | None = None
-    sas_token: str | None = None
+    account_name: Union[str, None] = None
+    account_key: Union[str, None] = None
+    connection_string: Union[str, None] = None
+    tenant_id: Union[str, None] = None
+    client_id: Union[str, None] = None
+    client_secret: Union[str, None] = None
+    sas_token: Union[str, None] = None
 
     @property
     def _normalized_protocol(self) -> str:
@@ -214,11 +214,11 @@ class GcsStorageOptions(BaseStorageOptions, frozen=False):
     """
 
     protocol: str
-    token: str | None = None
-    project: str | None = None
-    access_token: str | None = None
-    endpoint_url: str | None = None
-    timeout: int | None = None
+    token: Union[str, None] = None
+    project: Union[str, None] = None
+    access_token: Union[str, None] = None
+    endpoint_url: Union[str, None] = None
+    timeout: Union[int, None] = None
 
     @property
     def _normalized_protocol(self) -> str:
@@ -349,15 +349,15 @@ class AwsStorageOptions(BaseStorageOptions, frozen=False):
     """
 
     protocol: str = "s3"
-    access_key_id: str | None = None
-    secret_access_key: str | None = None
-    session_token: str | None = None
-    endpoint_url: str | None = None
-    region: str | None = None
-    allow_invalid_certificates: bool | None = None
-    allow_invalid_certs: bool | None = None
-    allow_http: bool | None = None
-    anonymous: bool | None = None
+    access_key_id: Union[str, None] = None
+    secret_access_key: Union[str, None] = None
+    session_token: Union[str, None] = None
+    endpoint_url: Union[str, None] = None
+    region: Union[str, None] = None
+    allow_invalid_certificates: Union[bool, None] = None
+    allow_invalid_certs: Union[bool, None] = None
+    allow_http: Union[bool, None] = None
+    anonymous: Union[bool, None] = None
 
     def __post_init__(self) -> None:
         # Handle deprecation warning for allow_invalid_certs
@@ -369,7 +369,7 @@ class AwsStorageOptions(BaseStorageOptions, frozen=False):
             )
 
     @property
-    def _parsed_allow_invalid_certificates(self) -> bool | None:
+    def _parsed_allow_invalid_certificates(self) -> Union[bool, None]:
         """Get the parsed allow_invalid_certificates value, handling the deprecated alias."""
         canonical_allow_invalid = _parse_bool(self.allow_invalid_certificates)
         alias_value = _parse_bool(self.allow_invalid_certs)
@@ -382,12 +382,12 @@ class AwsStorageOptions(BaseStorageOptions, frozen=False):
         return canonical_allow_invalid
 
     @property
-    def _parsed_allow_http(self) -> bool | None:
+    def _parsed_allow_http(self) -> Union[bool, None]:
         """Get the parsed allow_http value."""
         return _parse_bool(self.allow_http)
 
     @property
-    def _parsed_anonymous(self) -> bool | None:
+    def _parsed_anonymous(self) -> Union[bool, None]:
         """Get the parsed anonymous value."""
         return _parse_bool(self.anonymous)
 
@@ -395,20 +395,20 @@ class AwsStorageOptions(BaseStorageOptions, frozen=False):
     def create(
         cls,
         protocol: str = "s3",
-        access_key_id: str | None = None,
-        secret_access_key: str | None = None,
-        session_token: str | None = None,
-        endpoint_url: str | None = None,
-        region: str | None = None,
-        allow_invalid_certificates: bool | str | None = None,
-        allow_invalid_certs: bool | str | None = None,
-        allow_http: bool | str | None = None,
-        anonymous: bool | str | None = None,
+        access_key_id: Union[str, None] = None,
+        secret_access_key: Union[str, None] = None,
+        session_token: Union[str, None] = None,
+        endpoint_url: Union[str, None] = None,
+        region: Union[str, None] = None,
+        allow_invalid_certificates: Union[bool, str, None] = None,
+        allow_invalid_certs: Union[bool, str, None] = None,
+        allow_http: Union[bool, str, None] = None,
+        anonymous: Union[bool, str, None] = None,
         # Alias and loading params
-        key: str | None = None,
-        secret: str | None = None,
-        token: str | None = None,  # maps to session_token
-        profile: str | None = None,
+        key: Union[str, None] = None,
+        secret: Union[str, None] = None,
+        token: Union[str, None] = None,  # maps to session_token
+        profile: Union[str, None] = None,
     ) -> "AwsStorageOptions":
         """Creates an AwsStorageOptions instance, handling aliases and profile loading.
 
@@ -493,10 +493,10 @@ class AwsStorageOptions(BaseStorageOptions, frozen=False):
     def from_aws_credentials(
         cls,
         profile: str,
-        allow_invalid_certificates: bool | str | None = None,
-        allow_invalid_certs: bool | str | None = None,
-        allow_http: bool | str | None = None,
-        anonymous: bool | str | None = None,
+        allow_invalid_certificates: Union[bool, str, None] = None,
+        allow_invalid_certs: Union[bool, str, None] = None,
+        allow_http: Union[bool, str, None] = None,
+        anonymous: Union[bool, str, None] = None,
     ) -> "AwsStorageOptions":
         """Create storage options from AWS credentials file.
 
@@ -660,8 +660,8 @@ class AwsStorageOptions(BaseStorageOptions, frozen=False):
     def to_object_store_kwargs(
         self,
         *,
-        with_conditional_put: bool | str = False,
-        conditional_put: str | None = None,
+        with_conditional_put: Union[bool, str] = False,
+        conditional_put: Union[str, None] = None,
     ) -> dict:
         """Convert options to object store arguments."""
 
@@ -671,7 +671,7 @@ class AwsStorageOptions(BaseStorageOptions, frozen=False):
             if v is not None and k != "protocol"
         }
 
-        cond_value: str | None = None
+        cond_value: Union[str, None] = None
         if conditional_put is not None:
             cond_value = conditional_put
         elif isinstance(with_conditional_put, str):
@@ -694,10 +694,10 @@ class AwsStorageOptions(BaseStorageOptions, frozen=False):
 
     def to_obstore_kwargs(
         self,
-        bucket: str | None = None,
-        prefix: str | None = None,
+        bucket: Union[str, None] = None,
+        prefix: Union[str, None] = None,
         conditional_put: str = "etag",
-        client_options: dict | None = None,
+        client_options: Union[dict, None] = None,
         **kwargs,
     ) -> dict:
         obstore_kwargs: dict[str, Any] = {
@@ -772,7 +772,7 @@ class AwsStorageOptions(BaseStorageOptions, frozen=False):
         )
 
     def to_obstore(
-        self, bucket: str | None = None, prefix: str | None = None
+        self, bucket: Union[str, None] = None, prefix: Union[str, None] = None
     ) -> S3Store:
         return S3Store(**self.to_obstore_kwargs(bucket=bucket, prefix=prefix))
 

@@ -12,6 +12,26 @@ from .datetime import get_timestamp_column, get_timedelta_str, timestamp_from_st
 from .logging import get_logger, setup_logging
 from .misc import get_partitions_from_path, run_parallel, sync_dir, sync_files
 from .types import dict_to_dataframe, to_pyarrow_table
+from .schema import (
+    unify_schemas,
+    standardize_schema_timezones,
+    dominant_timezone_per_column,
+    convert_large_types_to_normal,
+    cast_schema,
+    remove_empty_columns,
+)
+from .partitions import (
+    get_partitions_from_path,
+    normalize_partition_value,
+    validate_partition_columns,
+    build_partition_path,
+    extract_partition_filters,
+    filter_paths_by_partitions,
+    infer_partitioning_scheme,
+    get_partition_columns_from_paths,
+    create_partition_expression,
+    apply_partition_pruning,
+)
 
 # Conditionally import polars utilities
 try:

@@ -25,7 +25,10 @@ fsspeckit is a comprehensive Python toolkit that extends fsspec (filesystem spec
 - **Imports**: Grouped imports (stdlib, third-party, local) with isort formatting
 - **Line length**: 88 characters (Black standard)
 - **Linting**: ruff for linting and formatting, mypy for type checking
-
+- Use **PEP 604 unions**: `str | int` instead of `Union[str, int]` or `Optional[str]` (write `str | None`).
+- Use **built-in generics**: `list[int]`, `dict[str, Any]`, `tuple[int, ...]`, `set[str]` instead of `List`, `Dict`, `Tuple`, `Set`.
+- Prefer `collections.abc` for callables and iterables:  `from collections.abc import Callable, Iterable` and write `Callable[[int], str]`, not `typing.Callable`.
+  
 ### Architecture Patterns
 - **Modular design**: Core functionality separated into `core/`, `storage_options/`, and `utils/`
 - **Abstract base classes**: `BaseStorageOptions` and `AbstractFileSystem` for extensibility

@@ -102,7 +102,7 @@ class MaintenanceStats:
     after_total_bytes: int
     compacted_file_count: int
     rewritten_bytes: int
-    compression_codec: str | None = None
+    compression_codec: Union[str, None] = None
     dry_run: bool = False
 
     # Optional fields for specific operations

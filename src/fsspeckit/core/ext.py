@@ -224,15 +224,16 @@ def _read_json(
                 verbose=verbose,
                 **kwargs,
             )
-        data = [
-            _read_json_file(
-                path=p,
-                self=self,
-                include_file_path=include_file_path,
-                jsonlines=jsonlines,
-            )
-            for p in path
-        ]
+        else:
+            data = [
+                _read_json_file(
+                    path=p,
+                    self=self,
+                    include_file_path=include_file_path,
+                    jsonlines=jsonlines,
+                )
+                for p in path
+            ]
     else:
         data = _read_json_file(
             path=path,
@@ -519,7 +520,6 @@ def _read_csv_file(
         >>> print("file_path" in df.columns)
         True
     """
-    print(path)  # Debug info
     with self.open(path) as f:
         df = pl.read_csv(f, **kwargs)
     if include_file_path:
@@ -838,6 +838,11 @@ def _read_parquet_file(
         >>> print("file_path" in table.column_names)
         True
     """
+    from fsspeckit.common.optional import _import_pyarrow
+
+    pa_mod = _import_pyarrow()
+    import pyarrow.parquet as pq
+
     if not path.endswith(".parquet"):
         raise ValueError(
             f"Path '{path}' does not point to a Parquet file. "
@@ -845,7 +850,11 @@ def _read_parquet_file(
         )
     table = pq.read_table(path, filesystem=self, **kwargs)
     if include_file_path:
-        table = table.add_column(0, "file_path", pl.Series([path] * table.num_rows))
+        table = table.add_column(
+            0,
+            "file_path",
+            pa_mod.array([path] * table.num_rows),
+        )
     if opt_dtypes:
         table = opt_dtype_pa(table, strict=False)
     return table
