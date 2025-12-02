@@ -1,11 +1,14 @@
-from typing import Any
+from __future__ import annotations
 
-import pyarrow as pa
-import pyarrow.compute as pc
-from sqlglot import exp, parse_one
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    from sqlglot import exp, parse_one
+    from fsspeckit.common.polars import pl
 
 from fsspeckit.common.datetime import timestamp_from_string
-from fsspeckit.common.polars import pl
 
 
 def sql2pyarrow_filter(string: str, schema: pa.Schema) -> pc.Expression:
@@ -22,6 +25,13 @@ def sql2pyarrow_filter(string: str, schema: pa.Schema) -> pc.Expression:
     Raises:
         ValueError: If the input string is invalid or contains unsupported operations.
     """
+    from fsspeckit.common.optional import _import_pyarrow, _import_sqlglot
+
+    pa = _import_pyarrow()
+    import pyarrow.compute as pc
+
+    sqlglot = _import_sqlglot()
+    from sqlglot import exp, parse_one
 
     def parse_value(val: str, type_: pa.DataType) -> Any:
         """Parse and convert value based on the field type."""
@@ -117,7 +127,8 @@ def sql2pyarrow_filter(string: str, schema: pa.Schema) -> pc.Expression:
                 right = _convert_expression(expr.expression, context_type)
             else:
                 right = [
-                    _convert_expression(e, context_type) for e in expressions  # type: ignore[arg-type]
+                    _convert_expression(e, context_type)
+                    for e in expressions  # type: ignore[arg-type]
                 ]
             return left.isin(right)
 
@@ -129,7 +140,10 @@ def sql2pyarrow_filter(string: str, schema: pa.Schema) -> pc.Expression:
                 context_type = _get_field_type_from_context(inner)
                 left = _convert_expression(inner.this, context_type)
                 expressions = inner.args.get("expressions")
-                if expressions is None and getattr(inner, "expression", None) is not None:
+                if (
+                    expressions is None
+                    and getattr(inner, "expression", None) is not None
+                ):
                     expressions = getattr(inner.expression, "expressions", None)
 
                 if expressions is None:
@@ -192,6 +206,11 @@ def sql2polars_filter(string: str, schema: pl.Schema) -> pl.Expr:
     Raises:
         ValueError: If the input string is invalid or contains unsupported operations.
     """
+    from fsspeckit.common.optional import _import_polars, _import_sqlglot
+
+    pl = _import_polars()
+    sqlglot = _import_sqlglot()
+    from sqlglot import exp, parse_one
 
     def parse_value(val: str, dtype: pl.DataType) -> Any:
         """Parse and convert value based on the field type."""
@@ -339,4 +358,9 @@ def sql2polars_filter(string: str, schema: pl.Schema) -> pl.Expr:
 
 
 def get_table_names(sql_query):
+    from fsspeckit.common.optional import _import_sqlglot
+
+    sqlglot = _import_sqlglot()
+    from sqlglot import exp, parse_one
+
     return [table.name for table in parse_one(sql_query).find_all(exp.Table)]

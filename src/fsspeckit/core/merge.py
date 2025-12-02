@@ -16,9 +16,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-import pyarrow as pa
+if TYPE_CHECKING:
+    import pyarrow as pa
 
 
 class MergeStrategy(Enum):
@@ -198,7 +199,9 @@ def validate_merge_inputs(
         target_columns = set(target_schema.names)
 
         # Check key columns exist in target
-        missing_target_keys = [col for col in normalized_keys if col not in target_columns]
+        missing_target_keys = [
+            col for col in normalized_keys if col not in target_columns
+        ]
         if missing_target_keys:
             raise ValueError(
                 f"Key column(s) missing from target: {', '.join(missing_target_keys)}. "

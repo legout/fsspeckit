@@ -1,32 +1,33 @@
+from __future__ import annotations
+
 import datetime as dt
 import importlib.util
 import posixpath
 import uuid
-from typing import Any, Generator
+from typing import TYPE_CHECKING, Any, Generator
 
-import orjson
+if TYPE_CHECKING:
+    import orjson
+    import pandas as pd
+    import pyarrow as pa
+    import pyarrow.dataset as pds
+    import pyarrow.parquet as pq
 
-# import polars as pl
-import pyarrow as pa
-import pyarrow.dataset as pds
-import pyarrow.parquet as pq
 from fsspec import AbstractFileSystem
-# from pydala.dataset import ParquetDataset
 
 from fsspeckit.common.misc import path_to_glob, run_parallel
-from fsspeckit.common.polars import opt_dtype as opt_dtype_pl
-from fsspeckit.common.polars import pl
-
-# from fsspeckit.common.polars import unify_schemas as unfify_schemas_pl
+from fsspeckit.common.types import dict_to_dataframe, to_pyarrow_table
 from fsspeckit.datasets.pyarrow import cast_schema, convert_large_types_to_normal
 from fsspeckit.datasets.pyarrow import opt_dtype as opt_dtype_pa
 from fsspeckit.datasets.pyarrow import unify_schemas as unify_schemas_pa
-from fsspeckit.common.types import dict_to_dataframe, to_pyarrow_table
 
-if importlib.util.find_spec("pandas") is not None:
-    import pandas as pd
-else:
-    raise ImportError("To use this module, please install `flowerpower[io]`.")
+# Conditionally import polars utilities
+try:
+    from fsspeckit.common.polars import opt_dtype as opt_dtype_pl
+    from fsspeckit.common.polars import pl
+except ImportError:
+    opt_dtype_pl = None
+    pl = None
 
 
 # def path_to_glob(path: str, format: str | None = None) -> str:
@@ -116,6 +117,10 @@ def _read_json_file(
         >>> print(list(data.keys())[0])
         'data.jsonl'
     """
+    from fsspeckit.common.optional import _import_orjson
+
+    orjson = _import_orjson()
+
     with self.open(path) as f:
         if jsonlines:
             data = [orjson.loads(line) for line in f.readlines()]
@@ -1605,6 +1610,11 @@ def write_parquet(
         ...     schema=schema
         ... )
     """
+    from fsspeckit.common.optional import _import_pyarrow
+
+    pa_mod = _import_pyarrow()
+    import pyarrow.parquet as pq
+
     data = to_pyarrow_table(data, concat=True, unique=False)
 
     if schema is not None:
