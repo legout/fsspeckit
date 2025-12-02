@@ -11,7 +11,8 @@ if TYPE_CHECKING:
     import pandas as pd
     import pyarrow as pa
     import pyarrow.dataset as pds
-    import pyarrow.parquet as pq
+
+    pq = _import_pyarrow_parquet()
 
 from fsspec import AbstractFileSystem
 
@@ -117,7 +118,11 @@ def _read_json_file(
         >>> print(list(data.keys())[0])
         'data.jsonl'
     """
-    from fsspeckit.common.optional import _import_orjson
+    from fsspeckit.common.optional import (
+        _import_orjson,
+        _import_pyarrow,
+        _import_pyarrow_parquet,
+    )
 
     orjson = _import_orjson()
 
@@ -243,15 +248,30 @@ def _read_json(
         )
     if as_dataframe:
         if not include_file_path:
-            data = [pl.DataFrame(d) for d in data]
+            # Handle both single file (dict) and multiple files (list) cases
+            if isinstance(data, list):
+                data = [pl.DataFrame(d) for d in data]
+            else:
+                data = [pl.DataFrame(data)]
         else:
-            data = [
-                [
-                    pl.DataFrame(_data[k]).with_columns(pl.lit(k).alias("file_path"))
-                    for k in _data
-                ][0]
-                for _data in data
-            ]
+            # Handle both single file (dict) and multiple files (list) cases
+            if isinstance(data, list):
+                data = [
+                    [
+                        pl.DataFrame(_data[k]).with_columns(
+                            pl.lit(k).alias("file_path")
+                        )
+                        for k in _data
+                    ][0]
+                    for _data in data
+                ]
+            else:
+                data = [
+                    [
+                        pl.DataFrame(data[k]).with_columns(pl.lit(k).alias("file_path"))
+                        for k in data
+                    ][0]
+                ]
         if opt_dtypes:
             data = [opt_dtype_pl(df, strict=False) for df in data]
         if concat:
@@ -567,11 +587,14 @@ def _read_csv(
     Returns:
         (pl.DataFrame | list[pl.DataFrame]): Polars DataFrame or list of DataFrames.
     """
+    # Handle path resolution and determine if we have multiple files
     if isinstance(path, str):
         path = path_to_glob(path, format="csv")
         path = self.glob(path)
 
-    if isinstance(path, list):
+    # Determine if we have multiple files and process accordingly
+    if isinstance(path, list) and len(path) > 1:
+        # Multiple files case
         if use_threads:
             dfs = run_parallel(
                 _read_csv_file,
@@ -596,19 +619,27 @@ def _read_csv(
                 for p in path
             ]
     else:
+        # Single file case
+        single_path = path[0] if isinstance(path, list) else path
         dfs = _read_csv_file(
-            path,
+            single_path,
             self=self,
             include_file_path=include_file_path,
             opt_dtypes=opt_dtypes,
             **kwargs,
         )
+
+    # Handle concatenation - ensure consistent structure
+    if not isinstance(dfs, list):
+        dfs = [dfs]  # Convert single DataFrame to list for consistent handling
+
     if concat:
         result = pl.concat(dfs, how="diagonal_relaxed")
         # if opt_dtypes:
         #    result = opt_dtype_pl(result, strict=False)
         return result
-    return dfs
+    else:
+        return dfs
 
 
 def _read_csv_batches(
@@ -838,10 +869,13 @@ def _read_parquet_file(
         >>> print("file_path" in table.column_names)
         True
     """
-    from fsspeckit.common.optional import _import_pyarrow
+    from fsspeckit.common.optional import (
+        _import_pyarrow,
+        _import_pyarrow_parquet,
+    )
 
     pa_mod = _import_pyarrow()
-    import pyarrow.parquet as pq
+    pq = _import_pyarrow_parquet()
 
     if not path.endswith(".parquet"):
         raise ValueError(
@@ -920,6 +954,10 @@ def _read_parquet(
     Returns:
         (pa.Table | list[pa.Table]): Pyarrow Table or list of Pyarrow Tables.
     """
+    from fsspeckit.common.optional import _import_pyarrow
+
+    pa_mod = _import_pyarrow()
+
     # if not include_file_path and concat:
     #    if isinstance(path, str):
     #        path = path.replace("**", "").replace("*.parquet", "")
@@ -974,7 +1012,7 @@ def _read_parquet(
             if not tables:
                 return unified_schema.empty_table()
 
-            result = pa.concat_tables(
+            result = pa_mod.concat_tables(
                 tables,
                 promote_options="permissive",
             )
@@ -990,7 +1028,7 @@ def _read_parquet(
             if not tables:
                 return unified_schema.empty_table()
 
-            result = pa.concat_tables(
+            result = pa_mod.concat_tables(
                 tables,
                 promote_options="permissive",
             )
@@ -1055,6 +1093,10 @@ def _read_parquet_batches(
         ... ):
         ...     print(f"Batch schema: {batch.schema}")
     """
+    from fsspeckit.common.optional import _import_pyarrow
+
+    pa_mod = _import_pyarrow()
+
     # Fast path for simple cases
     # if not include_file_path and concat and batch_size is None:
     #    if isinstance(path, str):
@@ -1116,7 +1158,7 @@ def _read_parquet_batches(
             batch_tables = [table for table in batch_tables if table.num_rows > 0]
             if not batch_tables:
                 yield unified_schema.empty_table()
-            batch_table = pa.concat_tables(
+            batch_table = pa_mod.concat_tables(
                 batch_tables,
                 promote_options="permissive",
             )
@@ -1619,10 +1661,10 @@ def write_parquet(
         ...     schema=schema
         ... )
     """
-    from fsspeckit.common.optional import _import_pyarrow
+    from fsspeckit.common.optional import _import_pyarrow, _import_pyarrow_parquet
 
     pa_mod = _import_pyarrow()
-    import pyarrow.parquet as pq
+    pq = _import_pyarrow_parquet()
 
     data = to_pyarrow_table(data, concat=True, unique=False)
 
@@ -1679,6 +1721,9 @@ def write_json(
     """
     if isinstance(data, pl.LazyFrame):
         data = data.collect()
+    # Get orjson via lazy import
+    orjson = _import_orjson()
+
     if isinstance(data, pl.DataFrame):
         data = data.to_arrow()
         data = cast_schema(data, convert_large_types_to_normal(data.schema)).to_pydict()

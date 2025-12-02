@@ -121,6 +121,26 @@ def _import_pyarrow() -> Any:
     return _pyarrow_module
 
 
+def _import_pyarrow_parquet() -> Any:
+    """Import pyarrow.parquet with proper error handling.
+
+    Returns:
+        pyarrow.parquet module
+
+    Raises:
+        ImportError: If pyarrow is not installed
+    """
+    if not _PYARROW_AVAILABLE:
+        raise ImportError(
+            "pyarrow is required for this function. "
+            "Install with: pip install fsspeckit[datasets]"
+        )
+
+    import pyarrow.parquet as pq
+
+    return pq
+
+
 def _import_duckdb() -> Any:
     """Import duckdb with proper error handling.
 
@@ -228,6 +248,7 @@ __all__ = [
     "_import_polars",
     "_import_pandas",
     "_import_pyarrow",
+    "_import_pyarrow_parquet",
     "_import_duckdb",
     "_import_sqlglot",
     "_import_orjson",
