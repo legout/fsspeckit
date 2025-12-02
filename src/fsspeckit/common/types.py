@@ -1,17 +1,16 @@
 """Type conversion and data transformation utilities."""
 
-from typing import Generator, Union
+from typing import TYPE_CHECKING, Any, Generator, Union
 
-import pandas as pd
-import polars as pl
-import pyarrow as pa
-
-from fsspeckit.datasets.pyarrow import convert_large_types_to_normal
+if TYPE_CHECKING:
+    import pandas as pd
+    import polars as pl
+    import pyarrow as pa
 
 
 def dict_to_dataframe(
     data: Union[dict, list[dict]], unique: Union[bool, list[str], str] = False
-) -> "pl.DataFrame":
+) -> Any:
     """Convert a dictionary or list of dictionaries to a Polars DataFrame.
 
     Handles various input formats:
@@ -67,6 +66,10 @@ def dict_to_dataframe(
         │ 3   ┆ 4   │
         └─────┴─────┘
     """
+    from fsspeckit.common.optional import _import_polars
+
+    pl = _import_polars()
+
     if isinstance(data, list):
         # If it's a single-element list, just use the first element
         if len(data) == 1:
@@ -121,15 +124,13 @@ def dict_to_dataframe(
 
 def to_pyarrow_table(
     data: Union[
-        "pl.DataFrame",
-        "pl.LazyFrame",
-        "pd.DataFrame",
+        Any,  # pl.DataFrame, pl.LazyFrame, pd.DataFrame
         dict,
-        list[Union["pl.DataFrame", "pl.LazyFrame", "pd.DataFrame", dict]],
+        list[Any],  # list of DataFrames or dicts
     ],
     concat: bool = False,
     unique: Union[bool, list[str], str] = False,
-) -> "pa.Table":
+) -> Any:
     """Convert various data formats to PyArrow Table.
 
     Handles conversion from Polars DataFrames, Pandas DataFrames,
@@ -150,6 +151,17 @@ def to_pyarrow_table(
         a: int64
         b: int64
     """
+    from fsspeckit.common.optional import (
+        _import_pandas,
+        _import_polars,
+        _import_pyarrow,
+    )
+    from fsspeckit.datasets.pyarrow import convert_large_types_to_normal
+
+    pl = _import_polars()
+    pd = _import_pandas()
+    pa = _import_pyarrow()
+
     # Convert dict to DataFrame first
     if isinstance(data, dict):
         data = dict_to_dataframe(data)

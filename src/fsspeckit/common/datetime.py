@@ -1,20 +1,34 @@
 import datetime as dt
 import re
 from functools import lru_cache
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-# import pendulum as pdl
-import polars as pl
-import polars.selectors as cs
-import pyarrow as pa
+if TYPE_CHECKING:
+    import polars as pl
+    import polars.selectors as cs
+    import pyarrow as pa
 
 
-def get_timestamp_column(df: pl.DataFrame | pl.LazyFrame | pa.Table) -> str | list[str]:
+def get_timestamp_column(df: Any) -> str | list[str]:
+    """Get timestamp column names from a DataFrame or PyArrow Table.
+
+    Args:
+        df: A Polars DataFrame, LazyFrame, or PyArrow Table
+
+    Returns:
+        String or list of strings with timestamp column names
+    """
+    from fsspeckit.common.optional import _import_polars, _import_pyarrow
+
+    pl = _import_polars()
+    pa = _import_pyarrow()
+
+    # Import polars.selectors at runtime
+    import polars.selectors as cs
+
     if isinstance(df, pa.Table):
         df = pl.from_arrow(df).lazy()
-
-    # if isinstance(df, pl.LazyFrame):
-    #    return df.collect_schema().names()
 
     return df.select(cs.datetime() | cs.date()).collect_schema().names()
 

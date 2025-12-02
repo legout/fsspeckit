@@ -1,6 +1,6 @@
 """Miscellaneous utility functions for fsspeckit."""
 
-import importlib
+import importlib.util
 import os
 import posixpath
 from typing import Any, Callable, Optional, Union
