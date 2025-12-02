@@ -1,7 +1,7 @@
 import datetime as dt
 import re
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Union
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 if TYPE_CHECKING:
@@ -10,30 +10,97 @@ if TYPE_CHECKING:
     import pyarrow as pa
 
 
-def get_timestamp_column(df: Any) -> str | list[str]:
+def get_timestamp_column(df: Any) -> Union[str, list[str]]:
     """Get timestamp column names from a DataFrame or PyArrow Table.
 
+    Automatically detects and normalizes different DataFrame types to work with
+    pandas DataFrames, Polars DataFrames/LazyFrames, and PyArrow Tables.
+
     Args:
-        df: A Polars DataFrame, LazyFrame, or PyArrow Table
+        df: A Polars DataFrame/LazyFrame, PyArrow Table, or pandas DataFrame.
+            The function automatically converts pandas DataFrames and PyArrow Tables
+            to Polars LazyFrames for consistent timestamp detection.
 
     Returns:
-        String or list of strings with timestamp column names
+        List of strings containing timestamp column names. Returns an empty list
+        if no timestamp columns are found.
+
+    Examples:
+        >>> import pandas as pd
+        >>> import polars as pl
+        >>> import pyarrow as pa
+        >>>
+        >>> # Works with pandas DataFrames
+        >>> df_pd = pd.DataFrame({"ts": pd.date_range("2023-01-01", periods=3)})
+        >>> get_timestamp_column(df_pd)
+        ['ts']
+        >>>
+        >>> # Works with Polars DataFrames
+        >>> df_pl = pl.DataFrame({"ts": [datetime(2023, 1, 1)]})
+        >>> get_timestamp_column(df_pl)
+        ['ts']
+        >>>
+        >>> # Works with PyArrow Tables
+        >>> table = pa.table({"ts": pa.array([datetime(2023, 1, 1)])})
+        >>> get_timestamp_column(table)
+        ['ts']
     """
-    from fsspeckit.common.optional import _import_polars, _import_pyarrow
+    from fsspeckit.common.optional import (
+        _import_pandas,
+        _import_polars,
+        _import_pyarrow,
+    )
 
     pl = _import_polars()
     pa = _import_pyarrow()
+    pd = _import_pandas()
 
     # Import polars.selectors at runtime
     import polars.selectors as cs
 
+    # Normalise supported input types to a Polars LazyFrame
     if isinstance(df, pa.Table):
         df = pl.from_arrow(df).lazy()
+    elif isinstance(df, pd.DataFrame):
+        df = pl.from_pandas(df).lazy()
 
     return df.select(cs.datetime() | cs.date()).collect_schema().names()
 
 
 def get_timedelta_str(timedelta_string: str, to: str = "polars") -> str:
+    """Convert timedelta strings between different formats.
+
+    Converts timedelta strings between Polars and DuckDB formats, with graceful
+    fallback for unknown units. Never raises errors for unknown units - instead
+    returns a reasonable string representation.
+
+    Args:
+        timedelta_string: Input timedelta string (e.g., "1h", "2d", "5invalid").
+        to: Target format - "polars" or "duckdb". Defaults to "polars".
+
+    Returns:
+        String in the target format. For unknown units, returns "value unit"
+        format without raising errors.
+
+    Examples:
+        >>> # Valid Polars units
+        >>> get_timedelta_str("1h", to="polars")
+        '1h'
+        >>> get_timedelta_str("1d", to="polars")
+        '1d'
+        >>>
+        >>> # Convert to DuckDB format
+        >>> get_timedelta_str("1h", to="duckdb")
+        '1 hour'
+        >>> get_timedelta_str("1s", to="duckdb")
+        '1 second'
+        >>>
+        >>> # Unknown units - graceful fallback
+        >>> get_timedelta_str("1invalid", to="polars")
+        '1 invalid'
+        >>> get_timedelta_str("5unknown", to="duckdb")
+        '5 unknown'
+    """
     polars_timedelta_units = [
         "ns",
         "us",
@@ -61,22 +128,27 @@ def get_timedelta_str(timedelta_string: str, to: str = "polars") -> str:
 
     unit = re.sub("[0-9]", "", timedelta_string).strip()
     val = timedelta_string.replace(unit, "").strip()
+    base_unit = re.sub("s$", "", unit)
+
     if to == "polars":
-        return (
-            timedelta_string
-            if unit in polars_timedelta_units
-            else val
-            + dict(zip(duckdb_timedelta_units, polars_timedelta_units))[
-                re.sub("s$", "", unit)
-            ]
-        )
+        # Already a valid Polars unit
+        if unit in polars_timedelta_units:
+            return timedelta_string
+        # Try to map known DuckDB units to Polars units
+        mapping = dict(zip(duckdb_timedelta_units, polars_timedelta_units))
+        target = mapping.get(base_unit)
+        if target is not None:
+            return f"{val}{target}"
+        # Fallback for unknown units: preserve value and unit as-is
+        return f"{val} {unit}".strip()
 
+    # DuckDB branch
     if unit in polars_timedelta_units:
-        return (
-            f"{val} " + dict(zip(polars_timedelta_units, duckdb_timedelta_units))[unit]
-        )
+        mapping = dict(zip(polars_timedelta_units, duckdb_timedelta_units))
+        return f"{val} {mapping[unit]}"
 
-    return f"{val} " + re.sub("s$", "", unit)
+    # Unknown Polars-style unit when targeting DuckDB: keep unit without trailing "s"
+    return f"{val} {base_unit}".strip()
 
 
 # @lru_cache(maxsize=128)
@@ -118,9 +190,9 @@ def get_timedelta_str(timedelta_string: str, to: str = "polars") -> str:
 @lru_cache(maxsize=128)
 def timestamp_from_string(
     timestamp_str: str,
-    tz: str | None = None,
+    tz: Union[str, None] = None,
     naive: bool = False,
-) -> dt.datetime | dt.date | dt.time:
+) -> Union[dt.datetime, dt.date, dt.time]:
     """
     Converts a timestamp string (ISO 8601 format) into a datetime, date, or time object
     using only standard Python libraries.

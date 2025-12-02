@@ -3,7 +3,8 @@
 import importlib.util
 import os
 import posixpath
-from typing import Any, Callable, Optional, Union
+from pathlib import Path
+from typing import Any, Callable, Dict, Optional, Union
 
 from joblib import Parallel, delayed
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn, track
@@ -376,12 +377,12 @@ else:
 
 
 def get_partitions_from_path(
-    path: str, partitioning: Union[str, list[str], None] = None
-) -> list[tuple]:
+    path: str, partitioning: Union[str, list, None] = None
+) -> Dict[str, str]:
     """Extract dataset partitions from a file path.
 
     Parses file paths to extract partition information based on
-    different partitioning schemes.
+    different partitioning schemes. By default, uses Hive-style partitioning.
 
     Args:
         path: File path potentially containing partition information.
@@ -389,41 +390,60 @@ def get_partitions_from_path(
             - "hive": Hive-style partitioning (key=value)
             - str: Single partition column name
             - list[str]: Multiple partition column names
-            - None: Return empty list
+            - None: Default to Hive-style partitioning
 
     Returns:
-        List of tuples containing (column, value) pairs.
+        Dictionary mapping partition keys to their values.
 
     Examples:
-        >>> # Hive-style partitioning
+        >>> # Default Hive-style partitioning
+        >>> get_partitions_from_path("data/year=2023/month=01/file.parquet")
+        {'year': '2023', 'month': '01'}
+
+        >>> # Explicit Hive-style partitioning
         >>> get_partitions_from_path("data/year=2023/month=01/file.parquet", "hive")
-        [('year', '2023'), ('month', '01')]
+        {'year': '2023', 'month': '01'}
 
         >>> # Single partition column
         >>> get_partitions_from_path("data/2023/01/file.parquet", "year")
-        [('year', '2023')]
+        {'year': '2023'}
 
         >>> # Multiple partition columns
         >>> get_partitions_from_path("data/2023/01/file.parquet", ["year", "month"])
-        [('year', '2023'), ('month', '01')]
+        {'year': '2023', 'month': '01'}
     """
-    if "." in path:
-        path = os.path.dirname(path)
+    # Normalize path to handle Windows and relative paths
+    normalized_path = Path(path).as_posix().replace("\\", "/")
 
-    parts = path.split("/")
+    # Remove filename if present
+    if "." in normalized_path:
+        normalized_path = str(Path(normalized_path).parent)
 
-    if isinstance(partitioning, str):
-        if partitioning == "hive":
-            return [tuple(p.split("=")) for p in parts if "=" in p]
-        else:
-            return [(partitioning, parts[0])]
+    parts = normalized_path.split("/")
+
+    # Default to Hive-style partitioning when partitioning is None
+    if partitioning is None or partitioning == "hive":
+        partitions = {}
+        for part in parts:
+            if "=" in part:
+                key, value = part.split("=", 1)  # Split only on first =
+                partitions[key] = value
+        return partitions
+    elif isinstance(partitioning, str):
+        # Single partition column
+        return {partitioning: parts[0]} if parts else {}
     elif isinstance(partitioning, list):
-        return list(zip(partitioning, parts[-len(partitioning) :]))
+        # Multiple partition columns
+        result = {}
+        for i, col_name in enumerate(partitioning):
+            if i < len(parts):
+                result[col_name] = parts[-(len(partitioning) - i)]
+        return result
     else:
-        return []
+        return {}
 
 
-def path_to_glob(path: str, format: str | None = None) -> str:
+def path_to_glob(path: str, format: Union[str, None] = None) -> str:
     """Convert a path to a glob pattern for file matching.
 
     Intelligently converts paths to glob patterns that match files of the specified
@@ -461,7 +481,7 @@ def path_to_glob(path: str, format: str | None = None) -> str:
         elif ".parquet" in path:
             format = "parquet"
 
-    if format in path:
+    if format is not None and format in path:
         return path
     else:
         if path.endswith("**"):

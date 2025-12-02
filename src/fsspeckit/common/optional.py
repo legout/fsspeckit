@@ -6,7 +6,7 @@ requiring all optional dependencies to be installed.
 """
 
 import importlib.util
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Union
 
 if TYPE_CHECKING:
     import polars as pl
@@ -197,7 +197,7 @@ def _import_orjson() -> Any:
 
 
 def check_optional_dependency(
-    package_name: str, feature_name: str | None = None
+    package_name: str, feature_name: Union[str, None] = None
 ) -> None:
     """Check if an optional dependency is available and raise helpful error if not.
 
