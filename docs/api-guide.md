@@ -492,6 +492,59 @@ except ImportError:
 4. **Parallel I/O** - Enable threading for multi-file operations
 5. **Type Optimization** - Use opt_dtypes=True to reduce memory
 6. **Error Handling** - Wrap filesystem operations in try/except
+7. **Import from Domain Packages** - Use `fsspeckit.datasets`, `fsspeckit.common`, etc. for better discoverability
+
+## Optional Dependencies
+
+`fsspeckit` uses **lazy imports** to keep installations lightweight. Core functionality works without any optional dependencies.
+
+### Checking for Optional Dependencies
+
+```python
+# The import succeeds even without optional dependencies
+from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.common.polars import opt_dtype
+from fsspeckit.sql.filters import sql2pyarrow_filter
+
+# Dependencies are only required when actually using the features
+try:
+    # This requires pyarrow to be installed
+    from fsspeckit.datasets.pyarrow import optimize_parquet_dataset_pyarrow
+    optimize_parquet_dataset_pyarrow("path/to/dataset")
+except ImportError as e:
+    print(f"Missing dependency: {e}")
+    print("Install with: pip install pyarrow")
+```
+
+### Feature-to-Dependency Mapping
+
+| Feature | Required Package | Install Command |
+|---------|-----------------|-----------------|
+| `fsspeckit.datasets.pyarrow` | `pyarrow>=10.0.0` | `pip install pyarrow` |
+| `fsspeckit.datasets.DuckDBParquetHandler` | `duckdb>=0.9.0` | `pip install duckdb` |
+| `fsspeckit.common.polars` | `polars>=0.19.0` | `pip install polars` |
+| `fsspeckit.sql.filters` | `sqlglot>=20.0.0`, `pyarrow` | `pip install sqlglot pyarrow` |
+| Fast JSON in `core.ext` | `orjson>=3.8.0` | `pip install orjson` |
+
+### Error Messages
+
+When an optional dependency is missing, you'll see a clear error message:
+
+```
+ImportError: The 'duckdb' package is required for DuckDBParquetHandler.
+Install it with: pip install duckdb
+```
+
+### Installing All Optional Dependencies
+
+```bash
+# Install all data processing libraries
+pip install pyarrow polars duckdb sqlglot orjson
+
+# Or use specific combinations as needed
+pip install pyarrow duckdb  # For DuckDB + PyArrow workflows
+pip install polars sqlglot  # For Polars + SQL filtering
+```
 
 ## See Also
 

@@ -324,17 +324,29 @@ For detailed migration instructions, see the [Migration Guide](MIGRATION_GUIDE.m
 - `loguru>=0.7.0` - Logging
 
 ### Optional Dependencies
-- `orjson>=3.8.0` - Fast JSON processing
-- `polars>=0.19.0` - Fast DataFrames
-- `pyarrow>=10.0.0` - Columnar data
-- `pandas>=1.5.0` - Data analysis
-- `joblib>=1.3.0` - Parallel processing
-- `rich>=13.0.0` - Progress bars
 
-### Cloud Provider Dependencies
-- `boto3>=1.26.0`, `s3fs>=2023.1.0` - AWS S3
-- `gcsfs>=2023.1.0` - Google Cloud Storage  
-- `adlfs>=2023.1.0` - Azure Storage
+`fsspeckit` uses **lazy imports** for optional dependencies, meaning you only need to install what you actually use:
+
+#### Data Processing (installed on-demand)
+- `orjson>=3.8.0` - Fast JSON processing
+- `polars>=0.19.0` - Fast DataFrames (required for `fsspeckit.common.polars`)
+- `pyarrow>=10.0.0` - Columnar data (required for `fsspeckit.datasets.pyarrow`)
+- `duckdb>=0.9.0` - SQL analytics (required for `fsspeckit.datasets.DuckDBParquetHandler`)
+- `sqlglot>=20.0.0` - SQL parsing (required for `fsspeckit.sql.filters`)
+- `pandas>=1.5.0` - Data analysis (optional, for compatibility)
+- `joblib>=1.3.0` - Parallel processing (optional)
+- `rich>=13.0.0` - Progress bars (optional)
+
+#### Cloud Provider Dependencies (install as needed)
+- `boto3>=1.26.0`, `s3fs>=2023.1.0` - AWS S3 (`pip install "fsspeckit[aws]"`)
+- `gcsfs>=2023.1.0` - Google Cloud Storage (`pip install "fsspeckit[gcp]"`)
+- `adlfs>=2023.1.0` - Azure Storage (`pip install "fsspeckit[azure]"`)
+
+**How it works:**
+- Core modules import without any optional dependencies
+- Optional features are imported lazily when first used
+- Clear error messages indicate which package to install if a dependency is missing
+- This keeps installations lightweight and allows you to install only what you need
 
 ## Contributing
 

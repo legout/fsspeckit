@@ -14,9 +14,11 @@ To install `fsspeckit` using `pip`, run the following command:
 pip install fsspeckit
 ```
 
-### Optional Cloud Provider Support
+### Optional Dependencies
 
-Install with support for specific cloud providers:
+`fsspeckit` uses lazy imports for optional dependencies, allowing you to install only what you need:
+
+#### Cloud Provider Support
 
 ```bash
 # AWS S3 support
@@ -31,6 +33,36 @@ pip install "fsspeckit[azure]"
 # All cloud providers
 pip install "fsspeckit[aws,gcp,azure]"
 ```
+
+#### Data Processing Libraries
+
+The following libraries are optional and loaded only when needed:
+
+```bash
+# PyArrow for dataset operations
+pip install pyarrow
+
+# Polars for high-performance DataFrames
+pip install polars
+
+# DuckDB for SQL analytics
+pip install duckdb
+
+# SQLglot for SQL parsing
+pip install sqlglot
+
+# Install all data processing libraries
+pip install pyarrow polars duckdb sqlglot
+```
+
+**Note:** You can use `fsspeckit` core functionality without any of these dependencies. They are only required when you use specific features:
+
+- **PyArrow**: Required for `fsspeckit.datasets.pyarrow` operations
+- **Polars**: Required for Polars-specific utilities in `fsspeckit.common.polars`
+- **DuckDB**: Required for `fsspeckit.datasets.DuckDBParquetHandler`
+- **SQLglot**: Required for SQL filter translation in `fsspeckit.sql.filters`
+
+If you attempt to use a feature requiring an optional dependency that isn't installed, you'll receive a clear error message indicating which package to install.
 
 ### Upgrading
 
