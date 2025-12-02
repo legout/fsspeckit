@@ -1,0 +1,40 @@
+FSSpecKit Code Review - Key Findings
+
+CRITICAL ISSUES:
+
+1. SQL INJECTION (CRITICAL SECURITY)
+   Location: datasets/duckdb.py:242, 330, 475, 493
+   Issue: Direct string interpolation in SQL queries
+   Example: query = f"SELECT * FROM parquet_scan('{path}')"
+   Impact: Remote code execution, data breach
+   Fix: Parameterized queries or path validation
+
+2. CONTROL FLOW BUG (HIGH)
+   Location: core/ext.py:215-235
+   Issue: Threading parameter ignored, sequential code always runs
+   Impact: Threading broken, data processed twice
+   Fix: Add else clause
+
+3. RESOURCE CLEANUP (HIGH)
+   Location: datasets/duckdb.py:818-823
+   Issue: Tries to unregister non-existent tables
+   Impact: Silent failures, incomplete cleanup
+   Fix: Track registered tables
+
+4. COMPLEX __getattribute__ (MEDIUM)
+   Location: core/filesystem.py:205-290
+   Issue: 86 lines of complex delegation
+   Fix: Use composition pattern
+
+5. LARGE FILES (MEDIUM)
+   ext.py: 2,165 lines → split into 4 modules
+   pyarrow.py: 2,158 lines → split into 3 modules
+   duckdb.py: 1,368 lines → split into 2-3 modules
+
+6. DUPLICATE CODE (MEDIUM)
+   Regex patterns duplicated in pyarrow.py and polars.py
+   Extract to common/patterns.py
+
+OVERALL SCORE: 6.7/10 - Good architecture but critical issues
+
+Generated: December 2, 2025
