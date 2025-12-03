@@ -141,3 +141,75 @@ neutral logic independent from higher-level helpers and avoid cycles.
 - **THEN** they may import from `fsspeckit.common` and third-party libraries
 - **AND** they do not import from `fsspeckit.datasets` or `fsspeckit.utils`.
 
+### Requirement: Optional dependencies are declared consistently
+
+The project SHALL declare optional dependency groups in a way that:
+
+- Is valid TOML under the `[project.optional-dependencies]` table.
+- Uses extras names that correspond to documented installation commands (e.g. `pip install fsspeckit[datasets]`).
+
+#### Scenario: Installing extras for datasets and SQL
+- **WHEN** a caller runs `pip install fsspeckit[datasets]` or `pip install fsspeckit[sql]`
+- **THEN** the declared extras SHALL resolve cleanly
+- **AND** the resulting environment SHALL contain the packages required for the documented dataset and SQL features.
+
+### Requirement: Version information is safely initialised
+
+The project SHALL expose a `__version__` attribute on the top-level package that is robust to common development and deployment workflows.
+
+#### Scenario: Version resolution in an installed environment
+- **WHEN** the package is installed in a standard environment
+- **AND** a caller imports `fsspeckit` and accesses `fsspeckit.__version__`
+- **THEN** the version SHALL reflect the installed distribution version.
+
+#### Scenario: Version resolution in a source-only development environment
+- **WHEN** a developer imports `fsspeckit` from a working copy that has not been installed
+- **THEN** the import SHALL NOT fail solely because `importlib.metadata` cannot find an installed distribution
+- **AND** `fsspeckit.__version__` SHALL be set to a safe default string that clearly indicates a non-installed/development state.
+
+### Requirement: Helper APIs align with test expectations
+
+Helper functions that are covered by tests SHALL preserve the semantics and key error messages asserted in those tests, except where a clear, documented behavioural change is explicitly approved.
+
+#### Scenario: `run_parallel` supports generator input
+- **WHEN** a caller passes a generator as the primary iterable argument to `run_parallel`
+- **THEN** the function SHALL treat the generator as a valid iterable, materialising it as needed
+- **AND** SHALL produce results consistent with passing an equivalent list.
+
+#### Scenario: Error messages are stable for key error cases
+- **WHEN** `run_parallel` raises due to mismatched iterable lengths or missing iterable arguments
+- **THEN** the error messages SHALL include wording that satisfies the existing tests’ `match=` assertions
+- **AND** any changes to these messages SHALL be accompanied by corresponding spec/test updates.
+
+### Requirement: Avoid mutable defaults and dead code in core helpers
+
+Core helper functions SHALL avoid mutable default arguments and unreachable code branches that cannot be exercised.
+
+#### Scenario: No mutable default arguments in core helpers
+- **WHEN** reviewing core helper function definitions
+- **THEN** default values for parameters SHALL be immutable or `None`
+- **AND** any required mutable objects SHALL be created inside the function body.
+
+#### Scenario: Unreachable code eliminated
+- **WHEN** analysing core helper functions for control flow
+- **THEN** there SHALL be no branches that can never be executed in practice
+- **AND** no branches SHALL refer to variables that are not guaranteed to be defined along all paths.
+
+### Requirement: Backwards-Compatible Utils Façade (extended)
+
+The `fsspeckit.utils` package SHALL continue to act as a backwards-compatible façade while explicitly defining which imports are supported and how they map to domain packages.
+
+#### Scenario: Legacy utils imports remain supported
+- **WHEN** existing user code imports helpers via `fsspeckit.utils` (including common patterns used in tests)
+- **THEN** those imports SHALL continue to succeed and refer to the same objects as the canonical implementation in `datasets`, `sql`, or `common`.
+
+#### Scenario: Shim modules preserve deeper import paths
+- **WHEN** code imports names via deeper paths such as `fsspeckit.utils.misc.Progress`
+- **THEN** small shim modules under `fsspeckit.utils` SHALL re-export those names from the canonical locations
+- **AND** behaviour SHALL remain consistent across at least one major version to allow migration.
+
+#### Scenario: New code avoids utils implementation
+- **WHEN** new features are added to the library
+- **THEN** their implementation modules SHALL live under the appropriate domain packages
+- **AND** any exposure through `fsspeckit.utils` SHALL be limited to re-exports.
+
