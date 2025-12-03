@@ -24,6 +24,37 @@
 - **SQL Filter Translation**: Cross-framework SQL expression conversion
 - **Storage Configuration**: Environment-based storage option management
 
+### Backwards Compatibility
+
+- **Utils Façade**: The `fsspeckit.utils` package serves as a backwards-compatible façade that re-exports from domain packages (`datasets`, `sql`, `common`). 
+
+#### Supported Imports
+The following imports are supported for backwards compatibility:
+- `setup_logging` - from `fsspeckit.common.logging`
+- `run_parallel` - from `fsspeckit.common.misc` 
+- `get_partitions_from_path` - from `fsspeckit.common.misc`
+- `to_pyarrow_table` - from `fsspeckit.common.types`
+- `dict_to_dataframe` - from `fsspeckit.common.types`
+- `opt_dtype_pl` - from `fsspeckit.common.polars`
+- `opt_dtype_pa` - from `fsspeckit.common.types`
+- `cast_schema` - from `fsspeckit.common.types`
+- `convert_large_types_to_normal` - from `fsspeckit.common.types`
+- `pl` - from `fsspeckit.common.polars`
+- `sync_dir` - from `fsspeckit.common.misc`
+- `sync_files` - from `fsspeckit.common.misc`
+- `DuckDBParquetHandler` - from `fsspeckit.datasets`
+- `Progress` - from `fsspeckit.utils.misc` (shim for `rich.progress.Progress`)
+
+#### Migration Path
+- **Existing Code**: All existing `fsspeckit.utils` imports continue to work unchanged
+- **New Development**: New code should import directly from domain packages for better discoverability
+- **Deprecated Paths**: Deeper import paths like `fsspeckit.utils.misc.Progress` are deprecated but functional for at least one major version
+
+#### Deprecation Notices
+- `fsspeckit.utils` module is deprecated and exists only for backwards compatibility
+- New implementation code should not live in `fsspeckit.utils`
+- Use domain-specific imports: `fsspeckit.datasets`, `fsspeckit.sql`, `fsspeckit.common` for new development
+
 ## Architectural Decision Records (ADRs)
 
 ### ADR-001: Domain Package Architecture
