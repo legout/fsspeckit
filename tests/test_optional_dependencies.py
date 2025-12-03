@@ -214,6 +214,33 @@ class TestErrorMessages:
         with pytest.raises(ImportError, match="nonexistent_package_xyz is required"):
             check_optional_dependency("nonexistent_package_xyz")
 
+    def test_check_optional_dependency_extras_messages(self):
+        """Test that check_optional_dependency provides correct extras guidance."""
+        from fsspeckit.common.optional import check_optional_dependency
+
+        # Test specific packages and their expected extras
+        test_cases = [
+            ("polars", "datasets"),
+            ("pyarrow", "datasets"),
+            ("duckdb", "sql"),
+            ("sqlglot", "sql"),
+            ("orjson", "sql"),
+            ("joblib", "datasets"),
+            ("unknown_package", "full"),  # fallback case
+        ]
+
+        for package_name, expected_extra in test_cases:
+            with pytest.raises(ImportError) as exc_info:
+                check_optional_dependency(package_name)
+
+            error_message = str(exc_info.value)
+            assert (
+                f"Install with: pip install fsspeckit[{expected_extra}]"
+                in error_message
+            ), (
+                f"Expected extras '{expected_extra}' not found in error message for {package_name}: {error_message}"
+            )
+
 
 class TestModuleImportsWithoutDependencies:
     """Test that core modules can be imported without optional dependencies."""

@@ -39,6 +39,14 @@ pip install "fsspeckit[azure]"   # Azure Storage
 
 # Multiple cloud providers
 pip install "fsspeckit[aws,gcp,azure]"
+
+# Feature-specific extras
+pip install "fsspeckit[datasets]"  # Dataset operations (polars, pandas, pyarrow, duckdb, sqlglot, orjson)
+pip install "fsspeckit[sql]"      # SQL functionality (duckdb, sqlglot, orjson)
+pip install "fsspeckit[polars]"   # Polars data frame support
+
+# Complete installation
+pip install "fsspeckit[aws,gcp,azure,datasets,sql]"
 ```
 
 ## Quick Start

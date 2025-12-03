@@ -9,6 +9,7 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 import re
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal
 
 if TYPE_CHECKING:
     import polars as pl

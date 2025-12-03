@@ -28,6 +28,7 @@ from fsspeckit.core.merge import (
     validate_merge_inputs,
     validate_strategy_compatibility,
 )
+from fsspeckit.common.logging import get_logger
 
 
 # Type alias for merge strategies (for backward compatibility)
@@ -35,7 +36,11 @@ MergeStrategy = Literal["upsert", "insert", "update", "full_merge", "deduplicate
 
 
 class DuckDBParquetHandler:
-    """Handler for parquet operations using DuckDB with fsspec integration.
+    """Handler for parquet operations using DuckDB with fsspec integration."""
+    
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._logger = get_logger(__name__)
 
     This class provides methods for reading and writing parquet files and datasets
     using DuckDB's high-performance parquet engine. It integrates with fsspec

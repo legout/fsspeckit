@@ -7,12 +7,19 @@ import uuid
 from typing import TYPE_CHECKING, Any, Generator
 
 if TYPE_CHECKING:
-    import orjson
-    import pandas as pd
-    import pyarrow as pa
-    import pyarrow.dataset as pds
+# Remove direct imports - these will be handled lazily
+# import orjson
+# import pyarrow as pa
+# import pyarrow.dataset as pds
 
-    pq = _import_pyarrow_parquet()
+# Import lazy helpers for optional dependencies
+from fsspeckit.common.optional import (
+    _import_orjson,
+    _import_pyarrow,
+    _import_pyarrow_parquet,
+)
+
+pq = _import_pyarrow_parquet()
 
 from fsspec import AbstractFileSystem
 

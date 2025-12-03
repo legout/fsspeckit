@@ -5,6 +5,7 @@ import re
 from typing import Literal
 from polars.exceptions import InvalidOperationError
 
+
 from fsspeckit.common.datetime import get_timedelta_str, get_timestamp_column
 
 # Pre-compiled regex patterns (identical to original)
@@ -222,7 +223,9 @@ def _sample_series(
     return series.head(sample_size)
 
 
-def _cast_expression(expr: pl.Expr, dtype: pl.DataType, strict: bool, col_name: str) -> pl.Expr:
+def _cast_expression(
+    expr: pl.Expr, dtype: pl.DataType, strict: bool, col_name: str
+) -> pl.Expr:
     """
     Cast an expression to a dtype using the desired strictness, falling back to lenient casting when allowed.
     """
@@ -313,7 +316,9 @@ def _optimize_string_column(
     if sample_values.str.contains(DATETIME_REGEX).all():
         try:
             # Prüfe ob gemischte Zeitzonen im Sample vorhanden sind
-            has_tz = sample_values.str.contains(r"(Z|UTC|[+-]\d{2}:\d{2}|[+-]\d{4})$").any()
+            has_tz = sample_values.str.contains(
+                r"(Z|UTC|[+-]\d{2}:\d{2}|[+-]\d{4})$"
+            ).any()
 
             if has_tz:
                 # Bei gemischten Zeitzonen, verwende eager parsing auf Series-Ebene
@@ -396,7 +401,9 @@ def _optimize_string_column(
 
         sample_min = sample_ints.min()
         use_unsigned = (
-            allow_unsigned and shrink_numerics and (sample_min is None or sample_min >= 0)
+            allow_unsigned
+            and shrink_numerics
+            and (sample_min is None or sample_min >= 0)
         )
 
         if use_unsigned:

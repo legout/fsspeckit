@@ -10,3 +10,9 @@ site/
 .venv/
 .DS_Store
 .python-version
+fix_duplicate_function.py
+fix_extras_map.py
+fix_joblib_import.py
+test_imports.py
+update_joblib_functions.py
+misc_replacement.py
