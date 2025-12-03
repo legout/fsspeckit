@@ -23,6 +23,7 @@ _PYARROW_AVAILABLE = importlib.util.find_spec("pyarrow") is not None
 _DUCKDB_AVAILABLE = importlib.util.find_spec("duckdb") is not None
 _SQLGLOT_AVAILABLE = importlib.util.find_spec("sqlglot") is not None
 _ORJSON_AVAILABLE = importlib.util.find_spec("orjson") is not None
+_JOBLIB_AVAILABLE = importlib.util.find_spec("joblib") is not None
 
 # Cached imports
 _polars_module = None
@@ -31,6 +32,7 @@ _pyarrow_module = None
 _duckdb_module = None
 _sqlglot_module = None
 _orjson_module = None
+_joblib_module = None
 
 
 def _get_install_extra(package_name: str) -> str:
@@ -42,6 +44,7 @@ def _get_install_extra(package_name: str) -> str:
         "duckdb": "sql",
         "sqlglot": "sql",
         "orjson": "sql",
+        "joblib": "datasets",
     }
     return extras_map.get(package_name, "full")
 
@@ -216,8 +219,33 @@ def _import_orjson() -> Any:
     return _orjson_module
 
 
+def _import_joblib() -> Any:
+    """Import joblib with proper error handling.
+
+    Returns:
+        joblib module
+
+    Raises:
+        ImportError: If joblib is not installed
+    """
+    global _joblib_module
+
+    if not _JOBLIB_AVAILABLE:
+        raise ImportError(
+            "joblib is required for this function. "
+            "Install with: pip install fsspeckit[datasets]"
+        )
+
+    if _joblib_module is None:
+        import joblib
+
+        _joblib_module = joblib
+
+    return _joblib_module
+
+
 def check_optional_dependency(
-    package_name: str, feature_name: Union[str, None] = None
+    package_name: str, feature_name: Optional[str] = None
 ) -> None:
     """Check if an optional dependency is available and raise helpful error if not.
 
@@ -245,6 +273,7 @@ __all__ = [
     "_DUCKDB_AVAILABLE",
     "_SQLGLOT_AVAILABLE",
     "_ORJSON_AVAILABLE",
+    "_JOBLIB_AVAILABLE",
     "_import_polars",
     "_import_pandas",
     "_import_pyarrow",
@@ -252,5 +281,6 @@ __all__ = [
     "_import_duckdb",
     "_import_sqlglot",
     "_import_orjson",
+    "_import_joblib",
     "check_optional_dependency",
 ]

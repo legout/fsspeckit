@@ -81,3 +81,43 @@ To set up your development environment, follow these steps:
 -   **Commit Messages**: Write descriptive commit messages that explain the purpose of your changes.
 -   **Atomic Commits**: Try to keep your commits focused on a single logical change.
 -   **Branch Naming**: Use clear and concise branch names (e.g., `feature/new-feature`, `bugfix/fix-issue-123`).
+
+## Coding Guidelines
+
+### Avoid Mutable Default Arguments
+
+Core helper functions SHALL avoid mutable default arguments (e.g., `def func(param=[]):` or `def func(param={}):`). Instead use `None` and initialize inside the function:
+
+```python
+# Bad
+def process_items(items=[]):
+    items.append("processed")
+    return items
+
+# Good  
+def process_items(items=None):
+    if items is None:
+        items = []
+    items.append("processed")
+    return items
+```
+
+### Avoid Unreachable Code
+
+Ensure all code branches can be exercised. Avoid patterns like:
+
+```python
+# Bad - unreachable code after return
+def some_function():
+    if condition:
+        return result
+    else:
+        return other_result
+    unreachable_code()  # This will never execute
+
+# Good - all paths reachable
+def some_function():
+    if condition:
+        return result
+    return other_result
+```

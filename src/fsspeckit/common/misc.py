@@ -3,15 +3,19 @@
 import importlib.util
 import os
 import posixpath
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Union
 
-from joblib import Parallel, delayed
-from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn, track
+# from joblib import Parallel, delayed  # Will be imported lazily
+# from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn, track  # Will be imported lazily
 
 from fsspec import AbstractFileSystem
 from fsspec.implementations.dirfs import DirFileSystem
 # from ..utils.logging import get_logger
+
+# Import canonical optional dependency checker
+from fsspeckit.common.optional import check_optional_dependency
 
 # logger = get_logger(__name__)
 
@@ -152,7 +156,7 @@ from fsspec.implementations.dirfs import DirFileSystem
 #                 results[idx] = result
 #         return results
 if importlib.util.find_spec("joblib"):
-    from joblib import Parallel, delayed
+    # from joblib import Parallel, delayed  # Will be imported lazily
     from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
     def _prepare_parallel_args(
@@ -170,6 +174,8 @@ if importlib.util.find_spec("joblib"):
         Raises:
             ValueError: If no iterable arguments or length mismatch
         """
+        from collections.abc import Iterable
+
         iterables = []
         fixed_args = []
         iterable_kwargs = {}
@@ -178,34 +184,34 @@ if importlib.util.find_spec("joblib"):
 
         # Process positional arguments
         for arg in args:
-            if isinstance(arg, (list, tuple)) and not isinstance(arg[0], (list, tuple)):
-                iterables.append(arg)
+            # Accept any non-string Iterable (including generators)
+            if isinstance(arg, Iterable) and not isinstance(arg, (str, bytes)):
+                # Convert to list to materialize generators and get length
+                materialized_arg = list(arg)
+                iterables.append(materialized_arg)
                 if first_iterable_len is None:
-                    first_iterable_len = len(arg)
-                elif len(arg) != first_iterable_len:
-                    raise ValueError(
-                        f"Iterable length mismatch: argument has length {len(arg)}, expected {first_iterable_len}"
-                    )
+                    first_iterable_len = len(materialized_arg)
+                elif len(materialized_arg) != first_iterable_len:
+                    raise ValueError("All iterables must have the same length")
             else:
                 fixed_args.append(arg)
 
         # Process keyword arguments
         for key, value in kwargs.items():
-            if isinstance(value, (list, tuple)) and not isinstance(
-                value[0], (list, tuple)
-            ):
+            # Accept any non-string Iterable (including generators)
+            if isinstance(value, Iterable) and not isinstance(value, (str, bytes)):
+                # Convert to list to materialize generators and get length
+                materialized_value = list(value)
                 if first_iterable_len is None:
-                    first_iterable_len = len(value)
-                elif len(value) != first_iterable_len:
-                    raise ValueError(
-                        f"Iterable length mismatch: {key} has length {len(value)}, expected {first_iterable_len}"
-                    )
-                iterable_kwargs[key] = value
+                    first_iterable_len = len(materialized_value)
+                elif len(materialized_value) != first_iterable_len:
+                    raise ValueError("All iterables must have the same length")
+                iterable_kwargs[key] = materialized_value
             else:
                 fixed_kwargs[key] = value
 
         if first_iterable_len is None:
-            raise ValueError("At least one iterable argument is required")
+            raise ValueError("At least one iterable argument must be provided")
 
         return iterables, fixed_args, iterable_kwargs, fixed_kwargs, first_iterable_len
 
@@ -232,6 +238,8 @@ if importlib.util.find_spec("joblib"):
         Returns:
             list: Results from parallel execution
         """
+        from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
+
         results = [None] * len(param_combinations)
         with Progress(
             TextColumn("[progress.description]{task.description}"),
@@ -257,6 +265,11 @@ if importlib.util.find_spec("joblib"):
                 )
                 progress.update(task, advance=1)
                 return idx, res
+
+            from fsspeckit.common.optional import _import_joblib
+
+            joblib_module = _import_joblib()
+            from joblib import Parallel, delayed
 
             for idx, result in Parallel(**parallel_kwargs)(
                 delayed(wrapper)(i, param_tuple)
@@ -312,17 +325,23 @@ if importlib.util.find_spec("joblib"):
     ) -> list[Any]:
         """Runs a function for a list of parameters in parallel.
 
+        Requires: fsspeckit[datasets] extra for joblib dependency.
+
         Args:
             func (Callable): function to run in parallel
-            *args: Positional arguments. Can be single values or iterables
+            *args: Positional arguments. Can be single values or any non-string iterables (including generators)
             n_jobs (int, optional): Number of joblib workers. Defaults to -1
             backend (str, optional): joblib backend. Valid options are
-                `loky`,`threading`, `mutliprocessing` or `sequential`. Defaults to "threading"
+                `loky`,`threading`,`multiprocessing` or `sequential`. Defaults to "threading"
             verbose (bool, optional): Show progress bar. Defaults to True
-            **kwargs: Keyword arguments. Can be single values or iterables
+            **kwargs: Keyword arguments. Can be single values or any non-string iterables (including generators)
 
         Returns:
             list[any]: Function output
+
+        Raises:
+            ImportError: If joblib is not available. Install with: pip install fsspeckit[datasets]
+            ValueError: If no iterable arguments are provided or iterables have different lengths
 
         Examples:
             >>> # Single iterable argument
@@ -333,6 +352,11 @@ if importlib.util.find_spec("joblib"):
 
             >>> # Only kwargs iterables
             >>> run_parallel(func, x=[1,2,3], y=[4,5,6], fixed=42)
+
+            >>> # Generator support
+            >>> def gen():
+            ...     yield from [1, 2, 3]
+            >>> run_parallel(str, gen())  # Returns ['1', '2', '3']
         """
         if backend == "threading" and n_jobs == -1:
             n_jobs = min(256, (os.cpu_count() or 1) + 4)
@@ -346,6 +370,11 @@ if importlib.util.find_spec("joblib"):
 
         # Create parameter combinations
         all_iterables = iterables + list(iterable_kwargs.values())
+
+        # Handle empty iterables case
+        if first_iterable_len == 0:
+            return []
+
         param_combinations = list(zip(*all_iterables))
 
         # Execute with or without progress tracking
@@ -493,21 +522,7 @@ def path_to_glob(path: str, format: Union[str, None] = None) -> str:
         return posixpath.join(path, f"**/*.{format}")
 
 
-def check_optional_dependency(package_name: str, feature_name: str) -> None:
-    """Check if an optional dependency is available.
-
-    Args:
-        package_name: Name of the package to check
-        feature_name: Name of the feature that requires this package
-
-    Raises:
-        ImportError: If the package is not available
-    """
-    if not importlib.util.find_spec(package_name):
-        raise ImportError(
-            f"{package_name} is required for {feature_name}. "
-            f"Install with: pip install fsspeckit[full]"
-        )
+# Removed duplicate check_optional_dependency function - use fsspeckit.common.optional.check_optional_dependency instead
 
 
 def check_fs_identical(fs1: AbstractFileSystem, fs2: AbstractFileSystem) -> bool:
@@ -648,6 +663,8 @@ def sync_files(
                 )
         else:
             if verbose:
+                from rich.progress import track
+
                 for key in track(
                     add_files,
                     description="Copying new files...",
@@ -692,6 +709,8 @@ def sync_files(
             )
         else:
             if verbose:
+                from rich.progress import track
+
                 for key in track(
                     delete_files,
                     description="Deleting stale files...",
