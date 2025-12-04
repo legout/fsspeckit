@@ -17,8 +17,25 @@ from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
 
 from fsspeckit.common.logging import get_logger
+from fsspeckit.common.optional import _DUCKDB_AVAILABLE
 
 logger = get_logger(__name__)
+
+# DuckDB exception types for specific error handling
+_DUCKDB_EXCEPTIONS = {}
+if _DUCKDB_AVAILABLE:
+    import duckdb
+
+    _DUCKDB_EXCEPTIONS = {
+        "InvalidInputException": duckdb.InvalidInputException,
+        "OperationalException": duckdb.OperationalError,
+        "CatalogException": duckdb.CatalogException,
+        "IOException": duckdb.IOException,
+        "OutOfMemoryException": duckdb.OutOfMemoryException,
+        "ParserException": duckdb.ParserException,
+        "ConnectionException": duckdb.ConnectionException,
+        "SyntaxException": duckdb.SyntaxException,
+    }
 
 
 def _unregister_duckdb_table_safely(conn: Any, table_name: str) -> None:
@@ -34,8 +51,10 @@ def _unregister_duckdb_table_safely(conn: Any, table_name: str) -> None:
     """
     try:
         conn.unregister(table_name)
-    except Exception as e:
+    except (_DUCKDB_EXCEPTIONS.get("CatalogException"), _DUCKDB_EXCEPTIONS.get("ConnectionException"), Exception) as e:
         # Log the failure but don't raise - cleanup should continue
+        # Catch CatalogException (table doesn't exist), ConnectionException (connection issues),
+        # and any other unexpected exceptions
         logger.warning("Failed to unregister DuckDB table '%s': %s", table_name, e)
 
 
@@ -99,6 +118,12 @@ class DuckDBConnection:
         """
         try:
             self._connection.register_filesystem(self._filesystem)
+        except (_DUCKDB_EXCEPTIONS.get("ConnectionException"), _DUCKDB_EXCEPTIONS.get("IOException")) as e:
+            logger.warning(
+                "Failed to register filesystem with DuckDB during connection setup: %s. "
+                "Some operations may not work correctly.",
+                e,
+            )
         except Exception as e:
             logger.warning(
                 "Failed to register filesystem with DuckDB: %s. "

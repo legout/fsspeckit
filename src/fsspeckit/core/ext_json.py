@@ -25,6 +25,7 @@ from fsspeckit.common.optional import _import_orjson
 from fsspec import AbstractFileSystem
 
 from fsspeckit.common.misc import path_to_glob, run_parallel
+from fsspeckit.common.logging import get_logger
 
 # Conditionally import polars utilities
 try:
@@ -33,6 +34,9 @@ try:
 except ImportError:
     opt_dtype_pl = None
     pl = None
+
+# Get module logger
+logger = get_logger(__name__)
 
 
 def _read_json_file(
@@ -76,14 +80,54 @@ def _read_json_file(
 
     orjson = _import_orjson()
 
-    with self.open(path) as f:
-        if jsonlines:
-            data = [orjson.loads(line) for line in f.readlines()]
-        else:
-            data = orjson.loads(f.read())
-    if include_file_path:
-        return {path: data}
-    return data
+    operation = "read" + (" (JSON Lines)" if jsonlines else " (JSON)")
+    context = {"path": path, "operation": operation}
+
+    try:
+        with self.open(path) as f:
+            if jsonlines:
+                data = [orjson.loads(line) for line in f.readlines()]
+            else:
+                data = orjson.loads(f.read())
+        logger.debug("Successfully read JSON: {path}", extra=context)
+        if include_file_path:
+            return {path: data}
+        return data
+    except FileNotFoundError as e:
+        logger.error(
+            "File not found during {operation}: {path}", extra=context
+        )
+        raise FileNotFoundError(
+            f"File not found during {operation}: {path}"
+        ) from e
+    except PermissionError as e:
+        logger.error(
+            "Permission denied during {operation}: {path}", extra=context
+        )
+        raise PermissionError(
+            f"Permission denied during {operation}: {path}"
+        ) from e
+    except OSError as e:
+        logger.error(
+            "System error during {operation}: {path} - {error}",
+            extra={**context, "error": str(e)}
+        )
+        raise OSError(
+            f"System error during {operation}: {path} - {e}"
+        ) from e
+    except ValueError as e:
+        logger.error(
+            "Invalid JSON in {path}: {error}",
+            extra={**context, "error": str(e)}
+        )
+        raise ValueError(f"Invalid JSON in {path}: {e}") from e
+    except Exception as e:
+        logger.error(
+            "Unexpected error during {operation}: {path} - {error}",
+            extra={**context, "error": str(e)},
+            exc_info=True
+        )
+        raise
 
 
 def read_json_file(
