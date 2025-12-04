@@ -32,6 +32,15 @@ from .partitions import (
     create_partition_expression,
     apply_partition_pruning,
 )
+from .security import (
+    validate_path,
+    validate_compression_codec,
+    scrub_credentials,
+    scrub_exception,
+    safe_format_error,
+    validate_columns,
+    VALID_COMPRESSION_CODECS,
+)
 
 # Conditionally import polars utilities
 try:
@@ -62,4 +71,12 @@ __all__ = [
     # type conversion utilities
     "dict_to_dataframe",
     "to_pyarrow_table",
+    # security utilities
+    "validate_path",
+    "validate_compression_codec",
+    "scrub_credentials",
+    "scrub_exception",
+    "safe_format_error",
+    "validate_columns",
+    "VALID_COMPRESSION_CODECS",
 ]

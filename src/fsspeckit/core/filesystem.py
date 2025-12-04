@@ -23,8 +23,11 @@ from ..storage_options.base import BaseStorageOptions
 from ..storage_options.core import from_dict as storage_options_from_dict
 from ..common.logging import get_logger
 
-# from fsspec.utils import infer_storage_options
-from .ext import AbstractFileSystem
+# Import fsspec's AbstractFileSystem directly
+from fsspec import AbstractFileSystem
+
+# Import ext module for side effects (method registration)
+from . import ext  # noqa: F401
 
 logger = get_logger(__name__)
 
