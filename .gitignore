@@ -16,3 +16,4 @@ fix_joblib_import.py
 test_imports.py
 update_joblib_functions.py
 misc_replacement.py
+**/__marimo__/

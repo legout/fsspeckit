@@ -38,6 +38,10 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.dataset as ds
 
+from fsspeckit.common.logging_config import get_logger
+
+logger = get_logger(__name__)
+
 SampleMethod = Literal["first", "random"]
 
 # Pre-compiled regex patterns (identical to original)
@@ -724,18 +728,18 @@ def _log_conflict_summary(conflicts: dict, verbose: bool = False) -> None:
     if not conflicts or not verbose:
         return
 
-    print("Schema Unification Conflict Summary:")
-    print("=" * 40)
+    logger.debug("Schema Unification Conflict Summary:")
+    logger.debug("=" * 40)
     for field_name, conflict_info in conflicts.items():
         types_str = ", ".join(str(t) for t in conflict_info["types"])
         compatible = conflict_info["compatible"]
         target_type = conflict_info["target_type"]
 
-        print(f"Field: {field_name}")
-        print(f"  Types: {types_str}")
-        print(f"  Compatible: {compatible}")
-        print(f"  Target Type: {target_type}")
-        print()
+        logger.debug("Field: %s", field_name)
+        logger.debug("  Types: %s", types_str)
+        logger.debug("  Compatible: %s", compatible)
+        logger.debug("  Target Type: %s", target_type)
+        logger.debug("")
 
 
 def unify_schemas(
@@ -807,8 +811,8 @@ def unify_schemas(
     except (pa.ArrowInvalid, pa.ArrowTypeError) as e:
         # Step 4: Intelligent fallback strategies
         if verbose:
-            print(f"Primary unification failed: {e}")
-            print("Attempting fallback strategies...")
+            logger.debug("Primary unification failed: %s", e)
+            logger.debug("Attempting fallback strategies...")
 
         # Fallback 1: Try aggressive string conversion for remaining conflicts
         try:
@@ -818,7 +822,7 @@ def unify_schemas(
                     [fallback_schema], timezone
                 )[0]
             if verbose:
-                print("✓ Aggressive fallback succeeded")
+                logger.debug("✓ Aggressive fallback succeeded")
             return (
                 fallback_schema
                 if use_large_dtypes
@@ -827,7 +831,7 @@ def unify_schemas(
 
         except Exception:
             if verbose:
-                print("✗ Aggressive fallback failed")
+                logger.debug("✗ Aggressive fallback failed")
 
         # Fallback 2: Remove conflicting fields (if enabled)
         if remove_conflicting_columns:
@@ -838,7 +842,7 @@ def unify_schemas(
                         [non_conflicting_schema], timezone
                     )[0]
                 if verbose:
-                    print("✓ Remove conflicting fields fallback succeeded")
+                    logger.debug("✓ Remove conflicting fields fallback succeeded")
                 return (
                     non_conflicting_schema
                     if use_large_dtypes
@@ -847,7 +851,7 @@ def unify_schemas(
 
             except Exception:
                 if verbose:
-                    print("✗ Remove conflicting fields fallback failed")
+                    logger.debug("✗ Remove conflicting fields fallback failed")
 
         # Fallback 3: Remove problematic fields that can't be unified
         try:
@@ -857,7 +861,7 @@ def unify_schemas(
                     [minimal_schema], timezone
                 )[0]
             if verbose:
-                print("✓ Minimal schema (removed problematic fields) succeeded")
+                logger.debug("✓ Minimal schema (removed problematic fields) succeeded")
             return (
                 minimal_schema
                 if use_large_dtypes
@@ -866,11 +870,11 @@ def unify_schemas(
 
         except Exception:
             if verbose:
-                print("✗ Minimal schema fallback failed")
+                logger.debug("✗ Minimal schema fallback failed")
 
         # Fallback 4: Return first schema as last resort
         if verbose:
-            print("✗ All fallback strategies failed, returning first schema")
+            logger.debug("✗ All fallback strategies failed, returning first schema")
 
         first_schema = unique_schemas[0]
         if standardize_timezones:

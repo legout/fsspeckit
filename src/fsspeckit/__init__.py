@@ -30,6 +30,10 @@ from .storage_options import (
     LocalStorageOptions,
     StorageOptions,
 )
+from .common.logging_config import setup_logging
+
+# Configure logging when package is imported
+setup_logging()
 
 __all__ = [
     "filesystem",
