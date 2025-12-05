@@ -63,7 +63,7 @@ def setup_logging(
         logger.disable("fsspeckit")
 
 
-def get_logger(name: str = "fsspeckit"):
+def get_logger(name: str = "fsspeckit") -> "logger":
     """Get a logger instance for the given name.
 
     Args:

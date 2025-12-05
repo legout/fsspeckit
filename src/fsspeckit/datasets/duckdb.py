@@ -8,7 +8,10 @@ All public APIs are re-exported here to maintain backward compatibility.
 New code should import directly from the submodules for better organization.
 """
 
-from typing import Literal
+from typing import Any, Literal, Optional, Union
+
+from fsspec import AbstractFileSystem
+from fsspeckit.storage_options.base import BaseStorageOptions
 
 # Re-export connection management
 from fsspeckit.datasets.duckdb_connection import DuckDBConnection, create_duckdb_connection
@@ -33,8 +36,8 @@ class DuckDBParquetHandler(DuckDBDatasetIO):
 
     def __init__(
         self,
-        storage_options=None,
-        filesystem=None,
+        storage_options: Optional[Union[BaseStorageOptions, dict]] = None,
+        filesystem: Optional[AbstractFileSystem] = None,
     ):
         """Initialize DuckDB parquet handler.
 

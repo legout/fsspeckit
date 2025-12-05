@@ -15,7 +15,7 @@ import inspect
 import os
 import posixpath
 from pathlib import Path
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import fsspec
 import requests
@@ -58,7 +58,7 @@ logger = get_logger(__name__)
 
 
 # Custom DirFileSystem methods
-def dir_ls_p(self, path, detail=False, **kwargs):
+def dir_ls_p(self, path: str, detail: bool = False, **kwargs: Any) -> Union[List[Any], Any]:
     """List directory contents with path handling.
 
     Args:
@@ -73,7 +73,7 @@ def dir_ls_p(self, path, detail=False, **kwargs):
     return self.fs.ls(path, detail=detail, **kwargs)
 
 
-def mscf_ls_p(self, path, detail=False, **kwargs):
+def mscf_ls_p(self, path: str, detail: bool = False, **kwargs: Any) -> Union[List[Any], Any]:
     """List directory for monitored cache filesystem.
 
     Args:
@@ -136,7 +136,7 @@ class GitLabFileSystem(AbstractFileSystem):
         ref: str = "main",
         token: Optional[str] = None,
         api_version: str = "v4",
-        **kwargs,
+        **kwargs: Any,
     ):
         """Initialize GitLab filesystem.
 
@@ -207,7 +207,7 @@ class GitLabFileSystem(AbstractFileSystem):
         path = path.lstrip("/")
         return f"/{path}"
 
-    def ls(self, path: str = "", detail: bool = False, **kwargs):
+    def ls(self, path: str = "", detail: bool = False, **kwargs: Any) -> Union[List[Any], Any]:
         """List files in repository.
 
         Args:
@@ -231,7 +231,7 @@ class GitLabFileSystem(AbstractFileSystem):
         else:
             return [item["name"] for item in files]
 
-    def cat_file(self, path: str, **kwargs):
+    def cat_file(self, path: str, **kwargs: Any) -> bytes:
         """Get file content.
 
         Args:
@@ -250,7 +250,7 @@ class GitLabFileSystem(AbstractFileSystem):
 
         return base64.b64decode(data["content"])
 
-    def info(self, path: str, **kwargs):
+    def info(self, path: str, **kwargs: Any) -> dict:
         """Get file information.
 
         Args:
@@ -265,7 +265,7 @@ class GitLabFileSystem(AbstractFileSystem):
         response = self._make_request(f"repository/files/{path}", params)
         return response.json()
 
-    def exists(self, path: str, **kwargs):
+    def exists(self, path: str, **kwargs: Any) -> bool:
         """Check if file exists.
 
         Args:
@@ -291,9 +291,9 @@ def filesystem(
     verbose: bool = False,
     dirfs: bool = True,
     base_fs: AbstractFileSystem = None,
-    use_listings_cache=True,  # ← disable directory-listing cache
-    skip_instance_cache=False,
-    **kwargs,
+    use_listings_cache: bool = True,  # ← disable directory-listing cache
+    skip_instance_cache: bool = False,
+    **kwargs: Any,
 ) -> AbstractFileSystem:
     """Get filesystem instance with enhanced configuration options.
 
@@ -530,7 +530,7 @@ def filesystem(
 def get_filesystem(
     protocol_or_path: str | None = "",
     storage_options: Optional[Union[BaseStorageOptions, dict]] = None,
-    **kwargs,
+    **kwargs: Any,
 ) -> AbstractFileSystem:
     """Get filesystem instance (simple version).
 
@@ -552,7 +552,7 @@ def get_filesystem(
     )
 
 
-def setup_filesystem_logging():
+def setup_filesystem_logging() -> None:
     """Setup filesystem logging configuration."""
     # This is a placeholder for any filesystem-specific logging setup
     # Currently, logging is handled by the common logging module
