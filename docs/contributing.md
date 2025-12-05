@@ -121,3 +121,95 @@ def some_function():
         return result
     return other_result
 ```
+
+### Type Annotations
+
+The project uses `mypy` for static type checking. Type annotations help catch bugs early and improve code documentation.
+
+**Requirements:**
+- All new public functions and methods SHOULD have type hints for parameters and return values
+- Type hints are REQUIRED for changes to core modules (`core.*`, `datasets.*`)
+- Use precise types instead of overly broad ones (e.g., prefer `list[str]` over `list[Any]`)
+
+**Running Type Checks:**
+```bash
+# Check types
+uv run mypy src/fsspeckit
+
+# Check specific modules
+uv run mypy src/fsspeckit/datasets/pyarrow_dataset.py
+```
+
+**Common Type Patterns:**
+```python
+# Good - precise types
+def process_dataset(path: str, filesystem: AbstractFileSystem | None = None) -> dict[str, Any]:
+    ...
+
+# Good - using Literal for specific string values
+from typing import Literal
+
+def merge_strategy(strategy: Literal["upsert", "insert", "update"]) -> None:
+    ...
+
+# Good - proper optional handling
+def get_config(key: str, default: str | None = None) -> str | None:
+    ...
+```
+
+### Testing Expectations
+
+All contributions MUST include appropriate tests. The project maintains a minimum of 80% code coverage.
+
+**Testing Requirements:**
+1. **New Features**: Add unit tests for all public APIs
+2. **Bug Fixes**: Add regression tests to ensure the bug doesn't reoccur
+3. **Refactors**: Ensure existing tests continue to pass; add new tests for new behavior
+
+**Running Tests:**
+```bash
+# Run all tests
+uv run pytest
+
+# Run tests with coverage report
+uv run pytest --cov=fsspeckit --cov-report=term-missing
+
+# Run specific test file
+uv run pytest tests/test_utils/test_pyarrow_dataset_merge.py
+
+# Run tests matching pattern
+uv run pytest -k "test_merge"
+```
+
+**Testing for Refactors:**
+
+When refactoring code (especially large module decomposition):
+- **Preserve Behavior**: Ensure all existing functionality is maintained
+- **Add Unit Tests**: For new submodules, add focused unit tests
+- **Keep Integration Tests**: Maintain existing integration tests to verify end-to-end behavior
+- **Coverage**: Refactors should not decrease test coverage below 80%
+
+Example: If splitting `large_module.py` into `submodule_a.py` and `submodule_b.py`:
+```python
+# Before refactor: tests/test_large_module.py
+# After refactor:
+# - tests/test_submodule_a.py (unit tests for submodule_a)
+# - tests/test_submodule_b.py (unit tests for submodule_b)
+# - tests/test_integration.py (integration tests verifying end-to-end behavior)
+```
+
+**High-Risk Changes:**
+
+Changes to the following modules REQUIRE both type checking AND comprehensive tests:
+- `core/filesystem.py` and core submodules
+- `core/ext*.py` and core submodules
+- `datasets/pyarrow*.py` and dataset submodules
+- `datasets/duckdb*.py` and dataset submodules
+
+For these changes:
+```bash
+# Run all checks
+uv run pytest
+uv run mypy src/fsspeckit/core/ src/fsspeckit/datasets/
+uv run ruff check . --fix
+```
