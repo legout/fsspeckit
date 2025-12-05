@@ -6,8 +6,11 @@ repo_url: https://github.com/legout/fsspeckit
 
 nav:
   - Home: index.md
-  - Getting Started: tutorials/getting-started.md
+  - Getting Started:
+      - Overview: tutorials/index.md
+      - Tutorial: tutorials/getting-started.md
   - How-to Guides:
+      - Overview: how-to/index.md
       - Configure Cloud Storage: how-to/configure-cloud-storage.md
       - Work with Filesystems: how-to/work-with-filesystems.md
       - Read and Write Datasets: how-to/read-and-write-datasets.md
@@ -44,9 +47,9 @@ nav:
               - fsspeckit.utils.sql: api/fsspeckit.utils.sql.md
               - fsspeckit.utils.types: api/fsspeckit.utils.types.md
   - Architecture & Concepts:
+      - Overview: explanation/index.md
       - Architecture Overview: explanation/architecture.md
       - Key Concepts: explanation/concepts.md
-      - Migration Guide: explanation/migration-0.5.md
   - Contributing: contributing.md
 
 theme:

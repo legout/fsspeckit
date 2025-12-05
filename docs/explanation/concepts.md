@@ -506,6 +506,5 @@ safe_codec = validate_compression_codec(user_codec)
 ## Related Documentation
 
 - [Architecture](architecture.md) - Detailed system design
-- [Migration Guide](migration-0.5.md) - Upgrade instructions
 - [API Guide](../reference/api-guide.md) - Capability overview
 - [How-to Guides](../how-to/) - Practical implementation

@@ -474,14 +474,7 @@ class CustomDatasetHandler:
 
 ## Migration Guide
 
-For detailed migration instructions, see the comprehensive [Migration Guide](migration-0.5.md), which covers:
-
-- Migration from fsspec-utils to fsspeckit
-- Domain package organization and imports
-- Logging configuration changes
-- Error handling improvements
-- Security features and best practices
-- Optional dependency management
+For details on historical changes between versions, consult the project changelog and release notes.
 
 ### Quick Reference
 

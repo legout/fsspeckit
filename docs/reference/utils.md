@@ -399,11 +399,9 @@ For detailed documentation of specific functions and classes:
 - [SQL Filtering](../api/fsspeckit.sql.filters.md)
 - [Storage Options](../api/fsspeckit.storage_options.base.md)
 - [Core Filesystem](../api/fsspeckit.core.filesystem.md)
-- [Utils Compatibility](../api/fsspeckit.utils.md)
 
 ## Related Documentation
 
-- [Migration Guide](../explanation/migration-0.5.md) - Detailed migration instructions
 - [API Guide](api-guide.md) - Capability-oriented API overview
 - [How-to Guides](../how-to/) - Task-oriented recipes
 - [Architecture](../explanation/architecture.md) - Design principles

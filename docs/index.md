@@ -41,7 +41,6 @@
 - **[Installation](installation.md)** - Setup and dependency management
 - **[API Reference](reference/api-guide.md)** - Complete API documentation
 - **[Utils Reference](reference/utils.md)** - Backwards compatibility guide
-- **[Migration Guide](explanation/migration-0.5.md)** - Upgrade from earlier versions
 
 ## Architecture Overview
 

@@ -1,6 +1,6 @@
 # API Guide
 
-This guide provides a capability-oriented overview of fsspeckit's public API. For detailed method signatures and parameters, see the [generated API documentation](../api/).
+This guide provides a capability-oriented overview of fsspeckit's public API. For detailed method signatures and parameters, see the [generated API documentation](../api/index.md).
 
 ## Core Capabilities
 
@@ -188,7 +188,7 @@ The `fsspeckit.utils` module provides backwards compatibility. For new code, use
 | `from fsspeckit.utils import AwsStorageOptions` | Storage Options | `from fsspeckit.storage_options import AwsStorageOptions` |
 | `from fsspeckit.utils import dict_to_dataframe` | Common | `from fsspeckit.common.types import dict_to_dataframe` |
 
-For detailed migration instructions, see [Migration Guide](../explanation/migration-0.5.md).
+For information on migration from older versions, refer to the project release notes.
 
 ## Error Handling
 
@@ -326,11 +326,9 @@ For detailed method signatures and parameters:
 - [Dataset Operations](../api/fsspeckit.datasets.md)
 - [SQL Filtering](../api/fsspeckit.sql.filters.md)
 - [Common Utilities](../api/fsspeckit.common.md)
-- [Utils (Compatibility)](../api/fsspeckit.utils.md)
 
 ## Related Documentation
 
 - [How-to Guides](../how-to/) - Task-oriented recipes
 - [Tutorials](../tutorials/) - Step-by-step learning
 - [Explanation](../explanation/) - Conceptual understanding
-- [Migration Guide](../explanation/migration-0.5.md) - Upgrade instructions

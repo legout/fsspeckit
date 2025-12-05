@@ -2,7 +2,7 @@
 
 Welcome to the `fsspeckit` API reference documentation. This section provides detailed information on the various modules, classes, and functions available in the library.
 
-> **Package Structure**: fsspeckit is organized into domain-specific packages for better discoverability. See [Architecture](../architecture.md) for details.
+> **Package Structure**: fsspeckit is organized into domain-specific packages for better discoverability. See [Architecture](../explanation/architecture.md) for details.
 
 ## Domain Packages (Primary API)
 
