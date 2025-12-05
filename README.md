@@ -320,7 +320,7 @@ The package structure was refactored in version X.X.0 to improve discoverability
 
 **For existing code**, all `fsspeckit.utils` imports continue to work unchanged.
 
-For detailed migration instructions, see the [Migration Guide](MIGRATION_GUIDE.md).
+For detailed migration instructions, see the [Migration Guide](docs/migration-0.5.md).
 
 ## Dependencies
 

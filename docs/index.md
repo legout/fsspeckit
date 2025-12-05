@@ -19,6 +19,10 @@ This library aims to simplify complex data operations across various file system
 
 Ready to dive in? Check out our [Quickstart Guide](quickstart.md) to begin using `fsspeckit` in your projects.
 
+## Migrating from Earlier Versions?
+
+If you're upgrading from fsspec-utils or earlier versions of fsspeckit, see our comprehensive [Migration Guide](migration-0.5.md) for detailed instructions on updating your code to take advantage of the new features and improvements.
+
 ## Badges
 
 [![GitHub](https://img.shields.io/badge/GitHub-fsspeckit-blue?logo=github)](https://github.com/legout/fsspeckit)

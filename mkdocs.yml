@@ -12,6 +12,7 @@ nav:
   - Advanced Usage: advanced.md
   - Utils Reference: utils.md
   - Examples: examples.md
+  - Migration Guide: migration-0.5.md
   - API Guide: api-guide.md
   - Contributing: contributing.md
   - API Reference:

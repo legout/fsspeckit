@@ -426,6 +426,144 @@ except PermissionError:
     print("Operation outside allowed directory")
 ```
 
+## Security and Error Handling
+
+`fsspeckit` includes security helpers to protect against common vulnerabilities in data processing workflows, including path traversal, credential leakage, and unsafe compression codecs. These utilities are especially important for production deployments and multi-tenant environments.
+
+### Path Validation
+
+Prevent path traversal attacks and ensure operations stay within allowed directories:
+
+```python
+from fsspeckit.common.security import validate_path
+
+# Validate a path before using it
+try:
+    safe_path = validate_path(
+        user_input_path,
+        base_dir="/data/allowed"
+    )
+    # Safe to use in filesystem operations
+except ValueError as e:
+    # Handle invalid paths (log securely)
+    print(f"Invalid path: {e}")
+```
+
+### Credential Scrubbing
+
+Prevent sensitive information from appearing in logs and error messages:
+
+```python
+from fsspeckit.common.security import scrub_credentials, safe_format_error
+
+# Before logging error messages
+error_msg = f"Failed to access S3: access_key_id=AKIAIOSFODNN7EXAMPLE"
+safe_msg = scrub_credentials(error_msg)
+print(safe_msg)  # Output: "Failed to access S3: access_key_id=[REDACTED]"
+
+# Format errors safely
+error = safe_format_error(
+    operation="read parquet file",
+    path="s3://bucket/data.parquet",
+    error=exception,
+    access_key="AKIAIOSFODNN7EXAMPLE"
+)
+```
+
+### Compression Codec Validation
+
+Ensure only safe compression codecs are used in dataset operations:
+
+```python
+from fsspeckit.common.security import validate_compression_codec
+
+# Validate compression codec before use
+try:
+    safe_codec = validate_compression_codec(user_provided_codec)
+    # Use in parquet operations
+except ValueError as e:
+    # Reject unsafe or invalid codecs
+    print(f"Unsafe codec: {e}")
+```
+
+### Column Validation
+
+Prevent column injection in SQL-like operations:
+
+```python
+from fsspeckit.common.security import validate_columns
+
+# Validate requested columns exist in schema
+valid_columns = ["id", "name", "value", "timestamp"]
+try:
+    safe_columns = validate_columns(
+        user_selected_columns,
+        valid_columns=valid_columns
+    )
+except ValueError as e:
+    print(f"Invalid columns: {e}")
+```
+
+### Production Security Patterns
+
+For production deployments, integrate security helpers throughout your workflow:
+
+```python
+from fsspeckit.common.security import (
+    validate_path,
+    validate_compression_codec,
+    scrub_exception,
+    safe_format_error
+)
+from fsspeckit.datasets import DuckDBParquetHandler
+
+# Create secure dataset handler
+handler = DuckDBParquetHandler(storage_options=storage_options)
+
+# Validate all inputs before processing
+try:
+    safe_path = validate_path(dataset_path, base_dir="/data/allowed")
+    safe_codec = validate_compression_codec(compression)
+
+    # Perform operation
+    handler.compact_parquet_dataset(
+        path=safe_path,
+        compression=safe_codec
+    )
+
+except Exception as exc:
+    # Log safely without exposing credentials
+    safe_msg = safe_format_error(
+        operation="compact dataset",
+        path=dataset_path,
+        error=exc
+    )
+    logger.error(safe_msg)
+```
+
+### Integration with Logging
+
+The security helpers integrate with `loguru` for safe logging:
+
+```python
+from fsspeckit.common.logging import setup_logging
+from fsspeckit.common.security import scrub_credentials
+
+# Setup logging (credentials will be scrubbed automatically in formatted messages)
+setup_logging(level="INFO")
+
+# Create logger
+logger = get_logger(__name__)
+
+# Safe logging of errors
+try:
+    risky_operation()
+except Exception as e:
+    # scrub_exception handles credential patterns
+    safe_error = scrub_exception(e)
+    logger.error(f"Operation failed: {safe_error}")
+```
+
 ## Migration Guide
 
 ### From fsspec-utils to fsspeckit

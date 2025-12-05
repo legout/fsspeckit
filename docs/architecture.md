@@ -298,6 +298,60 @@ fs = filesystem("s3://bucket/path")  # Auto-detects and configures
 - `PermissionError` for access control issues
 - Custom exceptions for domain-specific errors
 
+### Security Architecture
+
+`fsspeckit` implements security best practices through the `fsspeckit.common.security` module, providing utilities to prevent common vulnerabilities in data processing workflows.
+
+**Core Security Helpers:**
+
+1. **Path Validation**: Prevent path traversal attacks and ensure operations stay within allowed directories
+   - `validate_path()`: Validates filesystem paths and enforces base directory confinement
+   - Integration with `DirFileSystem` for path-safe operations
+
+2. **Credential Scrubbing**: Protect sensitive information in logs and error messages
+   - `scrub_credentials()`: Removes credential-like values from strings
+   - `scrub_exception()`: Safely formats exceptions without exposing secrets
+   - `safe_format_error()`: Creates secure error messages for production logging
+
+3. **Compression Safety**: Prevent codec injection attacks
+   - `validate_compression_codec()`: Ensures only safe codecs (snappy, gzip, lz4, zstd, brotli) are used
+
+4. **Column Validation**: Prevent column injection in SQL-like operations
+   - `validate_columns()`: Validates requested columns exist in schema
+
+**Production Security Patterns:**
+
+The security helpers are integrated throughout fsspeckit's architecture:
+
+```python
+# Filesystem operations use path validation
+safe_fs = DirFileSystem(fs=base_fs, path="/data/allowed")
+
+# Dataset operations validate inputs
+handler.compact_parquet_dataset(
+    path=validate_path(dataset_path, base_dir="/data/allowed"),
+    compression=validate_compression_codec(user_codec)
+)
+
+# Error messages are scrubbed before logging
+logger.error(safe_format_error("read file", path=path, error=e))
+```
+
+**Security in Production:**
+
+For production deployments, the architecture emphasizes:
+- Credential scrubbing in all error paths
+- Path validation for all filesystem operations
+- Safe error formatting for observability
+- Integration with centralized logging systems
+- Multi-tenant isolation through `DirFileSystem`
+
+These security measures are particularly important for:
+- Multi-cloud deployments with sensitive credentials
+- Multi-tenant environments requiring strict isolation
+- Compliance requirements (SOC2, PCI-DSS, etc.)
+- Centralized logging and monitoring systems
+
 **Data Flow Patterns**
 
 **Typical Data Processing Pipeline:**
@@ -420,7 +474,16 @@ class CustomDatasetHandler:
 
 ## Migration Guide
 
-### From fsspec-utils to fsspeckit
+For detailed migration instructions, see the comprehensive [Migration Guide](migration-0.5.md), which covers:
+
+- Migration from fsspec-utils to fsspeckit
+- Domain package organization and imports
+- Logging configuration changes
+- Error handling improvements
+- Security features and best practices
+- Optional dependency management
+
+### Quick Reference
 
 **Step 1: Update Imports**
 ```python

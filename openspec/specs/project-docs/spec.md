@@ -279,3 +279,57 @@ module names.
 - **AND** the content for each entry references the correct module paths in
   code examples and headings.
 
+### Requirement: Security and Error Handling Documentation
+
+The documentation SHALL describe how fsspeckit protects against common security issues and SHALL include guidance on safe usage patterns for production deployments.
+
+#### Scenario: Security helpers are documented
+
+- **WHEN** a developer needs to implement secure data processing workflows
+- **THEN** the documentation includes a dedicated "Security and Error Handling" section
+- **AND** it describes the `fsspeckit.common.security` module helpers: `validate_path`, `validate_compression_codec`, `scrub_credentials`, `scrub_exception`, `safe_format_error`, and `validate_columns`
+- **AND** shows realistic examples of using these helpers with DuckDB/PyArrow dataset operations and storage options.
+
+#### Scenario: Production security patterns
+
+- **WHEN** an operator reviews the documentation for security best practices
+- **THEN** the architecture documentation references security helpers as part of the production deployment story
+- **AND** covers monitoring, observability, and security considerations
+- **AND** includes guidance on preventing credential leakage in logs and avoiding unsafe compression codecs.
+
+### Requirement: Versioned Migration Guides
+
+The project SHALL provide versioned migration guides for significant refactors and architectural changes, and these guides SHALL be discoverable from the homepage and architecture documentation.
+
+#### Scenario: Migration guide exists for major refactors
+
+- **WHEN** a user upgrades from one major version to another
+- **THEN** they can find a versioned migration guide (e.g., `docs/migration-0.5.md`)
+- **AND** the guide documents migration from pre–domain package layouts to the current architecture
+- **AND** covers changes to logging, error handling, dataset maintenance, and optional dependencies.
+
+#### Scenario: Migration guide is discoverable
+
+- **WHEN** a user needs to understand migration steps
+- **THEN** the migration guide is linked from `README.md`, `docs/index.md`, and `docs/architecture.md`
+- **AND** the guide is easily discoverable through clear navigation and cross-references.
+
+### Requirement: Documentation Layering and Roles
+
+The documentation SHALL clearly separate tutorial, how-to, reference, and architecture content, and SHALL avoid duplication between layers while maintaining accuracy and consistency.
+
+#### Scenario: Documentation follows the Diátaxis framework
+
+- **WHEN** a user reads different types of documentation
+- **THEN** quickstart/tutorial docs focus on end-to-end "getting started" patterns
+- **AND** API guide/how-to docs focus on task-oriented, practical patterns
+- **AND** reference/API pages are generated from code and do not introduce novel behaviors
+- **AND** architecture docs focus on design rationale and high-level patterns.
+
+#### Scenario: Documentation avoids duplication
+
+- **WHEN** a user reads multiple guides
+- **THEN** detailed API behavior is covered in reference, not duplicated in narrative guides
+- **AND** overlapping sections point to canonical examples instead of duplicating code
+- **AND** cross-references guide users to the most appropriate section for their needs.
+
