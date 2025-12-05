@@ -41,7 +41,10 @@ from typing import Any
 
 from fsspec import AbstractFileSystem
 
+from fsspeckit.common.logging import get_logger
 from fsspeckit.core.filesystem import fsspec_filesystem
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -227,7 +230,8 @@ def collect_dataset_stats(
         current_dir = stack.pop()
         try:
             entries = fs.ls(current_dir, detail=False)
-        except Exception:
+        except (OSError, PermissionError) as e:
+            logger.warning("Failed to list directory '%s': %s", current_dir, e)
             continue
 
         for entry in entries:
@@ -237,7 +241,8 @@ def collect_dataset_stats(
                 try:
                     if fs.isdir(entry):
                         stack.append(entry)
-                except Exception:
+                except (OSError, PermissionError) as e:
+                    logger.warning("Failed to check if entry '%s' is a directory: %s", entry, e)
                     continue
 
     if partition_filter:
@@ -264,7 +269,8 @@ def collect_dataset_stats(
             info = fs.info(filename)
             if isinstance(info, dict):
                 size_bytes = int(info.get("size", 0))
-        except Exception:
+        except (OSError, PermissionError) as e:
+            logger.warning("Failed to get file info for '%s': %s", filename, e)
             size_bytes = 0
 
         num_rows = 0
@@ -272,13 +278,15 @@ def collect_dataset_stats(
             with fs.open(filename, "rb") as fh:
                 pf = pq.ParquetFile(fh)
                 num_rows = pf.metadata.num_rows
-        except Exception:
+        except (OSError, PermissionError, RuntimeError, ValueError) as e:
             # As a fallback, attempt a minimal table read to estimate rows.
+            logger.debug("Failed to read parquet metadata from '%s', trying fallback: %s", filename, e)
             try:
                 with fs.open(filename, "rb") as fh:
                     table = pq.read_table(fh)
                 num_rows = table.num_rows
-            except Exception:
+            except (OSError, PermissionError, RuntimeError, ValueError) as e:
+                logger.debug("Fallback table read failed for '%s': %s", filename, e)
                 num_rows = 0
 
         total_bytes += size_bytes

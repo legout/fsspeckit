@@ -123,12 +123,6 @@ class DuckDBConnection:
                 "Some operations may not work correctly.",
                 e,
             )
-        except Exception as e:
-            logger.warning(
-                "Failed to register filesystem with DuckDB: %s. "
-                "Some operations may not work correctly.",
-                e,
-            )
 
     def execute_sql(
         self,
@@ -156,7 +150,7 @@ class DuckDBConnection:
         if self._connection is not None:
             try:
                 self._connection.close()
-            except Exception as e:
+            except (_DUCKDB_EXCEPTIONS.get("ConnectionException"), _DUCKDB_EXCEPTIONS.get("OperationalException")) as e:
                 logger.warning("Error closing DuckDB connection: %s", e)
             finally:
                 self._connection = None

@@ -25,6 +25,10 @@ from fsspeckit.core.ext_json import write_json as _write_json_format
 from fsspeckit.core.ext_csv import write_csv as _write_csv_format
 from fsspeckit.core.ext_parquet import write_parquet as _write_parquet_format
 from fsspeckit.core.ext_parquet import write_pyarrow_dataset as _write_pyarrow_dataset
+from fsspeckit.common.logging import get_logger
+
+# Get module logger
+logger = get_logger(__name__)
 
 
 def read_files(

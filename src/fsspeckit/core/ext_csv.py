@@ -13,10 +13,16 @@ from typing import TYPE_CHECKING, Any, Generator
 
 if TYPE_CHECKING:
     import polars as pl
+    import pandas as pd
+    import pyarrow as pa
 
 from fsspec import AbstractFileSystem
 
 from fsspeckit.common.misc import path_to_glob, run_parallel
+from fsspeckit.common.logging import get_logger
+
+# Get module logger
+logger = get_logger(__name__)
 
 # Conditionally import polars utilities
 try:
@@ -25,6 +31,17 @@ try:
 except ImportError:
     opt_dtype_pl = None
     pl = None
+
+# Conditionally import pandas and pyarrow
+try:
+    import pandas as pd
+except ImportError:
+    pd = None
+
+try:
+    import pyarrow as pa
+except ImportError:
+    pa = None
 
 
 def _read_csv_file(
@@ -49,6 +66,12 @@ def _read_csv_file(
     Returns:
         pl.DataFrame: DataFrame containing CSV data
 
+    Raises:
+        FileNotFoundError: If the CSV file does not exist
+        PermissionError: If permission is denied to read the file
+        OSError: For system-level I/O errors
+        ValueError: If the file cannot be parsed as CSV
+
     Example:
         >>> fs = LocalFileSystem()
         >>> df = _read_csv_file(
@@ -60,13 +83,47 @@ def _read_csv_file(
         >>> print("file_path" in df.columns)
         True
     """
-    with self.open(path) as f:
-        df = pl.read_csv(f, **kwargs)
-    if include_file_path:
-        df = df.with_columns(pl.lit(path).alias("file_path"))
-    if opt_dtypes:
-        df = opt_dtype_pl(df, strict=False)
-    return df
+    if pl is None:
+        raise ImportError("polars is required for CSV operations")
+
+    operation = "read CSV"
+    context = {"path": path, "operation": operation}
+
+    try:
+        with self.open(path) as f:
+            df = pl.read_csv(f, **kwargs)
+        logger.debug("Successfully read CSV: {path}", extra=context)
+
+        if include_file_path:
+            df = df.with_columns(pl.lit(path).alias("file_path"))
+        if opt_dtypes:
+            df = opt_dtype_pl(df, strict=False)
+        return df
+
+    except FileNotFoundError as e:
+        logger.error("File not found during {operation}: {path}", extra=context)
+        raise FileNotFoundError(f"File not found during {operation}: {path}") from e
+    except PermissionError as e:
+        logger.error("Permission denied during {operation}: {path}", extra=context)
+        raise PermissionError(f"Permission denied during {operation}: {path}") from e
+    except OSError as e:
+        logger.error(
+            "System error during {operation}: {path} - {error}",
+            extra={**context, "error": str(e)},
+        )
+        raise OSError(f"System error during {operation}: {path} - {e}") from e
+    except ValueError as e:
+        logger.error(
+            "Invalid CSV format in {path}: {error}", extra={**context, "error": str(e)}
+        )
+        raise ValueError(f"Invalid CSV format in {path}: {e}") from e
+    except Exception as e:
+        logger.error(
+            "Unexpected error during {operation}: {path} - {error}",
+            extra={**context, "error": str(e)},
+            exc_info=True,
+        )
+        raise
 
 
 def read_csv_file(
@@ -386,6 +443,12 @@ def write_csv(
             - date_format: Format for date/time fields
             - float_precision: Decimal places for floats
 
+    Raises:
+        FileNotFoundError: If the directory path does not exist
+        PermissionError: If permission is denied to write the file
+        OSError: For system-level I/O errors
+        ValueError: If the data cannot be converted to CSV format
+
     Example:
         >>> fs = LocalFileSystem()
         >>> # Write Polars DataFrame
@@ -423,16 +486,53 @@ def write_csv(
 
     pa_mod = _import_pyarrow()
 
-    if isinstance(data, pl.LazyFrame):
-        data = data.collect()
-    if isinstance(data, pl.DataFrame):
-        if append:
-            with self.open(path, "ab") as f:
-                data.write_csv(f, has_header=not append, **kwargs)
+    if pl is None:
+        raise ImportError("polars is required for CSV operations")
+
+    operation = "write CSV"
+    context = {"path": path, "operation": operation}
+
+    try:
+        if isinstance(data, pl.LazyFrame):
+            data = data.collect()
+        if isinstance(data, pl.DataFrame):
+            if append:
+                with self.open(path, "ab") as f:
+                    data.write_csv(f, has_header=not append, **kwargs)
+            else:
+                with self.open(path, "wb") as f:
+                    data.write_csv(f, **kwargs)
+        elif isinstance(data, (pa.Table, pd.DataFrame)):
+            pl.from_arrow(pa.table(data)).write_csv(path, **kwargs)
         else:
-            with self.open(path, "wb") as f:
-                data.write_csv(f, **kwargs)
-    elif isinstance(data, (pa.Table, pd.DataFrame)):
-        pl.from_arrow(pa.table(data)).write_csv(path, **kwargs)
-    else:
-        pl.DataFrame(data).write_csv(path, **kwargs)
+            pl.DataFrame(data).write_csv(path, **kwargs)
+
+        logger.debug("Successfully wrote CSV: {path}", extra=context)
+
+    except FileNotFoundError as e:
+        logger.error("Directory not found during {operation}: {path}", extra=context)
+        raise FileNotFoundError(
+            f"Directory not found during {operation}: {path}"
+        ) from e
+    except PermissionError as e:
+        logger.error("Permission denied during {operation}: {path}", extra=context)
+        raise PermissionError(f"Permission denied during {operation}: {path}") from e
+    except OSError as e:
+        logger.error(
+            "System error during {operation}: {path} - {error}",
+            extra={**context, "error": str(e)},
+        )
+        raise OSError(f"System error during {operation}: {path} - {e}") from e
+    except ValueError as e:
+        logger.error(
+            "Invalid data format for CSV write in {path}: {error}",
+            extra={**context, "error": str(e)},
+        )
+        raise ValueError(f"Invalid data format for CSV write in {path}: {e}") from e
+    except Exception as e:
+        logger.error(
+            "Unexpected error during {operation}: {path} - {error}",
+            extra={**context, "error": str(e)},
+            exc_info=True,
+        )
+        raise

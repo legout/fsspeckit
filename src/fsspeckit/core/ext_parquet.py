@@ -30,6 +30,10 @@ from fsspeckit.common.types import dict_to_dataframe, to_pyarrow_table
 from fsspeckit.datasets.pyarrow import cast_schema, convert_large_types_to_normal
 from fsspeckit.datasets.pyarrow import opt_dtype as opt_dtype_pa
 from fsspeckit.datasets.pyarrow import unify_schemas as unify_schemas_pa
+from fsspeckit.common.logging import get_logger
+
+# Get module logger
+logger = get_logger(__name__)
 
 
 def _read_parquet_file(
@@ -54,6 +58,12 @@ def _read_parquet_file(
     Returns:
         pa.Table: PyArrow Table containing Parquet data
 
+    Raises:
+        FileNotFoundError: If the Parquet file does not exist
+        PermissionError: If permission is denied to read the file
+        OSError: For system-level I/O errors
+        ValueError: If the path does not point to a Parquet file or file is corrupted
+
     Example:
         >>> fs = LocalFileSystem()
         >>> table = _read_parquet_file(
@@ -73,21 +83,58 @@ def _read_parquet_file(
     pa_mod = _import_pyarrow()
     pq = _import_pyarrow_parquet()
 
-    if not path.endswith(".parquet"):
-        raise ValueError(
-            f"Path '{path}' does not point to a Parquet file. "
-            "Ensure the path ends with '.parquet'."
+    operation = "read Parquet"
+    context = {"path": path, "operation": operation}
+
+    try:
+        if not path.endswith(".parquet"):
+            logger.error(
+                "Invalid file extension in {path}: must end with .parquet",
+                extra=context,
+            )
+            raise ValueError(
+                f"Path '{path}' does not point to a Parquet file. "
+                "Ensure the path ends with '.parquet'."
+            )
+
+        table = pq.read_table(path, filesystem=self, **kwargs)
+        logger.debug("Successfully read Parquet: {path}", extra=context)
+
+        if include_file_path:
+            table = table.add_column(
+                0,
+                "file_path",
+                pa_mod.array([path] * table.num_rows),
+            )
+        if opt_dtypes:
+            table = opt_dtype_pa(table, strict=False)
+        return table
+
+    except FileNotFoundError as e:
+        logger.error("File not found during {operation}: {path}", extra=context)
+        raise FileNotFoundError(f"File not found during {operation}: {path}") from e
+    except PermissionError as e:
+        logger.error("Permission denied during {operation}: {path}", extra=context)
+        raise PermissionError(f"Permission denied during {operation}: {path}") from e
+    except OSError as e:
+        logger.error(
+            "System error during {operation}: {path} - {error}",
+            extra={**context, "error": str(e)},
         )
-    table = pq.read_table(path, filesystem=self, **kwargs)
-    if include_file_path:
-        table = table.add_column(
-            0,
-            "file_path",
-            pa_mod.array([path] * table.num_rows),
+        raise OSError(f"System error during {operation}: {path} - {e}") from e
+    except ValueError as e:
+        logger.error(
+            "Invalid Parquet file in {path}: {error}",
+            extra={**context, "error": str(e)},
         )
-    if opt_dtypes:
-        table = opt_dtype_pa(table, strict=False)
-    return table
+        raise ValueError(f"Invalid Parquet file in {path}: {e}") from e
+    except Exception as e:
+        logger.error(
+            "Unexpected error during {operation}: {path} - {error}",
+            extra={**context, "error": str(e)},
+            exc_info=True,
+        )
+        raise
 
 
 def read_parquet_file(

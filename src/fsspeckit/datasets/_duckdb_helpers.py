@@ -9,6 +9,25 @@ from __future__ import annotations
 
 from typing import Any
 from fsspeckit.common.logging import get_logger
+from fsspeckit.common.optional import _DUCKDB_AVAILABLE
+
+logger = get_logger(__name__)
+
+# DuckDB exception types for specific error handling
+_DUCKDB_EXCEPTIONS = {}
+if _DUCKDB_AVAILABLE:
+    import duckdb
+
+    _DUCKDB_EXCEPTIONS = {
+        "InvalidInputException": duckdb.InvalidInputException,
+        "OperationalException": duckdb.OperationalError,
+        "CatalogException": duckdb.CatalogException,
+        "IOException": duckdb.IOException,
+        "OutOfMemoryException": duckdb.OutOfMemoryException,
+        "ParserException": duckdb.ParserException,
+        "ConnectionException": duckdb.ConnectionException,
+        "SyntaxException": duckdb.SyntaxException,
+    }
 
 
 def _unregister_duckdb_table_safely(conn: Any, table_name: str) -> None:
@@ -22,9 +41,8 @@ def _unregister_duckdb_table_safely(conn: Any, table_name: str) -> None:
         interrupt overall cleanup process. Partial cleanup failures are visible
         in logs rather than being silently swallowed.
     """
-    logger = get_logger(__name__)
     try:
         conn.unregister(table_name)
-    except Exception as e:
+    except (_DUCKDB_EXCEPTIONS.get("CatalogException"), _DUCKDB_EXCEPTIONS.get("ConnectionException")) as e:
         # Log the failure but don't raise - cleanup should continue
-        logger.warning(f"Failed to unregister DuckDB table '{table_name}': {e}")
+        logger.warning("Failed to unregister DuckDB table '%s': %s", table_name, e)

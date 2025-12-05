@@ -27,6 +27,7 @@ from fsspeckit.core.merge import (
     validate_strategy_compatibility,
 )
 from fsspeckit.common.logging import get_logger
+from fsspeckit.common.optional import _DUCKDB_AVAILABLE
 from fsspeckit.common.security import (
     validate_path,
     validate_compression_codec,
@@ -36,6 +37,22 @@ from fsspeckit.common.security import (
 from fsspeckit.datasets.duckdb_connection import DuckDBConnection
 
 logger = get_logger(__name__)
+
+# DuckDB exception types for specific error handling
+_DUCKDB_EXCEPTIONS = {}
+if _DUCKDB_AVAILABLE:
+    import duckdb
+
+    _DUCKDB_EXCEPTIONS = {
+        "InvalidInputException": duckdb.InvalidInputException,
+        "OperationalException": duckdb.OperationalError,
+        "CatalogException": duckdb.CatalogException,
+        "IOException": duckdb.IOException,
+        "OutOfMemoryException": duckdb.OutOfMemoryException,
+        "ParserException": duckdb.ParserException,
+        "ConnectionException": duckdb.ConnectionException,
+        "SyntaxException": duckdb.SyntaxException,
+    }
 
 # Type alias for merge strategies
 MergeStrategy = Literal["upsert", "insert", "update", "full_merge", "deduplicate"]
@@ -113,7 +130,7 @@ class DuckDBDatasetIO:
 
             return result
 
-        except Exception as e:
+        except (_DUCKDB_EXCEPTIONS.get("IOException"), _DUCKDB_EXCEPTIONS.get("InvalidInputException"), _DUCKDB_EXCEPTIONS.get("ParserException")) as e:
             raise RuntimeError(
                 f"Failed to read parquet from {path}: {safe_format_error(e)}"
             ) from e
@@ -176,7 +193,7 @@ class DuckDBDatasetIO:
             # Clean up temporary table
             try:
                 conn.unregister("data_table")
-            except Exception as e:
+            except (_DUCKDB_EXCEPTIONS.get("CatalogException"), _DUCKDB_EXCEPTIONS.get("ConnectionException")) as e:
                 logger.warning("Failed to unregister temporary table: %s", e)
 
     def write_parquet_dataset(
@@ -251,7 +268,7 @@ class DuckDBDatasetIO:
             # Clean up temporary table
             try:
                 conn.unregister("data_table")
-            except Exception as e:
+            except (_DUCKDB_EXCEPTIONS.get("CatalogException"), _DUCKDB_EXCEPTIONS.get("ConnectionException")) as e:
                 logger.warning("Failed to unregister temporary table: %s", e)
 
     def _generate_unique_filename(self, template: str = "data-{i}.parquet") -> str:
@@ -423,13 +440,13 @@ class DuckDBDatasetIO:
             for table_name in registered_tables:
                 try:
                     conn.unregister(table_name)
-                except Exception as e:
+                except (_DUCKDB_EXCEPTIONS.get("CatalogException"), _DUCKDB_EXCEPTIONS.get("ConnectionException")) as e:
                     logger.warning("Failed to unregister table %s: %s", table_name, e)
 
             if target_table_name:
                 try:
                     conn.unregister(target_table_name)
-                except Exception as e:
+                except (_DUCKDB_EXCEPTIONS.get("CatalogException"), _DUCKDB_EXCEPTIONS.get("ConnectionException")) as e:
                     logger.warning("Failed to unregister table %s: %s", target_table_name, e)
 
     def _build_merge_query(
