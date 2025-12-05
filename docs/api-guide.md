@@ -30,11 +30,13 @@ fs = filesystem("/data", dirfs=True, base_fs=parent_fs)
 - `cached` - Enable caching (default: False)
 - `cache_storage` - Cache directory location
 - `verbose` - Log cache operations (default: False)
-- `dirfs` - Wrap in DirFileSystem (default: True)
-- `base_fs` - Parent DirFileSystem for hierarchy
+- `dirfs` - Wrap in DirFileSystem for path safety (default: True). When True, all operations are confined to the base directory.
+- `base_fs` - Parent DirFileSystem for creating hierarchical filesystems
 - `use_listings_cache` - Use listings cache (default: True)
 - `skip_instance_cache` - Skip instance cache (default: False)
 - `**kwargs` - Protocol-specific options
+
+**Path Safety:** When `dirfs=True` (default), the filesystem is wrapped in `DirFileSystem` to ensure all paths are confined to the specified base directory. This prevents access to paths outside the allowed directory, enhancing security. When using a `base_fs`, relative paths are resolved relative to the parent filesystem's base directory.
 
 ## Storage Options Classes
 
@@ -296,12 +298,15 @@ fs.write_pyarrow_dataset(
 # Clear all caches
 fs.clear_cache()
 
-# Check cache size
-size = fs.get_cache_size()
+# Check cache size (for MonitoredSimpleCacheFileSystem)
+if hasattr(fs, 'cache_size'):
+    size = fs.cache_size
 
 # Sync cache (ensure data is written)
 fs.sync_cache()
 ```
+
+**Note:** Cache size checking requires using a `MonitoredSimpleCacheFileSystem` (created with `cached=True`). The `cache_size` attribute is available as a property on the cache filesystem instance.
 
 ## Helper Utilities
 
@@ -315,13 +320,26 @@ from fsspeckit.common.misc import run_parallel
 def process(item):
     return len(item)
 
+# Basic usage
 results = run_parallel(
     process,
     ["item1", "item2", "item3"],
     n_jobs=4,
     verbose=True
 )
+
+# With keyword arguments
+def add(x, y):
+    return x + y
+
+results = run_parallel(
+    add,
+    [1, 2, 3],
+    y=[10, 20, 30]
+)
 ```
+
+**Requires:** `fsspeckit[datasets]` extra for joblib dependency. Supports generators and keyword iterables.
 
 ### Type Conversions
 
@@ -366,13 +384,32 @@ filtered_table = dataset.to_table(filter=expr)
 ### File Synchronization
 
 ```python
-from fsspeckit.common.misc import sync_dir
+from fsspeckit.common.misc import sync_dir, sync_files
+from fsspeckit import filesystem
+
+# Create source and destination filesystems
+src_fs = filesystem("file")
+dst_fs = filesystem("s3://bucket/")
 
 # Sync directories
-sync_dir(
-    fs_source, "/source/",
-    fs_target, "/target/",
-    overwrite=False
+result = sync_dir(
+    src_fs=src_fs,
+    dst_fs=dst_fs,
+    src_path="/source/",
+    dst_path="/target/",
+    parallel=True,
+    verbose=True
+)
+
+# Sync individual files
+sync_files(
+    add_files=["file1.txt", "file2.txt"],
+    delete_files=["old_file.txt"],
+    src_fs=src_fs,
+    dst_fs=dst_fs,
+    src_path="/source/",
+    dst_path="/target/",
+    verbose=True
 )
 ```
 
@@ -413,7 +450,7 @@ fs = filesystem("s3", cached=True, verbose=True)
 
 # Monitor cache operations
 fs.sync_cache()
-size = fs.get_cache_size()
+size = fs.cache_size  # Access cache size as a property
 ```
 
 ## Working with DirFileSystem

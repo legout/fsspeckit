@@ -49,6 +49,8 @@ from fsspeckit.core.filesystem import filesystem
 import os
 
 # Create a local filesystem
+# Note: filesystem() wraps the filesystem in DirFileSystem by default (dirfs=True)
+# for path safety, confining all operations to the specified directory
 fs = filesystem("file")
 
 # Define a directory path
@@ -68,6 +70,8 @@ print(f"Content: {content}")
 files = fs.ls(local_dir)
 print(f"Files: {files}")
 ```
+
+**Path Safety:** The `filesystem()` function wraps filesystems in `DirFileSystem` by default (`dirfs=True`), which confines all operations to the specified directory path. This prevents accidental access to paths outside the intended directory.
 
 ## Storage Options Configuration
 

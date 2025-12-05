@@ -3,6 +3,7 @@
 This page documents utilities available in fsspeckit. The utilities are organized into domain packages for better discoverability and maintainability.
 
 > **Package Layout Overview**: fsspeckit is organized into domain packages - see [Architecture](architecture.md) for details.
+> **Recommended for New Code**: Import directly from domain packages (`fsspeckit.datasets`, `fsspeckit.sql.filters`, `fsspeckit.common`) instead of `fsspeckit.utils` for better discoverability.
 > **Backwards Compatibility**: All imports from `fsspeckit.utils` continue to work unchanged.
 
 ## Cross-Cutting Utilities (`fsspeckit.common`)
@@ -23,17 +24,19 @@ setup_logging()
 setup_logging(level="DEBUG", format_string="{time} | {level} | {message}")
 
 # Control logging via environment variable
-# export fsspeckit_LOG_LEVEL=DEBUG
+# export FSSPECKIT_LOG_LEVEL=DEBUG
 ```
 
 **Environment Variables:**
-- `fsspeckit_LOG_LEVEL` - Set the logging level (default: INFO)
+- `FSSPECKIT_LOG_LEVEL` - Set the logging level (default: INFO)
 
 ### Parallel Processing
 
 #### `run_parallel()`
 
-Execute a function across multiple inputs using parallel threads with optional progress bar:
+Execute a function across multiple inputs using parallel processing with optional progress bar.
+
+**Requires:** `fsspeckit[datasets]` for joblib dependency.
 
 ```python
 from fsspeckit.common.misc import run_parallel
@@ -41,21 +44,39 @@ from fsspeckit.common.misc import run_parallel
 def process_file(path, multiplier=1):
     return len(path) * multiplier
 
+# Basic usage
 results = run_parallel(
     process_file,
     ["/path1", "/path2", "/path3"],
-    multiplier=2,
     n_jobs=4,
     verbose=True,  # Show progress bar
     backend="threading"
 )
+
+# With keyword iterables and generators
+def add(x, y, offset=0):
+    return x + y + offset
+
+results = run_parallel(
+    add,
+    [1, 2, 3],  # First iterable
+    y=[10, 20, 30],  # Keyword iterable
+    offset=100  # Fixed argument
+)
+
+# Generator support
+def gen():
+    yield from [1, 2, 3]
+results = run_parallel(str, gen())  # Returns ['1', '2', '3']
 ```
 
 **Parameters:**
 - `func` - Function to apply to each item
-- `items` - List of inputs to process
-- `n_jobs` - Number of parallel threads (default: CPU count)
-- `backend` - Parallel backend: "threading" or "process" (default: "threading")
+- `*args` - Positional arguments (can be single values or iterables)
+- `n_jobs` - Number of parallel workers (default: -1, all cores)
+- `backend` - Parallel backend: "threading", "loky", "multiprocessing", or "sequential" (default: "threading")
+- `verbose` - Show progress bar (default: True)
+- `**kwargs` - Keyword arguments (can be single values or iterables)
 
 ### File System Operations
 
@@ -63,20 +84,31 @@ results = run_parallel(
 
 ```python
 from fsspeckit.common.misc import sync_files, sync_dir
+from fsspeckit import filesystem
 
 # Sync individual files
+src_fs = filesystem("file")
+dst_fs = filesystem("s3://bucket/")
+
 sync_files(
-    source_paths=["/data/file1.txt", "/data/file2.txt"],
-    fs_target=filesystem("s3://bucket/"),
+    add_files=["file1.txt", "file2.txt"],
+    delete_files=[],
+    src_fs=src_fs,
+    dst_fs=dst_fs,
+    src_path="/data/",
+    dst_path="/",
     verbose=True
 )
 
 # Sync directories recursively
 sync_dir(
-    source_dir="/data/",
-    fs_target=filesystem("s3://bucket/"),
-    pattern="*.parquet",
-    delete=True
+    src_fs=src_fs,
+    dst_fs=dst_fs,
+    src_path="/data/",
+    dst_path="/",
+    parallel=True,
+    n_jobs=4,
+    verbose=True
 )
 ```
 
