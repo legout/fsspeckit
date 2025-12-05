@@ -825,16 +825,19 @@ def opt_dtype(
         Table with optimized dtypes
 
     Example:
-        >>> import pyarrow as pa
-        >>> table = pa.table({
-        ...     'a': pa.array([1, 2, 3], type=pa.int64()),
-        ...     'b': pa.array([1.0, 2.0, 3.0], type=pa.float64())
-        ... })
-        >>> optimized = opt_dtype(table)
-        >>> optimized.column(0).type
-        DataType(int32)
-        >>> optimized.column(1).type
-        DataType(float32)
+        ```python
+        import pyarrow as pa
+
+        table = pa.table(
+            {
+                "a": pa.array([1, 2, 3], type=pa.int64()),
+                "b": pa.array([1.0, 2.0, 3.0], type=pa.float64()),
+            },
+        )
+        optimized = opt_dtype(table)
+        print(optimized.column(0).type)  # DataType(int32)
+        print(optimized.column(1).type)  # DataType(float32)
+        ```
     """
     from fsspeckit.common.misc import run_parallel
 

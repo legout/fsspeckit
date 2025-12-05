@@ -109,7 +109,14 @@ Analyzes the URI to determine the appropriate storage protocol based on the sche
 
 | Name | Type | Description |
 |:---|:---|:---|
-| `uri` | `str` | URI or path string to analyze. Examples: - "s3://bucket/path" - "gs://bucket/path" - "github://org/repo" - "/local/path" |
+| `uri` | `str` | URI or path string to analyze. |
+
+Typical examples include:
+
+- `\"s3://bucket/path\"`
+- `\"gs://bucket/path\"`
+- `\"github://org/repo\"`
+- `\"/local/path\"`
 
 **Returns:**
 
@@ -137,7 +144,13 @@ Infers the protocol and extracts relevant configuration from the URI to create a
 
 | Name | Type | Description |
 |:---|:---|:---|
-| `uri` | `str` | URI string containing protocol and optional configuration. Examples: - "s3://bucket/path" - "gs://project/bucket/path" - "github://org/repo" |
+| `uri` | `str` | URI string containing protocol and optional configuration. |
+
+Typical examples include:
+
+- `\"s3://bucket/path\"`
+- `\"gs://project/bucket/path\"`
+- `\"github://org/repo\"`
 
 **Returns:**
 
@@ -165,8 +178,14 @@ Combines options from multiple sources with control over precedence.
 
 | Name | Type | Description |
 |:---|:---|:---|
-| `*options` | `BaseStorageOptions` or `dict` | Storage options to merge. Can be: - BaseStorageOptions instances - Dictionaries of options - None values (ignored) |
+| `*options` | `BaseStorageOptions` or `dict` | Storage options to merge. |
 | `overwrite` | `bool` | Whether later options override earlier ones |
+
+Each entry in `*options` may be:
+
+- A `BaseStorageOptions` instance
+- A dictionary of options
+- `None` (ignored)
 
 **Returns:**
 
@@ -224,7 +243,12 @@ Create storage options from arguments.
 
 | Name | Type | Description |
 |:---|:---|:---|
-| `**data` | `dict` | Either: - protocol and configuration options - storage_options=pre-configured instance |
+| `**data` | `dict` | Keyword arguments describing either protocol/configuration or a pre-configured instance. |
+
+Accepted patterns:
+
+- `protocol=...` plus configuration fields
+- `storage_options=<BaseStorageOptions instance>`
 
 **Returns:**
 

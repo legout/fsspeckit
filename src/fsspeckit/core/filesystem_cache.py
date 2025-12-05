@@ -30,13 +30,15 @@ class FileNameCacheMapper(AbstractCacheMapper):
         directory (str): Base directory for cached files
 
     Example:
-        >>> # Create cache mapper for S3 files
-        >>> mapper = FileNameCacheMapper("/tmp/cache")
-        >>>
-        >>> # Map remote path to cache path
-        >>> cache_path = mapper("bucket/data/file.csv")
-        >>> print(cache_path)  # Preserves structure
-        'bucket/data/file.csv'
+        ```python
+        # Create cache mapper for S3 files
+        mapper = FileNameCacheMapper("/tmp/cache")
+
+        # Map remote path to cache path
+        cache_path = mapper("bucket/data/file.csv")
+        print(cache_path)  # Preserves structure
+        # 'bucket/data/file.csv'
+        ```
     """
 
     def __init__(self, directory: str):
@@ -60,10 +62,12 @@ class FileNameCacheMapper(AbstractCacheMapper):
             str: Cache file path that preserves original structure
 
         Example:
-            >>> mapper = FileNameCacheMapper("/tmp/cache")
-            >>> # Maps maintain directory structure
-            >>> print(mapper("data/nested/file.txt"))
-            'data/nested/file.txt'
+            ```python
+            mapper = FileNameCacheMapper("/tmp/cache")
+            # Maps maintain directory structure
+            print(mapper("data/nested/file.txt"))
+            # 'data/nested/file.txt'
+            ```
         """
         os.makedirs(
             posixpath.dirname(posixpath.join(self.directory, path)), exist_ok=True
@@ -85,13 +89,15 @@ class MonitoredSimpleCacheFileSystem(SimpleCacheFileSystem):
         **kwargs: Additional arguments passed to SimpleCacheFileSystem.
 
     Example:
-        >>> # Cache S3 filesystem
-        >>> s3_fs = filesystem("s3")
-        >>> cached = MonitoredSimpleCacheFileSystem(
-        ...     fs=s3_fs,
-        ...     cache_storage="/tmp/s3_cache",
-        ...     verbose=True
-        ... )
+        ```python
+        # Cache S3 filesystem
+        s3_fs = filesystem("s3")
+        cached = MonitoredSimpleCacheFileSystem(
+            fs=s3_fs,
+            cache_storage="/tmp/s3_cache",
+            verbose=True,
+        )
+        ```
     """
 
     def __init__(
@@ -161,12 +167,14 @@ class MonitoredSimpleCacheFileSystem(SimpleCacheFileSystem):
             Size of file in bytes
 
         Example:
-            >>> fs = MonitoredSimpleCacheFileSystem(
-            ...     fs=remote_fs,
-            ...     cache_storage="/tmp/cache"
-            ... )
-            >>> size = fs.size("large_file.dat")
-            >>> print(f"File size: {size} bytes")
+            ```python
+            fs = MonitoredSimpleCacheFileSystem(
+                fs=remote_fs,
+                cache_storage="/tmp/cache",
+            )
+            size = fs.size("large_file.dat")
+            print(f"File size: {size} bytes")
+            ```
         """
         cached_file = self._check_file(self._strip_protocol(path))
         if cached_file is None:
@@ -183,15 +191,17 @@ class MonitoredSimpleCacheFileSystem(SimpleCacheFileSystem):
             reload: Whether to force reload all files, ignoring existing cache
 
         Example:
-            >>> fs = MonitoredSimpleCacheFileSystem(
-            ...     fs=remote_fs,
-            ...     cache_storage="/tmp/cache"
-            ... )
-            >>> # Initial sync
-            >>> fs.sync_cache()
-            >>>
-            >>> # Force reload all files
-            >>> fs.sync_cache(reload=True)
+            ```python
+            fs = MonitoredSimpleCacheFileSystem(
+                fs=remote_fs,
+                cache_storage="/tmp/cache",
+            )
+            # Initial sync
+            fs.sync_cache()
+
+            # Force reload all files
+            fs.sync_cache(reload=True)
+            ```
         """
         if reload:
             if hasattr(self, "clear_cache"):

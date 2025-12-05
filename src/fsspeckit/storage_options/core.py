@@ -33,16 +33,18 @@ class LocalStorageOptions(BaseStorageOptions):
         mode (int): Default file creation mode (unix-style)
 
     Example:
-        >>> # Basic local access
-        >>> options = LocalStorageOptions()
-        >>> fs = options.to_filesystem()
-        >>> files = fs.ls("/path/to/data")
-        >>>
-        >>> # With auto directory creation
-        >>> options = LocalStorageOptions(auto_mkdir=True)
-        >>> fs = options.to_filesystem()
-        >>> with fs.open("/new/path/file.txt", "w") as f:
-        ...     f.write("test")  # Creates /new/path/ automatically
+        ```python
+        # Basic local access
+        options = LocalStorageOptions()
+        fs = options.to_filesystem()
+        files = fs.ls("/path/to/data")
+
+        # With auto directory creation
+        options = LocalStorageOptions(auto_mkdir=True)
+        fs = options.to_filesystem()
+        with fs.open("/new/path/file.txt", "w") as f:
+            f.write("test")  # Creates /new/path/ automatically
+        ```
     """
 
     protocol: str = "file"
@@ -56,9 +58,11 @@ class LocalStorageOptions(BaseStorageOptions):
             dict: Arguments suitable for LocalFileSystem
 
         Example:
-            >>> options = LocalStorageOptions(auto_mkdir=True)
-            >>> kwargs = options.to_fsspec_kwargs()
-            >>> fs = filesystem("file", **kwargs)
+            ```python
+            options = LocalStorageOptions(auto_mkdir=True)
+            kwargs = options.to_fsspec_kwargs()
+            fs = filesystem("file", **kwargs)
+            ```
         """
         kwargs = {
             "auto_mkdir": self.auto_mkdir,
@@ -84,13 +88,18 @@ def from_dict(protocol: str, storage_options: dict) -> BaseStorageOptions:
         ValueError: If protocol is not supported
 
     Example:
-        >>> # Create S3 options
-        >>> options = from_dict("s3", {
-        ...     "access_key_id": "KEY",
-        ...     "secret_access_key": "SECRET"
-        ... })
-        >>> print(type(options).__name__)
-        'AwsStorageOptions'
+        ```python
+        # Create S3 options
+        options = from_dict(
+            "s3",
+            {
+                "access_key_id": "KEY",
+                "secret_access_key": "SECRET",
+            },
+        )
+        print(type(options).__name__)
+        # 'AwsStorageOptions'
+        ```
     """
     if protocol == "s3":
         # Handle anon -> anonymous parameter translation
@@ -135,10 +144,12 @@ def from_env(protocol: str) -> BaseStorageOptions:
         ValueError: If protocol is not supported
 
     Example:
-        >>> # With AWS credentials in environment
-        >>> options = from_env("s3")
-        >>> print(options.access_key_id)  # From AWS_ACCESS_KEY_ID
-        'AKIAXXXXXX'
+        ```python
+        # With AWS credentials in environment
+        options = from_env("s3")
+        print(options.access_key_id)  # From AWS_ACCESS_KEY_ID
+        # 'AKIAXXXXXX'
+        ```
     """
     if protocol == "s3":
         return AwsStorageOptions.from_env()
@@ -173,17 +184,19 @@ def infer_protocol_from_uri(uri: str) -> str:
         str: Inferred protocol identifier
 
     Example:
-        >>> # S3 protocol
-        >>> infer_protocol_from_uri("s3://my-bucket/data")
-        's3'
-        >>>
-        >>> # Local file
-        >>> infer_protocol_from_uri("/home/user/data")
-        'file'
-        >>>
-        >>> # GitHub repository
-        >>> infer_protocol_from_uri("github://microsoft/vscode")
-        'github'
+        ```python
+        # S3 protocol
+        infer_protocol_from_uri("s3://my-bucket/data")
+        # 's3'
+
+        # Local file
+        infer_protocol_from_uri("/home/user/data")
+        # 'file'
+
+        # GitHub repository
+        infer_protocol_from_uri("github://microsoft/vscode")
+        # 'github'
+        ```
     """
     if uri.startswith("s3://"):
         return "s3"
@@ -216,17 +229,19 @@ def storage_options_from_uri(uri: str) -> BaseStorageOptions:
         BaseStorageOptions: Configured storage options instance
 
     Example:
-        >>> # S3 options
-        >>> opts = storage_options_from_uri("s3://my-bucket/data")
-        >>> print(opts.protocol)
-        's3'
-        >>>
-        >>> # GitHub options
-        >>> opts = storage_options_from_uri("github://microsoft/vscode")
-        >>> print(opts.org)
-        'microsoft'
-        >>> print(opts.repo)
-        'vscode'
+        ```python
+        # S3 options
+        opts = storage_options_from_uri("s3://my-bucket/data")
+        print(opts.protocol)
+        # 's3'
+
+        # GitHub options
+        opts = storage_options_from_uri("github://microsoft/vscode")
+        print(opts.org)
+        # 'microsoft'
+        print(opts.repo)
+        # 'vscode'
+        ```
     """
     protocol = infer_protocol_from_uri(uri)
     options = infer_storage_options(uri)
@@ -269,24 +284,26 @@ def merge_storage_options(
         BaseStorageOptions: Combined storage options
 
     Example:
-        >>> # Merge with overwrite
-        >>> base = AwsStorageOptions(
-        ...     region="us-east-1",
-        ...     access_key_id="OLD_KEY"
-        ... )
-        >>> override = {"access_key_id": "NEW_KEY"}
-        >>> merged = merge_storage_options(base, override)
-        >>> print(merged.access_key_id)
-        'NEW_KEY'
-        >>>
-        >>> # Preserve existing values
-        >>> merged = merge_storage_options(
-        ...     base,
-        ...     override,
-        ...     overwrite=False
-        ... )
-        >>> print(merged.access_key_id)
-        'OLD_KEY'
+        ```python
+        # Merge with overwrite
+        base = AwsStorageOptions(
+            region="us-east-1",
+            access_key_id="OLD_KEY",
+        )
+        override = {"access_key_id": "NEW_KEY"}
+        merged = merge_storage_options(base, override)
+        print(merged.access_key_id)
+        # 'NEW_KEY'
+
+        # Preserve existing values
+        merged = merge_storage_options(
+            base,
+            override,
+            overwrite=False,
+        )
+        print(merged.access_key_id)
+        # 'OLD_KEY'
+        ```
     """
     result = {}
     protocol = None
@@ -317,16 +334,18 @@ class StorageOptions(msgspec.Struct):
         storage_options (BaseStorageOptions): Underlying storage options instance
 
     Example:
-        >>> # Create from protocol
-        >>> options = StorageOptions.create(
-        ...     protocol="s3",
-        ...     access_key_id="KEY",
-        ...     secret_access_key="SECRET"
-        ... )
-        >>>
-        >>> # Create from existing options
-        >>> s3_opts = AwsStorageOptions(access_key_id="KEY")
-        >>> options = StorageOptions(storage_options=s3_opts)
+        ```python
+        # Create from protocol
+        options = StorageOptions.create(
+            protocol="s3",
+            access_key_id="KEY",
+            secret_access_key="SECRET",
+        )
+
+        # Create from existing options
+        s3_opts = AwsStorageOptions(access_key_id="KEY")
+        options = StorageOptions(storage_options=s3_opts)
+        ```
     """
 
     storage_options: BaseStorageOptions

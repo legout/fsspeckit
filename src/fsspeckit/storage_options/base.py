@@ -19,14 +19,16 @@ class BaseStorageOptions(msgspec.Struct, frozen=False):
         protocol (str): Storage protocol identifier (e.g., "s3", "gs", "file")
 
     Example:
-        >>> # Create and save options
-        >>> options = BaseStorageOptions(protocol="s3")
-        >>> options.to_yaml("config.yml")
-        >>>
-        >>> # Load from YAML
-        >>> loaded = BaseStorageOptions.from_yaml("config.yml")
-        >>> print(loaded.protocol)
-        's3'
+        ```python
+        # Create and save options
+        options = BaseStorageOptions(protocol="s3")
+        options.to_yaml("config.yml")
+
+        # Load from YAML
+        loaded = BaseStorageOptions.from_yaml("config.yml")
+        print(loaded.protocol)
+        # 's3'
+        ```
     """
 
     protocol: str
@@ -41,11 +43,13 @@ class BaseStorageOptions(msgspec.Struct, frozen=False):
             dict: Dictionary of storage options with non-None values
 
         Example:
-            >>> options = BaseStorageOptions(protocol="s3")
-            >>> print(options.to_dict())
-            {}
-            >>> print(options.to_dict(with_protocol=True))
-            {'protocol': 's3'}
+            ```python
+            options = BaseStorageOptions(protocol="s3")
+            print(options.to_dict())
+            # {}
+            print(options.to_dict(with_protocol=True))
+            # {'protocol': 's3'}
+            ```
         """
         data = msgspec.structs.asdict(self)
         result = {}
@@ -74,10 +78,12 @@ class BaseStorageOptions(msgspec.Struct, frozen=False):
             BaseStorageOptions: Loaded storage options instance
 
         Example:
-            >>> # Load from local file
-            >>> options = BaseStorageOptions.from_yaml("config.yml")
-            >>> print(options.protocol)
-            's3'
+            ```python
+            # Load from local file
+            options = BaseStorageOptions.from_yaml("config.yml")
+            print(options.protocol)
+            # 's3'
+            ```
         """
         if fs is None:
             fs = fsspec_filesystem("file")
@@ -93,8 +99,10 @@ class BaseStorageOptions(msgspec.Struct, frozen=False):
             fs: Filesystem to use for writing
 
         Example:
-            >>> options = BaseStorageOptions(protocol="s3")
-            >>> options.to_yaml("config.yml")
+            ```python
+            options = BaseStorageOptions(protocol="s3")
+            options.to_yaml("config.yml")
+            ```
         """
         if fs is None:
             fs = fsspec_filesystem("file")
@@ -119,9 +127,11 @@ class BaseStorageOptions(msgspec.Struct, frozen=False):
             AbstractFileSystem: Configured filesystem instance
 
         Example:
-            >>> options = BaseStorageOptions(protocol="file")
-            >>> fs = options.to_filesystem()
-            >>> files = fs.ls("/path/to/data")
+            ```python
+            options = BaseStorageOptions(protocol="file")
+            fs = options.to_filesystem()
+            files = fs.ls("/path/to/data")
+            ```
         """
 
         fsspec_kwargs: dict[str, Any]
@@ -159,9 +169,11 @@ class BaseStorageOptions(msgspec.Struct, frozen=False):
             BaseStorageOptions: Updated instance
 
         Example:
-            >>> options = BaseStorageOptions(protocol="s3")
-            >>> options = options.update(region="us-east-1")
-            >>> print(options.region)
-            'us-east-1'
+            ```python
+            options = BaseStorageOptions(protocol="s3")
+            options = options.update(region="us-east-1")
+            print(options.region)
+            # 'us-east-1'
+            ```
         """
         return msgspec.structs.replace(self, **kwargs)

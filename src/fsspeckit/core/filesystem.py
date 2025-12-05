@@ -110,20 +110,22 @@ class GitLabFileSystem(AbstractFileSystem):
         api_version (str): API version
 
     Example:
-        >>> # Public repository
-        >>> fs = GitLabFileSystem(
-        ...     project_name="group/project",
-        ...     ref="main"
-        ... )
-        >>> files = fs.ls("/")
-        >>>
-        >>> # Private repository with token
-        >>> fs = GitLabFileSystem(
-        ...     project_id="12345",
-        ...     token="glpat_xxxx",
-        ...     ref="develop"
-        ... )
-        >>> content = fs.cat("README.md")
+        ```python
+        # Public repository
+        fs = GitLabFileSystem(
+            project_name="group/project",
+            ref="main",
+        )
+        files = fs.ls("/")
+
+        # Private repository with token
+        fs = GitLabFileSystem(
+            project_id="12345",
+            token="glpat_xxxx",
+            ref="develop",
+        )
+        content = fs.cat("README.md")
+        ```
     """
 
     protocol = "gitlab"
@@ -316,22 +318,27 @@ def filesystem(
         AbstractFileSystem: Configured filesystem instance
 
     Example:
-        >>> # Basic local filesystem
-        >>> fs = filesystem("file")
-        >>>
-        >>> # S3 with storage options
-        >>> from fsspeckit.storage import AwsStorageOptions
-        >>> opts = AwsStorageOptions(region="us-west-2")
-        >>> fs = filesystem("s3", storage_options=opts, cached=True)
-        >>>
-        >>> # Infer protocol from path
-        >>> fs = filesystem("s3://my-bucket/", cached=True)
-        >>>
-        >>> # GitLab filesystem
-        >>> fs = filesystem("gitlab", storage_options={
-        ...     "project_name": "group/project",
-        ...     "token": "glpat_xxxx"
-        ... })
+        ```python
+        # Basic local filesystem
+        fs = filesystem("file")
+
+        # S3 with storage options
+        from fsspeckit.storage_options import AwsStorageOptions
+        opts = AwsStorageOptions(region="us-west-2")
+        fs = filesystem("s3", storage_options=opts, cached=True)
+
+        # Infer protocol from path
+        fs = filesystem("s3://my-bucket/", cached=True)
+
+        # GitLab filesystem
+        fs = filesystem(
+            "gitlab",
+            storage_options={
+                "project_name": "group/project",
+                "token": "glpat_xxxx",
+            },
+        )
+        ```
     """
     if isinstance(protocol_or_path, Path):
         protocol_or_path = protocol_or_path.as_posix()

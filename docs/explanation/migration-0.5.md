@@ -494,8 +494,8 @@ from fsspeckit.common.misc import run_parallel
 ## Need Help?
 
 - **Architecture Details**: See [Architecture](architecture.md)
-- **API Reference**: See [API Reference](api/index.md)
-- **Examples**: See [Examples](examples.md)
-- **Advanced Usage**: See [Advanced Usage](advanced.md)
+- **API Reference**: See [API Reference](../api/index.md)
+- **Examples and Task Guides**: See [How-to Guides](../how-to/)
+- **Advanced Topics**: See [Optimize Performance](../how-to/optimize-performance.md) and [Architecture & Concepts](.)
 
 For issues or questions, please open an issue on the [fsspeckit repository](https://github.com/legout/fsspeckit).

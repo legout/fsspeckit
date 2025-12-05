@@ -12,12 +12,17 @@ Intelligently converts paths to glob patterns that match files of the specified 
 
 | Parameter | Type | Description |
 | :-------- | :--- | :---------- |
-| `path` | `str` | Base path to convert. Can include wildcards (`*` or `**`). Examples: "data/", "data/*.json", "data/**" |
-| `format` | `str | None` | File format to match (without dot). If None, inferred from path. Examples: "json", "csv", "parquet" |
+| `path` | `str` | Base path to convert. Can include wildcards (`*` or `**`). |
+| `format` | `str \| None` | File format to match (without dot). If `None`, inferred from path. |
+
+Common examples:
+
+- Paths: `\"data/\"`, `\"data/*.json\"`, `\"data/**\"`
+- Formats: `\"json\"`, `\"csv\"`, `\"parquet\"`
 
 | Returns | Type | Description |
 | :------ | :--- | :---------- |
-| `str` | `str` | Glob pattern that matches files of specified format. Examples: "data/**/*.json", "data/*.csv" |
+| `str` | `str` | Glob pattern that matches files of the specified format. |
 
 **Example:**
 

@@ -572,14 +572,16 @@ class AwsStorageOptions(BaseStorageOptions, frozen=False):
         - AWS_ALLOW_HTTP
         - AWS_S3_ANONYMOUS
 
-        Returns:
+    Returns:
             AwsStorageOptions: Configured storage options
 
         Example:
-            >>> # Load from environment
-            >>> options = AwsStorageOptions.from_env()
-            >>> print(options.region)
-            'us-east-1'  # From AWS_DEFAULT_REGION
+            ```python
+            # Load from environment
+            options = AwsStorageOptions.from_env()
+            print(options.region)
+            # 'us-east-1'  # From AWS_DEFAULT_REGION
+            ```
         """
         return cls(
             access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
@@ -610,13 +612,15 @@ class AwsStorageOptions(BaseStorageOptions, frozen=False):
             dict: Arguments suitable for fsspec S3FileSystem
 
         Example:
-            >>> options = AwsStorageOptions(
-            ...     access_key_id="KEY",
-            ...     secret_access_key="SECRET",
-            ...     region="us-west-2"
-            ... )
-            >>> kwargs = options.to_fsspec_kwargs()
-            >>> fs = filesystem("s3", **kwargs)
+            ```python
+            options = AwsStorageOptions(
+                access_key_id="KEY",
+                secret_access_key="SECRET",
+                region="us-west-2",
+            )
+            kwargs = options.to_fsspec_kwargs()
+            fs = filesystem("s3", **kwargs)
+            ```
         """
         fsspec_kwargs: dict[str, Any] = {
             "endpoint_url": self.endpoint_url,
@@ -738,14 +742,16 @@ class AwsStorageOptions(BaseStorageOptions, frozen=False):
         Sets standard AWS environment variables.
 
         Example:
-            >>> options = AwsStorageOptions(
-            ...     access_key_id="KEY",
-            ...     secret_access_key="SECRET",
-            ...     region="us-east-1"
-            ... )
-            >>> options.to_env()
-            >>> print(os.getenv("AWS_ACCESS_KEY_ID"))
-            'KEY'
+            ```python
+            options = AwsStorageOptions(
+                access_key_id="KEY",
+                secret_access_key="SECRET",
+                region="us-east-1",
+            )
+            options.to_env()
+            print(os.getenv("AWS_ACCESS_KEY_ID"))
+            # 'KEY'
+            ```
         """
         env = {
             "AWS_ACCESS_KEY_ID": self.access_key_id,

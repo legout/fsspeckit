@@ -1,76 +1,29 @@
-# `fsspeckit.utils.types` API Reference
+# `fsspeckit.utils.types` (legacy documentation)
 
-## `dict_to_dataframe()`
+There is no standalone `fsspeckit.utils.types` module in the current
+codebase. Type-conversion helpers live in the canonical
+`fsspeckit.common.types` module and are also exposed via the top-level
+`fsspeckit.utils` façade.
 
-Convert a dictionary or list of dictionaries to a Polars DataFrame.
+This page exists to document the compatibility mapping and to help migrate
+older code.
 
-Handles various input formats: - Single dict with list values -> DataFrame rows - Single dict with scalar values -> Single row DataFrame - List of dicts with scalar values -> Multi-row DataFrame - List of dicts with list values -> DataFrame with list columns
+## Canonical helpers
 
-**Parameters:**
+The primary helpers are:
 
-| Name | Type | Description |
-|:---|:---|:---|
-| `data` | `dict` or `list[dict]` | The input data, either a dictionary or a list of dictionaries. |
-| `unique` | `bool` | If True, duplicate rows will be removed from the resulting DataFrame. |
+- `dict_to_dataframe`
+- `to_pyarrow_table`
 
-**Returns:**
+They live in `fsspeckit.common.types`.
 
-- `polars.DataFrame`: Polars DataFrame containing the converted data.
+## Compatibility mapping
 
-**Examples:**
-```python
-# Single dict with list values
-data = {'a': [1, 2, 3], 'b': [4, 5, 6]}
-dict_to_dataframe(data)
+| Usage style                  | Import path                                 |
+|------------------------------|---------------------------------------------|
+| Canonical (recommended)      | `from fsspeckit.common.types import dict_to_dataframe, to_pyarrow_table` |
+| Façade (backwards compatible)| `from fsspeckit.utils import dict_to_dataframe, to_pyarrow_table`        |
 
-# Single dict with scalar values
-data = {'a': 1, 'b': 2}
-dict_to_dataframe(data)
-
-# List of dicts with scalar values
-data = [{'a': 1, 'b': 2}, {'a': 3, 'b': 4}]
-dict_to_dataframe(data)
-```
-
-## `to_pyarrow_table()`
-
-Convert various data formats to PyArrow Table.
-
-Handles conversion from Polars DataFrames, Pandas DataFrames, dictionaries, and lists of these types to PyArrow Tables.
-
-**Parameters:**
-
-| Name | Type | Description |
-|:---|:---|:---|
-| `data` | `Any` | Input data to convert. |
-| `concat` | `bool` | Whether to concatenate multiple inputs into single table. |
-| `unique` | `bool` | If True, duplicate rows will be removed from the resulting Table. |
-
-**Example:**
-
-```python
-import polars as pl
-import pyarrow as pa
-from fsspeckit.utils.types import to_pyarrow_table
-
-# Convert Polars DataFrame to PyArrow Table
-df = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
-table = to_pyarrow_table(df)
-print(table.schema)
-
-# Convert list of dicts to PyArrow Table
-data = [{"a": 1, "b": 10}, {"a": 2, "b": 20}]
-table_from_dict = to_pyarrow_table(data)
-print(table_from_dict.to_pydf())
-```
-
-**Returns:**
-
-- `pyarrow.Table`: PyArrow Table containing the converted data.
-
-**Example:**
-```python
-df = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
-table = to_pyarrow_table(df)
-print(table.schema)
-```
+> For full parameter/return documentation and examples, see the
+> `fsspeckit.common` API reference. This page is intentionally minimal to
+> avoid duplicating and drifting from the canonical docs.

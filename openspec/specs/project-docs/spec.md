@@ -318,7 +318,7 @@ The project SHALL provide versioned migration guides for significant refactors a
 
 The documentation SHALL clearly separate tutorial, how-to, reference, and architecture content, and SHALL avoid duplication between layers while maintaining accuracy and consistency.
 
-#### Scenario: Documentation follows the Diátaxis framework
+#### Scenario: Documentation follows layered roles
 
 - **WHEN** a user reads different types of documentation
 - **THEN** quickstart/tutorial docs focus on end-to-end "getting started" patterns
@@ -332,4 +332,3 @@ The documentation SHALL clearly separate tutorial, how-to, reference, and archit
 - **THEN** detailed API behavior is covered in reference, not duplicated in narrative guides
 - **AND** overlapping sections point to canonical examples instead of duplicating code
 - **AND** cross-references guide users to the most appropriate section for their needs.
-

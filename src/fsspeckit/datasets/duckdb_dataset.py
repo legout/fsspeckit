@@ -95,12 +95,14 @@ class DuckDBDatasetIO:
             PyArrow table containing the data
 
         Example:
-            >>> from fsspeckit.datasets.duckdb_connection import create_duckdb_connection
-            >>> from fsspeckit.datasets.duckdb_dataset import DuckDBDatasetIO
-            >>>
-            >>> conn = create_duckdb_connection()
-            >>> io = DuckDBDatasetIO(conn)
-            >>> table = io.read_parquet("/path/to/file.parquet")
+            ```python
+            from fsspeckit.datasets.duckdb_connection import create_duckdb_connection
+            from fsspeckit.datasets.duckdb_dataset import DuckDBDatasetIO
+
+            conn = create_duckdb_connection()
+            io = DuckDBDatasetIO(conn)
+            table = io.read_parquet("/path/to/file.parquet")
+            ```
         """
         validate_path(path)
 
@@ -153,14 +155,16 @@ class DuckDBDatasetIO:
             use_threads: Whether to use parallel writing
 
         Example:
-            >>> import pyarrow as pa
-            >>> from fsspeckit.datasets.duckdb_connection import create_duckdb_connection
-            >>> from fsspeckit.datasets.duckdb_dataset import DuckDBDatasetIO
-            >>>
-            >>> table = pa.table({'a': [1, 2, 3], 'b': ['x', 'y', 'z']})
-            >>> conn = create_duckdb_connection()
-            >>> io = DuckDBDatasetIO(conn)
-            >>> io.write_parquet(table, "/tmp/data.parquet")
+            ```python
+            import pyarrow as pa
+            from fsspeckit.datasets.duckdb_connection import create_duckdb_connection
+            from fsspeckit.datasets.duckdb_dataset import DuckDBDatasetIO
+
+            table = pa.table({'a': [1, 2, 3], 'b': ['x', 'y', 'z']})
+            conn = create_duckdb_connection()
+            io = DuckDBDatasetIO(conn)
+            io.write_parquet(table, "/tmp/data.parquet")
+            ```
         """
         validate_path(path)
         validate_compression_codec(compression)
@@ -222,14 +226,16 @@ class DuckDBDatasetIO:
             use_threads: Whether to use parallel writing
 
         Example:
-            >>> import pyarrow as pa
-            >>> from fsspeckit.datasets.duckdb_connection import create_duckdb_connection
-            >>> from fsspeckit.datasets.duckdb_dataset import DuckDBDatasetIO
-            >>>
-            >>> table = pa.table({'a': [1, 2, 3], 'b': ['x', 'y', 'z']})
-            >>> conn = create_duckdb_connection()
-            >>> io = DuckDBDatasetIO(conn)
-            >>> io.write_parquet_dataset(table, "/tmp/dataset/")
+            ```python
+            import pyarrow as pa
+            from fsspeckit.datasets.duckdb_connection import create_duckdb_connection
+            from fsspeckit.datasets.duckdb_dataset import DuckDBDatasetIO
+
+            table = pa.table({'a': [1, 2, 3], 'b': ['x', 'y', 'z']})
+            conn = create_duckdb_connection()
+            io = DuckDBDatasetIO(conn)
+            io.write_parquet_dataset(table, "/tmp/dataset/")
+            ```
         """
         from fsspeckit.common.optional import _import_pyarrow
 
@@ -326,17 +332,19 @@ class DuckDBDatasetIO:
             MergeStats with merge statistics
 
         Example:
-            >>> from fsspeckit.datasets.duckdb_connection import create_duckdb_connection
-            >>> from fsspeckit.datasets.duckdb_dataset import DuckDBDatasetIO
-            >>>
-            >>> conn = create_duckdb_connection()
-            >>> io = DuckDBDatasetIO(conn)
-            >>> stats = io.merge_parquet_dataset(
-            ...     sources=["dataset1/", "dataset2/"],
-            ...     output_path="merged/",
-            ...     strategy="deduplicate",
-            ...     key_columns=["id"]
-            ... )
+            ```python
+            from fsspeckit.datasets.duckdb_connection import create_duckdb_connection
+            from fsspeckit.datasets.duckdb_dataset import DuckDBDatasetIO
+
+            conn = create_duckdb_connection()
+            io = DuckDBDatasetIO(conn)
+            stats = io.merge_parquet_dataset(
+                sources=["dataset1/", "dataset2/"],
+                output_path="merged/",
+                strategy="deduplicate",
+                key_columns=["id"],
+            )
+            ```
         """
         # Validate inputs using shared core logic
         validate_merge_inputs(

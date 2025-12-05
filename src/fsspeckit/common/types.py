@@ -145,11 +145,13 @@ def to_pyarrow_table(
         PyArrow Table containing the converted data.
 
     Example:
-        >>> df = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
-        >>> table = to_pyarrow_table(df)
-        >>> print(table.schema)
-        a: int64
-        b: int64
+        ```python
+        df = pl.DataFrame({"a": [1, 2], "b": [3, 4]})
+        table = to_pyarrow_table(df)
+        print(table.schema)
+        # a: int64
+        # b: int64
+        ```
     """
     from fsspeckit.common.optional import (
         _import_pandas,

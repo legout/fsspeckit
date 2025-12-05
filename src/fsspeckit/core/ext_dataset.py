@@ -53,31 +53,34 @@ def pyarrow_dataset(
         pds.Dataset: PyArrow dataset instance
 
     Example:
-        >>> fs = LocalFileSystem()
-        >>> # Simple Parquet dataset
-        >>> ds = fs.pyarrow_dataset("data/")
-        >>> print(ds.schema)
-        >>>
-        >>> # Partitioned dataset
-        >>> ds = fs.pyarrow_dataset(
-        ...     "events/",
-        ...     partitioning=["year", "month"]
-        ... )
-        >>> # Query with partition pruning
-        >>> table = ds.to_table(
-        ...     filter=(ds.field("year") == 2024)
-        ... )
-        >>>
-        >>> # CSV with schema
-        >>> ds = fs.pyarrow_dataset(
-        ...     "logs/",
-        ...     format="csv",
-        ...     schema=pa.schema([
-        ...         ("timestamp", pa.timestamp("s")),
-        ...         ("level", pa.string()),
-        ...         ("message", pa.string())
-        ...     ])
-        ... )
+        ```python
+        fs = LocalFileSystem()
+
+        # Simple Parquet dataset
+        ds = fs.pyarrow_dataset("data/")
+        print(ds.schema)
+
+        # Partitioned dataset
+        ds = fs.pyarrow_dataset(
+            "events/",
+            partitioning=["year", "month"],
+        )
+        # Query with partition pruning
+        table = ds.to_table(filter=(ds.field("year") == 2024))
+
+        # CSV with schema
+        ds = fs.pyarrow_dataset(
+            "logs/",
+            format="csv",
+            schema=pa.schema(
+                [
+                    ("timestamp", pa.timestamp("s")),
+                    ("level", pa.string()),
+                    ("message", pa.string()),
+                ],
+            ),
+        )
+        ```
     """
     return pds.dataset(
         path,
@@ -119,23 +122,26 @@ def pyarrow_parquet_dataset(
         pds.Dataset: PyArrow dataset instance
 
     Example:
-        >>> fs = LocalFileSystem()
-        >>> # Dataset with _metadata
-        >>> ds = fs.pyarrow_parquet_dataset("data/_metadata")
-        >>> print(ds.files)  # Shows all data files
-        >>>
-        >>> # Partitioned dataset directory
-        >>> ds = fs.pyarrow_parquet_dataset(
-        ...     "sales/",
-        ...     partitioning=["year", "region"]
-        ... )
-        >>> # Query with partition pruning
-        >>> table = ds.to_table(
-        ...     filter=(
-        ...         (ds.field("year") == 2024) &
-        ...         (ds.field("region") == "EMEA")
-        ...     )
-        ... )
+        ```python
+        fs = LocalFileSystem()
+
+        # Dataset with _metadata
+        ds = fs.pyarrow_parquet_dataset("data/_metadata")
+        print(ds.files)  # Shows all data files
+
+        # Partitioned dataset directory
+        ds = fs.pyarrow_parquet_dataset(
+            "sales/",
+            partitioning=["year", "region"],
+        )
+        # Query with partition pruning
+        table = ds.to_table(
+            filter=(
+                (ds.field("year") == 2024)
+                & (ds.field("region") == "EMEA")
+            ),
+        )
+        ```
     """
     if not self.isfile(path):
         path = posixpath.join(path, "_metadata")

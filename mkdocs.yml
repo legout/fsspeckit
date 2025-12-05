@@ -6,40 +6,48 @@ repo_url: https://github.com/legout/fsspeckit
 
 nav:
   - Home: index.md
-  - Installation: installation.md
-  - Quickstart: quickstart.md
-  - Architecture: architecture.md
-  - Advanced Usage: advanced.md
-  - Utils Reference: utils.md
-  - Examples: examples.md
-  - Migration Guide: migration-0.5.md
-  - API Guide: api-guide.md
-  - Contributing: contributing.md
+  - Getting Started: tutorials/getting-started.md
+  - How-to Guides:
+      - Configure Cloud Storage: how-to/configure-cloud-storage.md
+      - Work with Filesystems: how-to/work-with-filesystems.md
+      - Read and Write Datasets: how-to/read-and-write-datasets.md
+      - Use SQL Filters: how-to/use-sql-filters.md
+      - Sync and Manage Files: how-to/sync-and-manage-files.md
+      - Optimize Performance: how-to/optimize-performance.md
   - API Reference:
-      - api/index.md
-      - Domain Packages:
-          - fsspeckit.datasets: api/fsspeckit.datasets.md
-          - fsspeckit.sql.filters: api/fsspeckit.sql.filters.md
-          - fsspeckit.common: api/fsspeckit.common.md
-      - Core:
-          - fsspeckit.core.base: api/fsspeckit.core.base.md
-          - fsspeckit.core.ext: api/fsspeckit.core.ext.md
-          - fsspeckit.core.filesystem: api/fsspeckit.core.filesystem.md
-          - fsspeckit.core.maintenance: api/fsspeckit.core.maintenance.md
-          - fsspeckit.core.merge: api/fsspeckit.core.merge.md
-      - Storage Options:
-          - fsspeckit.storage_options.base: api/fsspeckit.storage_options.base.md
-          - fsspeckit.storage_options.cloud: api/fsspeckit.storage_options.cloud.md
-          - fsspeckit.storage_options.core: api/fsspeckit.storage_options.core.md
-          - fsspeckit.storage_options.git: api/fsspeckit.storage_options.git.md
-      - Utils (Backwards Compatibility):
-          - fsspeckit.utils.datetime: api/fsspeckit.utils.datetime.md
-          - fsspeckit.utils.logging: api/fsspeckit.utils.logging.md
-          - fsspeckit.utils.misc: api/fsspeckit.utils.misc.md
-          - fsspeckit.utils.polars: api/fsspeckit.utils.polars.md
-          - fsspeckit.utils.pyarrow: api/fsspeckit.utils.pyarrow.md
-          - fsspeckit.utils.sql: api/fsspeckit.utils.sql.md
-          - fsspeckit.utils.types: api/fsspeckit.utils.types.md
+      - API Guide: reference/api-guide.md
+      - Utils Reference: reference/utils.md
+      - Installation: installation.md
+      - Generated API:
+          - api/index.md
+          - Domain Packages:
+              - fsspeckit.datasets: api/fsspeckit.datasets.md
+              - fsspeckit.sql.filters: api/fsspeckit.sql.filters.md
+              - fsspeckit.common: api/fsspeckit.common.md
+          - Core:
+              - fsspeckit.core.base: api/fsspeckit.core.base.md
+              - fsspeckit.core.ext: api/fsspeckit.core.ext.md
+              - fsspeckit.core.filesystem: api/fsspeckit.core.filesystem.md
+              - fsspeckit.core.maintenance: api/fsspeckit.core.maintenance.md
+              - fsspeckit.core.merge: api/fsspeckit.core.merge.md
+          - Storage Options:
+              - fsspeckit.storage_options.base: api/fsspeckit.storage_options.base.md
+              - fsspeckit.storage_options.cloud: api/fsspeckit.storage_options.cloud.md
+              - fsspeckit.storage_options.core: api/fsspeckit.storage_options.core.md
+              - fsspeckit.storage_options.git: api/fsspeckit.storage_options.git.md
+          - Utils (Backwards Compatibility):
+              - fsspeckit.utils.datetime: api/fsspeckit.utils.datetime.md
+              - fsspeckit.utils.logging: api/fsspeckit.utils.logging.md
+              - fsspeckit.utils.misc: api/fsspeckit.utils.misc.md
+              - fsspeckit.utils.polars: api/fsspeckit.utils.polars.md
+              - fsspeckit.utils.pyarrow: api/fsspeckit.utils.pyarrow.md
+              - fsspeckit.utils.sql: api/fsspeckit.utils.sql.md
+              - fsspeckit.utils.types: api/fsspeckit.utils.types.md
+  - Architecture & Concepts:
+      - Architecture Overview: explanation/architecture.md
+      - Key Concepts: explanation/concepts.md
+      - Migration Guide: explanation/migration-0.5.md
+  - Contributing: contributing.md
 
 theme:
   name: material

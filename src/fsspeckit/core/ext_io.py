@@ -86,33 +86,36 @@ def read_files(
         - Generator: If batch_size set, yields batches
 
     Example:
-        >>> fs = LocalFileSystem()
-        >>> # Read CSV files
-        >>> df = fs.read_files(
-        ...     "data/*.csv",
-        ...     format="csv",
-        ...     include_file_path=True
-        ... )
-        >>> print(type(df))
-        <class 'polars.DataFrame'>
-        >>>
-        >>> # Batch process Parquet files
-        >>> for batch in fs.read_files(
-        ...     "data/*.parquet",
-        ...     format="parquet",
-        ...     batch_size=100,
-        ...     use_threads=True
-        ... ):
-        ...     print(f"Batch type: {type(batch)}")
-        >>>
-        >>> # Read JSON Lines
-        >>> df = fs.read_files(
-        ...     "logs/*.jsonl",
-        ...     format="json",
-        ...     jsonlines=True,
-        ...     concat=True
-        ... )
-        >>> print(df.columns)
+        ```python
+        fs = LocalFileSystem()
+
+        # Read CSV files
+        df = fs.read_files(
+            "data/*.csv",
+            format="csv",
+            include_file_path=True,
+        )
+        print(type(df))
+        # <class 'polars.DataFrame'>
+
+        # Batch process Parquet files
+        for batch in fs.read_files(
+            "data/*.parquet",
+            format="parquet",
+            batch_size=100,
+            use_threads=True,
+        ):
+            print(f"Batch type: {type(batch)}")
+
+        # Read JSON Lines
+        df = fs.read_files(
+            "logs/*.jsonl",
+            format="json",
+            jsonlines=True,
+            concat=True,
+        )
+        print(df.columns)
+        ```
     """
     if format == "json":
         if batch_size is not None:

@@ -126,7 +126,7 @@ Check if file exists in cache and return cache path if found.
 | :-------- | :--- | :---------- |
 | `path` | `str` | Remote file path to check |
 
-| Returns | Type | Descript
+| Returns | Type | Description |
 | :------ | :--- | :---------- |
 | `Optional[str]` | `str` or `None` | Cache file path if found, None otherwise |
 
@@ -374,7 +374,7 @@ Creates filesystem instances with support for storage options classes, intellige
 | `base_fs` | `AbstractFileSystem` | An existing filesystem to wrap. |
 | `**kwargs` | `Any` | Additional filesystem arguments |
 
-| Ret
+| Returns | Type | Description |
 | :------ | :--- | :---------- |
 | `AbstractFileSystem` | `fsspec.AbstractFileSystem` | Configured filesystem instance |
 

@@ -26,14 +26,16 @@ def setup_logging(
                       If None, uses a default comprehensive format.
 
     Example:
-        >>> # Basic setup
-        >>> setup_logging()
-        >>>
-        >>> # Custom level and format
-        >>> setup_logging(level="DEBUG", format_string="{time} | {level} | {message}")
-        >>>
-        >>> # Disable logging
-        >>> setup_logging(disable=True)
+        ```python
+        # Basic setup
+        setup_logging()
+
+        # Custom level and format
+        setup_logging(level="DEBUG", format_string="{time} | {level} | {message}")
+
+        # Disable logging
+        setup_logging(disable=True)
+        ```
     """
     # Determine log level
     if level is None:
@@ -73,7 +75,9 @@ def get_logger(name: str = "fsspeckit") -> "logger":
         Configured logger instance.
 
     Example:
-        >>> logger = get_logger(__name__)
-        >>> logger.info("This is a log message")
+        ```python
+        logger = get_logger(__name__)
+        logger.info("This is a log message")
+        ```
     """
     return logger.bind(name=name)

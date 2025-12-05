@@ -73,15 +73,17 @@ def _read_csv_file(
         ValueError: If the file cannot be parsed as CSV
 
     Example:
-        >>> fs = LocalFileSystem()
-        >>> df = _read_csv_file(
-        ...     "data.csv",
-        ...     fs,
-        ...     include_file_path=True,
-        ...     delimiter="|"
-        ... )
-        >>> print("file_path" in df.columns)
-        True
+        ```python
+        fs = LocalFileSystem()
+        df = _read_csv_file(
+            "data.csv",
+            fs,
+            include_file_path=True,
+            delimiter="|",
+        )
+        print("file_path" in df.columns)
+        # True
+        ```
     """
     if pl is None:
         raise ImportError("polars is required for CSV operations")

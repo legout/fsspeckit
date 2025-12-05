@@ -152,20 +152,23 @@ def read_json_file(
             returns {filepath: data}.
 
     Example:
-        >>> fs = LocalFileSystem()
-        >>> # Read regular JSON
-        >>> data = fs.read_json_file("config.json")
-        >>> print(data["setting"])
-        'value'
-        >>>
-        >>> # Read JSON Lines with filepath
-        >>> data = fs.read_json_file(
-        ...     "logs.jsonl",
-        ...     include_file_path=True,
-        ...     jsonlines=True
-        ... )
-        >>> print(list(data.keys())[0])
-        'logs.jsonl'
+        ```python
+        fs = LocalFileSystem()
+
+        # Read regular JSON
+        data = fs.read_json_file("config.json")
+        print(data["setting"])
+        # 'value'
+
+        # Read JSON Lines with filepath
+        data = fs.read_json_file(
+            "logs.jsonl",
+            include_file_path=True,
+            jsonlines=True,
+        )
+        print(list(data.keys())[0])
+        # 'logs.jsonl'
+        ```
     """
     return _read_json_file(
         path=path,

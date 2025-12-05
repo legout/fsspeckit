@@ -65,15 +65,17 @@ def _read_parquet_file(
         ValueError: If the path does not point to a Parquet file or file is corrupted
 
     Example:
-        >>> fs = LocalFileSystem()
-        >>> table = _read_parquet_file(
-        ...     "data.parquet",
-        ...     fs,
-        ...     include_file_path=True,
-        ...     use_threads=True
-        ... )
-        >>> print("file_path" in table.column_names)
-        True
+        ```python
+        fs = LocalFileSystem()
+        table = _read_parquet_file(
+            "data.parquet",
+            fs,
+            include_file_path=True,
+            use_threads=True,
+        )
+        print("file_path" in table.column_names)
+        # True
+        ```
     """
     from fsspeckit.common.optional import (
         _import_pyarrow,

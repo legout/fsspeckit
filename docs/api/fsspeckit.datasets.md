@@ -1,3 +1,3 @@
-# fsspeckit.datasets
+# `fsspeckit.datasets` API Reference
 
 ::: fsspeckit.datasets

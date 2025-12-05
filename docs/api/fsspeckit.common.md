@@ -1,3 +1,3 @@
-# fsspeckit.common
+# `fsspeckit.common` API Reference
 
 ::: fsspeckit.common

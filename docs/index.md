@@ -1,27 +1,66 @@
-# Welcome to fsspeckit!
+# fsspeckit
 
-`fsspeckit` is a powerful library designed to enhance `fsspec` (Filesystem Spec) with advanced utilities and extensions, making multi-format I/O, cloud storage configuration, caching, monitoring, and batch processing more streamlined and efficient.
+`fsspeckit` enhances `fsspec` with advanced utilities for multi-format I/O, cloud storage configuration, and high-performance data processing.
 
-## Purpose
+## Quick Start
 
-This library aims to simplify complex data operations across various file systems, providing a unified and extended interface for handling diverse data formats and storage solutions. Whether you're working with local files, cloud storage like AWS S3, Azure Blob Storage, or Google Cloud Storage, `fsspeckit` provides the tools to manage your data effectively.
+**New to fsspeckit?** Start with our [Getting Started](tutorials/getting-started.md) tutorial for a complete walkthrough.
+
+**Looking for specific tasks?** Browse our [How-to Guides](how-to/) for practical recipes:
+
+- [Configure Cloud Storage](how-to/configure-cloud-storage.md) - AWS, GCP, Azure setup
+- [Work with Filesystems](how-to/work-with-filesystems.md) - Local and remote operations  
+- [Read and Write Datasets](how-to/read-and-write-datasets.md) - JSON, CSV, Parquet operations
+- [Use SQL Filters](how-to/use-sql-filters.md) - Cross-framework filtering
+- [Sync and Manage Files](how-to/sync-and-manage-files.md) - File synchronization
+- [Optimize Performance](how-to/optimize-performance.md) - Caching and parallel processing
 
 ## Key Features
 
-- **Multi-format Data I/O**: Seamlessly read and write data in various formats, including JSON, CSV, and Parquet.
-- **Cloud Storage Configuration**: Simplified utilities for configuring and interacting with different cloud storage providers.
-- **Enhanced Caching and Monitoring**: Improve performance and gain insights into your data operations with built-in caching mechanisms and monitoring capabilities.
-- **Batch Processing and Parallel Operations**: Efficiently handle large datasets and execute operations in parallel for improved throughput.
-- **Directory-like Filesystem**: Interact with nested data structures as if they were traditional directories, even on object stores.
-- **Domain-Specific Packages**: Organized into logical packages (`core`, `datasets`, `sql`, `common`) for better discoverability and cleaner APIs.
+- **Multi-Cloud Support**: Unified interface for AWS S3, Azure Blob Storage, Google Cloud Storage
+- **Advanced Dataset Operations**: High-performance Parquet processing with DuckDB integration
+- **SQL Filter Translation**: Write filters once, use across PyArrow and Polars
+- **Enhanced Filesystem API**: Extended I/O methods with automatic batching and threading
+- **Path Safety by Default**: Built-in protection against directory traversal attacks
+- **Domain Package Architecture**: Organized APIs for better discoverability and type safety
 
-## Get Started
+## Documentation
 
-Ready to dive in? Check out our [Quickstart Guide](quickstart.md) to begin using `fsspeckit` in your projects.
+### Learning Paths
 
-## Migrating from Earlier Versions?
+**Beginners**: Start with [Getting Started](tutorials/getting-started.md) for hands-on learning
 
-If you're upgrading from fsspec-utils or earlier versions of fsspeckit, see our comprehensive [Migration Guide](migration-0.5.md) for detailed instructions on updating your code to take advantage of the new features and improvements.
+**Practical Users**: Jump to [How-to Guides](how-to/) for specific task solutions
+
+**Developers**: Reference [API Guide](reference/api-guide.md) for capability overview
+
+**Architects**: Understand design decisions in [Architecture & Concepts](explanation/)
+
+### Reference Materials
+
+- **[Installation](installation.md)** - Setup and dependency management
+- **[API Reference](reference/api-guide.md)** - Complete API documentation
+- **[Utils Reference](reference/utils.md)** - Backwards compatibility guide
+- **[Migration Guide](explanation/migration-0.5.md)** - Upgrade from earlier versions
+
+## Architecture Overview
+
+fsspeckit is organized into domain-specific packages:
+
+- **`fsspeckit.core`** - Filesystem creation and extended I/O
+- **`fsspeckit.storage_options`** - Cloud provider configuration
+- **`fsspeckit.datasets`** - Large-scale dataset operations
+- **`fsspeckit.sql`** - Cross-framework SQL translation
+- **`fsspeckit.common`** - Shared utilities and helpers
+- **`fsspeckit.utils`** - Backwards compatibility façade
+
+## Getting Help
+
+**Contributing**: See our [Contributing Guide](contributing.md) to help improve fsspeckit
+
+**Issues**: Report bugs and request features on [GitHub](https://github.com/legout/fsspeckit)
+
+**Community**: Join discussions and connect with other users
 
 ## Badges
 

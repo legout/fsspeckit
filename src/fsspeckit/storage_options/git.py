@@ -24,28 +24,30 @@ class GitHubStorageOptions(BaseStorageOptions, frozen=False):
         api_url (str): Custom GitHub API URL for enterprise instances
 
     Example:
-        >>> # Public repository
-        >>> options = GitHubStorageOptions(
-        ...     org="microsoft",
-        ...     repo="vscode",
-        ...     ref="main"
-        ... )
-        >>>
-        >>> # Private repository
-        >>> options = GitHubStorageOptions(
-        ...     org="myorg",
-        ...     repo="private-repo",
-        ...     token="ghp_xxxx",
-        ...     ref="develop"
-        ... )
-        >>>
-        >>> # Enterprise instance
-        >>> options = GitHubStorageOptions(
-        ...     org="company",
-        ...     repo="internal",
-        ...     api_url="https://github.company.com/api/v3",
-        ...     token="ghp_xxxx"
-        ... )
+        ```python
+        # Public repository
+        options = GitHubStorageOptions(
+            org="microsoft",
+            repo="vscode",
+            ref="main",
+        )
+
+        # Private repository
+        options = GitHubStorageOptions(
+            org="myorg",
+            repo="private-repo",
+            token="ghp_xxxx",
+            ref="develop",
+        )
+
+        # Enterprise instance
+        options = GitHubStorageOptions(
+            org="company",
+            repo="internal",
+            api_url="https://github.company.com/api/v3",
+            token="ghp_xxxx",
+        )
+        ```
     """
 
     protocol: str = "github"
@@ -70,10 +72,12 @@ class GitHubStorageOptions(BaseStorageOptions, frozen=False):
             GitHubStorageOptions: Configured storage options
 
         Example:
-            >>> # With environment variables set:
-            >>> options = GitHubStorageOptions.from_env()
-            >>> print(options.org)  # From GITHUB_ORG
-            'microsoft'
+            ```python
+            # With environment variables set:
+            options = GitHubStorageOptions.from_env()
+            print(options.org)  # From GITHUB_ORG
+            # 'microsoft'
+            ```
         """
         return cls(
             protocol="github",
@@ -90,14 +94,16 @@ class GitHubStorageOptions(BaseStorageOptions, frozen=False):
         Sets standard GitHub environment variables.
 
         Example:
-            >>> options = GitHubStorageOptions(
-            ...     org="microsoft",
-            ...     repo="vscode",
-            ...     token="ghp_xxxx"
-            ... )
-            >>> options.to_env()
-            >>> print(os.getenv("GITHUB_ORG"))
-            'microsoft'
+            ```python
+            options = GitHubStorageOptions(
+                org="microsoft",
+                repo="vscode",
+                token="ghp_xxxx",
+            )
+            options.to_env()
+            print(os.getenv("GITHUB_ORG"))
+            # 'microsoft'
+            ```
         """
         env = {
             "GITHUB_ORG": self.org,
@@ -154,25 +160,27 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
         api_version (str): API version to use
 
     Example:
-        >>> # Public project on gitlab.com
-        >>> options = GitLabStorageOptions(
-        ...     project_name="group/project",
-        ...     ref="main"
-        ... )
-        >>>
-        >>> # Private project with token
-        >>> options = GitLabStorageOptions(
-        ...     project_id=12345,
-        ...     token="glpat_xxxx",
-        ...     ref="develop"
-        ... )
-        >>>
-        >>> # Self-hosted instance
-        >>> options = GitLabStorageOptions(
-        ...     base_url="https://gitlab.company.com",
-        ...     project_name="internal/project",
-        ...     token="glpat_xxxx"
-        ... )
+        ```python
+        # Public project on gitlab.com
+        options = GitLabStorageOptions(
+            project_name="group/project",
+            ref="main",
+        )
+
+        # Private project with token
+        options = GitLabStorageOptions(
+            project_id=12345,
+            token="glpat_xxxx",
+            ref="develop",
+        )
+
+        # Self-hosted instance
+        options = GitLabStorageOptions(
+            base_url="https://gitlab.company.com",
+            project_name="internal/project",
+            token="glpat_xxxx",
+        )
+        ```
     """
 
     protocol: str = "gitlab"
@@ -210,10 +218,12 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
             GitLabStorageOptions: Configured storage options
 
         Example:
-            >>> # With environment variables set:
-            >>> options = GitLabStorageOptions.from_env()
-            >>> print(options.project_id)  # From GITLAB_PROJECT_ID
-            '12345'
+            ```python
+            # With environment variables set:
+            options = GitLabStorageOptions.from_env()
+            print(options.project_id)  # From GITLAB_PROJECT_ID
+            # '12345'
+            ```
         """
         return cls(
             protocol="gitlab",
@@ -231,13 +241,15 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
         Sets standard GitLab environment variables.
 
         Example:
-            >>> options = GitLabStorageOptions(
-            ...     project_id=12345,
-            ...     token="glpat_xxxx"
-            ... )
-            >>> options.to_env()
-            >>> print(os.getenv("GITLAB_PROJECT_ID"))
-            '12345'
+            ```python
+            options = GitLabStorageOptions(
+                project_id=12345,
+                token="glpat_xxxx",
+            )
+            options.to_env()
+            print(os.getenv("GITLAB_PROJECT_ID"))
+            # '12345'
+            ```
         """
         env = {
             "GITLAB_URL": self.base_url,
@@ -257,12 +269,14 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
             dict: Arguments suitable for GitLabFileSystem
 
         Example:
-            >>> options = GitLabStorageOptions(
-            ...     project_id=12345,
-            ...     token="glpat_xxxx"
-            ... )
-            >>> kwargs = options.to_fsspec_kwargs()
-            >>> fs = filesystem("gitlab", **kwargs)
+            ```python
+            options = GitLabStorageOptions(
+                project_id=12345,
+                token="glpat_xxxx",
+            )
+            kwargs = options.to_fsspec_kwargs()
+            fs = filesystem("gitlab", **kwargs)
+            ```
         """
         kwargs = {
             "base_url": self.base_url,

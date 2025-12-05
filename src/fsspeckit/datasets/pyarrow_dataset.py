@@ -135,13 +135,15 @@ def compact_parquet_dataset_pyarrow(
         FileNotFoundError: If the path does not exist.
 
     Example:
-        >>> result = compact_parquet_dataset_pyarrow(
-        ...     "/path/to/dataset",
-        ...     target_mb_per_file=64,
-        ...     dry_run=True
-        ... )
-        >>> print(f"Files before: {result['before_file_count']}")
-        >>> print(f"Files after: {result['after_file_count']}")
+        ```python
+        result = compact_parquet_dataset_pyarrow(
+            "/path/to/dataset",
+            target_mb_per_file=64,
+            dry_run=True,
+        )
+        print(f"Files before: {result['before_file_count']}")
+        print(f"Files after: {result['after_file_count']}")
+        ```
 
     Note:
         This function delegates dataset discovery and compaction planning to the
@@ -244,12 +246,17 @@ def optimize_parquet_dataset_pyarrow(
         Optimization statistics
 
     Example:
-        >>> stats = optimize_parquet_dataset_pyarrow(
-        ...     "dataset/",
-        ...     target_mb_per_file=64,
-        ...     compression="zstd"
-        ... )
-        >>> print(f"Reduced from {stats['before_file_count']} to {stats['after_file_count']} files")
+        ```python
+        stats = optimize_parquet_dataset_pyarrow(
+            "dataset/",
+            target_mb_per_file=64,
+            compression="zstd",
+        )
+        print(
+            f"Reduced from {stats['before_file_count']} "
+            f"to {stats['after_file_count']} files",
+        )
+        ```
     """
     # Use compaction
     result = compact_parquet_dataset_pyarrow(
@@ -531,14 +538,16 @@ def merge_parquet_dataset_pyarrow(
         FileNotFoundError: If sources don't exist
 
     Example:
-        >>> stats = merge_parquet_dataset_pyarrow(
-        ...     sources=["dataset1/", "dataset2/"],
-        ...     output_path="merged/",
-        ...     strategy="deduplicate",
-        ...     key_columns=["id"],
-        ...     verbose=True
-        ... )
-        >>> print(f"Merged {stats.total_rows} rows")
+        ```python
+        stats = merge_parquet_dataset_pyarrow(
+            sources=["dataset1/", "dataset2/"],
+            output_path="merged/",
+            strategy="deduplicate",
+            key_columns=["id"],
+            verbose=True,
+        )
+        print(f"Merged {stats.total_rows} rows")
+        ```
     """
     # Validate inputs using shared core logic
     validate_merge_inputs(

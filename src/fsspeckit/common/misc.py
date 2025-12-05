@@ -489,17 +489,19 @@ def path_to_glob(path: str, format: Union[str, None] = None) -> str:
             Examples: "data/**/*.json", "data/*.csv"
 
     Example:
-        >>> # Basic directory
-        >>> path_to_glob("data", "json")
-        'data/**/*.json'
-        >>>
-        >>> # With wildcards
-        >>> path_to_glob("data/**", "csv")
-        'data/**/*.csv'
-        >>>
-        >>> # Format inference
-        >>> path_to_glob("data/file.parquet")
-        'data/file.parquet'
+        ```python
+        # Basic directory
+        print(path_to_glob("data", "json"))
+        # 'data/**/*.json'
+
+        # With wildcards
+        print(path_to_glob("data/**", "csv"))
+        # 'data/**/*.csv'
+
+        # Format inference
+        print(path_to_glob("data/file.parquet"))
+        # 'data/file.parquet'
+        ```
     """
     path = path.rstrip("/")
     if format is None:
