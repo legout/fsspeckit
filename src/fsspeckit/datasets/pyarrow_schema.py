@@ -461,15 +461,22 @@ def unify_schemas(
         # Fall through to next strategy
         conflicts = remaining_conflicts
 
-    except Exception:
-        # Normalization failed, continue to fallback
-        pass
+    except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError) as e:
+        # Normalization failed, log and continue to fallback
+        logger.debug(
+            "Schema type normalization failed: %s. Trying aggressive fallback.",
+            str(e)
+        )
 
     # Try aggressive fallback
     try:
         return _aggressive_fallback_unification(schemas)
-    except Exception:
-        pass
+    except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError) as e:
+        # Aggressive fallback failed, log and try last resort
+        logger.debug(
+            "Aggressive fallback unification failed: %s. Trying last resort cleanup.",
+            str(e)
+        )
 
     # Last resort: remove problematic fields
     cleaned = _remove_problematic_fields(schemas)

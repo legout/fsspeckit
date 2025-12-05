@@ -829,9 +829,9 @@ def unify_schemas(
                 else convert_large_types_to_normal(fallback_schema)
             )
 
-        except Exception:
+        except (pa.ArrowInvalid, pa.ArrowTypeError, ValueError) as e:
             if verbose:
-                logger.debug("✗ Aggressive fallback failed")
+                logger.debug("✗ Aggressive fallback failed: %s", str(e), exc_info=True)
 
         # Fallback 2: Remove conflicting fields (if enabled)
         if remove_conflicting_columns:
@@ -849,9 +849,9 @@ def unify_schemas(
                     else convert_large_types_to_normal(non_conflicting_schema)
                 )
 
-            except Exception:
+            except (pa.ArrowInvalid, pa.ArrowTypeError, ValueError) as e:
                 if verbose:
-                    logger.debug("✗ Remove conflicting fields fallback failed")
+                    logger.debug("✗ Remove conflicting fields fallback failed: %s", str(e), exc_info=True)
 
         # Fallback 3: Remove problematic fields that can't be unified
         try:
@@ -868,9 +868,9 @@ def unify_schemas(
                 else convert_large_types_to_normal(minimal_schema)
             )
 
-        except Exception:
+        except (pa.ArrowInvalid, pa.ArrowTypeError, ValueError) as e:
             if verbose:
-                logger.debug("✗ Minimal schema fallback failed")
+                logger.debug("✗ Minimal schema fallback failed: %s", str(e), exc_info=True)
 
         # Fallback 4: Return first schema as last resort
         if verbose:

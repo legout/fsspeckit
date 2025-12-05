@@ -12,12 +12,12 @@ from typing import Any, Callable, Dict, Optional, Union
 
 from fsspec import AbstractFileSystem
 from fsspec.implementations.dirfs import DirFileSystem
-# from ..utils.logging import get_logger
 
 # Import canonical optional dependency checker
 from fsspeckit.common.optional import check_optional_dependency
+from fsspeckit.common.logging import get_logger
 
-# logger = get_logger(__name__)
+logger = get_logger(__name__)
 
 
 # def run_parallel(
@@ -591,8 +591,27 @@ def sync_files(
             try:
                 dst_mapper[key] = src_mapper[key]
                 break
+            except (OSError, IOError) as e:
+                last_exc = e
+                if attempt == RETRIES:
+                    logger.error(
+                        "Failed to copy file %s after %d attempts: %s",
+                        key,
+                        RETRIES,
+                        str(e),
+                        exc_info=True,
+                    )
+                    raise RuntimeError(f"Failed to copy file {key} after {RETRIES} attempts") from e
             except Exception as e:
                 last_exc = e
+                if attempt == RETRIES:
+                    logger.error(
+                        "Unexpected error copying file %s: %s",
+                        key,
+                        str(e),
+                        exc_info=True,
+                    )
+                    raise RuntimeError(f"Unexpected error copying file {key}: {e}") from e
 
     def copy_file(key, src_fs, dst_fs, src_path, dst_path, CHUNK, RETRIES):
         last_exc = None
@@ -608,8 +627,27 @@ def sync_files(
                             break
                         w.write(chunk)
                 break
+            except (OSError, IOError) as e:
+                last_exc = e
+                if attempt == RETRIES:
+                    logger.error(
+                        "Failed to copy file %s after %d attempts: %s",
+                        key,
+                        RETRIES,
+                        str(e),
+                        exc_info=True,
+                    )
+                    raise RuntimeError(f"Failed to copy file {key} after {RETRIES} attempts") from e
             except Exception as e:
                 last_exc = e
+                if attempt == RETRIES:
+                    logger.error(
+                        "Unexpected error copying file %s: %s",
+                        key,
+                        str(e),
+                        exc_info=True,
+                    )
+                    raise RuntimeError(f"Unexpected error copying file {key}: {e}") from e
 
     def delete_file(key, dst_fs, dst_path, RETRIES):
         last_exc = None
@@ -617,8 +655,27 @@ def sync_files(
             try:
                 dst_fs.rm(posixpath.join(dst_path, key))
                 break
+            except (OSError, IOError) as e:
+                last_exc = e
+                if attempt == RETRIES:
+                    logger.error(
+                        "Failed to delete file %s after %d attempts: %s",
+                        key,
+                        RETRIES,
+                        str(e),
+                        exc_info=True,
+                    )
+                    raise RuntimeError(f"Failed to delete file {key} after {RETRIES} attempts") from e
             except Exception as e:
                 last_exc = e
+                if attempt == RETRIES:
+                    logger.error(
+                        "Unexpected error deleting file %s: %s",
+                        key,
+                        str(e),
+                        exc_info=True,
+                    )
+                    raise RuntimeError(f"Unexpected error deleting file {key}: {e}") from e
 
     if len(add_files):
         # Copy new files
@@ -634,7 +691,11 @@ def sync_files(
                         n_jobs=n_jobs,
                         verbose=verbose,
                     )
-                except Exception:
+                except (RuntimeError, OSError) as e:
+                    logger.warning(
+                        "Server-side copy failed for some files, falling back to client-side: %s",
+                        str(e),
+                    )
                     # Fallback to client-side copy if server-side fails
                     run_parallel(
                         copy_file,
@@ -648,6 +709,7 @@ def sync_files(
                         n_jobs=n_jobs,
                         verbose=verbose,
                     )
+
             else:
                 run_parallel(
                     copy_file,
@@ -673,7 +735,7 @@ def sync_files(
                     if server_side:
                         try:
                             server_side_copy_file(key, src_mapper, dst_mapper, RETRIES)
-                        except Exception:
+                        except (RuntimeError, OSError):
                             copy_file(
                                 key, src_fs, dst_fs, src_path, dst_path, CHUNK, RETRIES
                             )
@@ -686,7 +748,7 @@ def sync_files(
                     if server_side:
                         try:
                             server_side_copy_file(key, src_mapper, dst_mapper, RETRIES)
-                        except Exception:
+                        except (RuntimeError, OSError):
                             copy_file(
                                 key, src_fs, dst_fs, src_path, dst_path, CHUNK, RETRIES
                             )

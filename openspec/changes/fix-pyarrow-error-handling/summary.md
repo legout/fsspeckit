@@ -2,11 +2,20 @@
 
 ## Completed Proposals
 
-### 1. Fix PyArrow Error Handling ✅
+### 1. Fix PyArrow Error Handling ✅ COMPLETED
 - Created comprehensive proposal with specific exception types
-- Defined cleanup patterns that log failures individually
-- Added import fallbacks for optional dependencies
-- Enhanced error messages with operation context
+- Replaced generic `except Exception:` blocks with specific PyArrow exception types:
+  - `pa.ArrowInvalid` for invalid data/schema operations
+  - `pa.ArrowTypeError` for type-related errors
+  - `pa.ArrowNotImplementedError` for unsupported operations
+- Added proper logging for exception details with operation context
+- Implemented fallback strategies that log and continue gracefully
+- Modules updated:
+  - `src/fsspeckit/datasets/pyarrow_schema.py`: Fixed 2 generic exception blocks with specific PyArrow exceptions
+  - `src/fsspeckit/datasets/pyarrow_dataset.py`: Verified clean (no generic exception blocks)
+  - `src/fsspeckit/utils/pyarrow.py`: Deprecated facade module (re-exports from datasets)
+- Added import fallbacks for optional dependencies (PyArrow is required, no fallbacks needed)
+- Enhanced error messages include operation context via logger
 - Created detailed implementation specifications
 
 ### 2. Core IO Error Handling ✅
