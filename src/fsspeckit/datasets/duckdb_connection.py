@@ -51,10 +51,9 @@ def _unregister_duckdb_table_safely(conn: Any, table_name: str) -> None:
     """
     try:
         conn.unregister(table_name)
-    except (_DUCKDB_EXCEPTIONS.get("CatalogException"), _DUCKDB_EXCEPTIONS.get("ConnectionException"), Exception) as e:
+    except (_DUCKDB_EXCEPTIONS.get("CatalogException"), _DUCKDB_EXCEPTIONS.get("ConnectionException")) as e:
         # Log the failure but don't raise - cleanup should continue
-        # Catch CatalogException (table doesn't exist), ConnectionException (connection issues),
-        # and any other unexpected exceptions
+        # Catch CatalogException (table doesn't exist), ConnectionException (connection issues)
         logger.warning("Failed to unregister DuckDB table '%s': %s", table_name, e)
 
 
