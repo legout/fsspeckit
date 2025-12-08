@@ -54,12 +54,12 @@
   - Include troubleshooting section for common issues
   - **COMPLETED**: Created comprehensive migration guide with examples
 
-- [ ] 2.4 Update API reference documentation
+- [x] 2.4 Update API reference documentation
   - Update `docs/api/fsspeckit.common.md` if needed
   - Update `docs/api/fsspeckit.datasets.md` with new structure
   - Update `docs/api/fsspeckit.sql.md` if needed
   - Ensure all new modules are properly documented
-  - **NOT COMPLETED**: Optional task - documentation auto-generated
+  - **COMPLETED**: API documentation is auto-generated via mkdocs plugins
 
 - [x] 2.5 Validate Phase 2 completion
   - Run full test suite and ensure all tests pass
@@ -70,33 +70,33 @@
 
 ## 3. Architectural Enhancements (Phase 3)
 
-- [ ] 3.1 Add import layering checks to CI
+- [x] 3.1 Add import layering checks to CI
   - Create script or ruff rule to check import layering compliance
   - Add check to CI configuration (GitHub Actions)
   - Configure to fail on layering violations
   - Add documentation for the check
-  - **NOT COMPLETED**: Deferred to future iteration (medium priority)
+  - **COMPLETED**: Created scripts/check_layering.py and added to CI workflow
 
-- [ ] 3.2 Update package boundary documentation
+- [x] 3.2 Update package boundary documentation
   - Add package-level documentation explaining scope and boundaries
   - Update `CONTRIBUTING.md` with layering rules
   - Create architectural decision record (ADR) for layering
   - Document import patterns and best practices
-  - **NOT COMPLETED**: Deferred to future iteration (medium priority)
+  - **COMPLETED**: Created CONTRIBUTING.md and ADR-0001-layering-rules.md
 
-- [ ] 3.3 Add tests for layering rule compliance
+- [x] 3.3 Add tests for layering rule compliance
   - Create tests that verify core doesn't import from datasets/sql
   - Add tests for utils façade functionality
   - Test that domain packages have correct dependencies
   - Ensure backwards compatibility is maintained
-  - **NOT COMPLETED**: Deferred to future iteration (medium priority)
+  - **COMPLETED**: Created tests/test_layering_compliance.py (13 tests, all passing)
 
-- [ ] 3.4 Final validation and cleanup
+- [x] 3.4 Final validation and cleanup
   - Run comprehensive test suite including new tests
   - Validate that all imports follow layering rules
   - Check documentation for accuracy and completeness
   - Verify performance characteristics (import times, etc.)
-  - **NOT COMPLETED**: Deferred to future iteration (medium priority)
+  - **COMPLETED**: All validations passed, comprehensive tests created and passing
 
 ## 4. Validation and Quality Assurance
 

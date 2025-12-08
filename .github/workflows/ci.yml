@@ -30,6 +30,11 @@ jobs:
         run: |
           uv sync --dev
 
+      - name: Check import layering compliance
+        run: |
+          echo "Checking import layering rules..."
+          uv run python scripts/check_layering.py
+
       - name: Run type checking with mypy
         run: |
           # Start with lenient checking, will be progressively stricter
