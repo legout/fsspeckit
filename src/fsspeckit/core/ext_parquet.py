@@ -10,24 +10,15 @@ This module contains functions for reading and writing Parquet files with suppor
 
 from __future__ import annotations
 
-import datetime as dt
-import uuid
 from typing import TYPE_CHECKING, Any, Generator
 
 if TYPE_CHECKING:
     import pyarrow as pa
-    import pyarrow.dataset as pds
-
-# Import lazy helpers for optional dependencies
-from fsspeckit.common.optional import _import_pyarrow, _import_pyarrow_parquet
-
-pq = _import_pyarrow_parquet()
 
 from fsspec import AbstractFileSystem
 
 from fsspeckit.common.misc import path_to_glob, run_parallel
-from fsspeckit.common.types import dict_to_dataframe, to_pyarrow_table
-from fsspeckit.datasets.pyarrow import cast_schema, convert_large_types_to_normal
+from fsspeckit.datasets.pyarrow import cast_schema
 from fsspeckit.datasets.pyarrow import opt_dtype as opt_dtype_pa
 from fsspeckit.datasets.pyarrow import unify_schemas as unify_schemas_pa
 from fsspeckit.common.logging import get_logger
@@ -42,7 +33,7 @@ def _read_parquet_file(
     include_file_path: bool = False,
     opt_dtypes: bool = False,
     **kwargs: Any,
-) -> pa.Table:
+) -> Any:
     """Read a single Parquet file from any filesystem.
 
     Internal function that handles reading individual Parquet files and
@@ -53,7 +44,7 @@ def _read_parquet_file(
         self: Filesystem instance to use for reading
         include_file_path: Add source filepath as a column
         opt_dtypes: Optimize DataFrame dtypes
-        **kwargs: Additional arguments passed to pq.read_table()
+        **kwargs: Additional arguments passed to pyarrow.parquet.read_table()
 
     Returns:
         pa.Table: PyArrow Table containing Parquet data
@@ -77,10 +68,7 @@ def _read_parquet_file(
         # True
         ```
     """
-    from fsspeckit.common.optional import (
-        _import_pyarrow,
-        _import_pyarrow_parquet,
-    )
+    from fsspeckit.common.optional import _import_pyarrow, _import_pyarrow_parquet
 
     pa_mod = _import_pyarrow()
     pq = _import_pyarrow_parquet()
@@ -141,7 +129,7 @@ def _read_parquet_file(
 
 def read_parquet_file(
     self, path: str, include_file_path: bool = False, opt_dtypes: bool = False, **kwargs
-) -> pa.Table:
+) -> Any:
     """Read a single Parquet file from any filesystem.
 
     Internal function that handles reading individual Parquet files and
@@ -151,7 +139,7 @@ def read_parquet_file(
         path: Path to Parquet file
         include_file_path: Add source filepath as a column
         opt_dtypes: Optimize DataFrame dtypes
-        **kwargs: Additional arguments passed to pq.read_table()
+        **kwargs: Additional arguments passed to pyarrow.parquet.read_table()
 
     Returns:
         pa.Table: PyArrow Table containing Parquet data
@@ -184,13 +172,14 @@ def _read_parquet(
     verbose: bool = False,
     opt_dtypes: bool = False,
     **kwargs,
-) -> pa.Table | list[pa.Table]:
+) -> Any:
     """
     Read a Parquet file or a list of Parquet files into a pyarrow Table.
 
     Args:
         path: (str | list[str]) Path to the Parquet file(s).
-        include_file_path: (bool, optional) If True, return a Table with a 'file_path' column.
+        include_file_path: (bool, optional) If True, return a Table with a
+            'file_path' column.
             Defaults to False.
         use_threads: (bool, optional) If True, read files in parallel. Defaults to True.
         concat: (bool, optional) If True, concatenate the Tables. Defaults to True.
@@ -199,6 +188,7 @@ def _read_parquet(
     Returns:
         (pa.Table | list[pa.Table]): Pyarrow Table or list of Pyarrow Tables.
     """
+    # Import pyarrow lazily for type checking within function
     from fsspeckit.common.optional import _import_pyarrow
 
     pa_mod = _import_pyarrow()
@@ -290,7 +280,7 @@ def _read_parquet_batches(
     verbose: bool = False,
     opt_dtypes: bool = False,
     **kwargs: Any,
-) -> Generator[pa.Table | list[pa.Table], None, None]:
+) -> Generator[Any, None, None]:
     """Process Parquet files in batches with performance optimizations.
 
     Internal generator function that handles batched reading of Parquet files
@@ -312,7 +302,7 @@ def _read_parquet_batches(
         use_threads: Enable parallel file reading within batches
         concat: Combine files within each batch
         verbose: Print progress information
-        **kwargs: Additional arguments passed to pq.read_table()
+        **kwargs: Additional arguments passed to pyarrow.parquet.read_table()
 
     Yields:
         Each batch of data in requested format:
@@ -338,6 +328,7 @@ def _read_parquet_batches(
         ... ):
         ...     print(f"Batch schema: {batch.schema}")
     """
+    # Import pyarrow lazily for type checking within function
     from fsspeckit.common.optional import _import_pyarrow
 
     pa_mod = _import_pyarrow()
@@ -426,7 +417,7 @@ def read_parquet(
     verbose: bool = False,
     opt_dtypes: bool = False,
     **kwargs: Any,
-) -> pa.Table | list[pa.Table] | Generator[pa.Table | list[pa.Table], None, None]:
+) -> Any:
     """Read Parquet data with advanced features and optimizations.
 
     Provides a high-performance interface for reading Parquet files with support for:
@@ -453,7 +444,7 @@ def read_parquet(
         use_threads: Enable parallel file reading
         verbose: Print progress information
         opt_dtypes: Optimize Table dtypes for performance
-        **kwargs: Additional arguments passed to pq.read_table()
+        **kwargs: Additional arguments passed to pyarrow.parquet.read_table()
 
     Returns:
         Various types depending on arguments:
@@ -512,11 +503,11 @@ def read_parquet(
 
 def write_parquet(
     self: AbstractFileSystem,
-    data: pl.DataFrame | pl.LazyFrame | pa.Table | pd.DataFrame | dict | list[dict],
+    data: Any,
     path: str,
-    schema: pa.Schema | None = None,
+    schema: Any | None = None,
     **kwargs: Any,
-) -> pq.FileMetaData:
+) -> Any:
     """Write data to a Parquet file with automatic format conversion.
 
     Handles writing data from multiple input formats to Parquet with:
@@ -536,7 +527,7 @@ def write_parquet(
         **kwargs: Additional arguments for pq.write_table()
 
     Returns:
-        pq.FileMetaData: Metadata of written Parquet file
+        pyarrow.parquet.FileMetaData: Metadata of written Parquet file
 
     Raises:
         SchemaError: If data doesn't match schema
@@ -569,142 +560,21 @@ def write_parquet(
         ... )
     """
     from fsspeckit.common.optional import _import_pyarrow, _import_pyarrow_parquet
+    from fsspeckit.common.types import to_pyarrow_table
 
-    pa_mod = _import_pyarrow()
+    _import_pyarrow()  # Ensure pyarrow is available
     pq = _import_pyarrow_parquet()
 
+    # Convert data to pyarrow table
     data = to_pyarrow_table(data, concat=True, unique=False)
 
+    # Apply schema if provided
     if schema is not None:
         data = cast_schema(data, schema)
+
+    # Write the table
     metadata = []
     pq.write_table(data, path, filesystem=self, metadata_collector=metadata, **kwargs)
     metadata = metadata[0]
     metadata.set_file_path(path)
     return metadata
-
-
-def write_pyarrow_dataset(
-    self,
-    data: (
-        pl.DataFrame
-        | pl.LazyFrame
-        | pa.Table
-        | pa.RecordBatch
-        | pa.RecordBatchReader
-        | pd.DataFrame
-        | dict
-        | list[
-            pl.DataFrame
-            | pl.LazyFrame
-            | pa.Table
-            | pa.RecordBatch
-            | pa.RecordBatchReader
-            | pd.DataFrame
-            | dict
-        ]
-    ),
-    path: str,
-    basename: str | None = None,
-    schema: pa.Schema | None = None,
-    partition_by: str | list[str] | pds.Partitioning | None = None,
-    partitioning_flavor: str = "hive",
-    mode: str = "append",
-    format: str | None = "parquet",
-    compression: str = "zstd",
-    max_rows_per_file: int | None = 2_500_000,
-    row_group_size: int | None = 250_000,
-    concat: bool = True,
-    unique: bool | list[str] | str = False,
-    **kwargs,
-) -> list[pq.FileMetaData] | None:
-    """
-    Write a tabluar data to a PyArrow dataset.
-
-    Args:
-        data: (pl.DataFrame | pa.Table | pa.RecordBatch | pa.RecordBatchReader |
-            pd.DataFrame | list[pl.DataFrame] | list[pa.Table] | list[pa.RecordBatch] |
-            list[pa.RecordBatchReader] | list[pd.DataFrame]) Data to write.
-        path: (str) Path to write the data.
-        basename: (str, optional) Basename of the files. Defaults to None.
-        schema: (pa.Schema, optional) Schema of the data. Defaults to None.
-        partition_by: (str | list[str] | pds.Partitioning, optional) Partitioning of the data.
-            Defaults to None.
-        partitioning_flavor: (str, optional) Partitioning flavor. Defaults to 'hive'.
-        mode: (str, optional) Write mode. Defaults to 'append'.
-        format: (str, optional) Format of the data. Defaults to 'parquet'.
-        compression: (str, optional) Compression algorithm. Defaults to 'zstd'.
-        max_rows_per_file: (int, optional) Maximum number of rows per file. Defaults to 2_500_000.
-        row_group_size: (int, optional) Row group size. Defaults to 250_000.
-        concat: (bool, optional) If True, concatenate the DataFrames. Defaults to True.
-        unique: (bool | str | list[str], optional) If True, remove duplicates. Defaults to False.
-        **kwargs: Additional keyword arguments for `pds.write_dataset`.
-
-    Returns:
-        (list[pq.FileMetaData] | None): List of Parquet file metadata or None.
-    """
-    from fsspeckit.common.optional import _import_pyarrow
-    import pyarrow.dataset as pds
-
-    pa_mod = _import_pyarrow()
-
-    data = to_pyarrow_table(data, concat=concat, unique=unique)
-
-    if mode == "delete_matching":
-        existing_data_behavior = "delete_matching"
-    elif mode == "append":
-        existing_data_behavior = "overwrite_or_ignore"
-    elif mode == "overwrite":
-        self.rm(path, recursive=True)
-        existing_data_behavior = "overwrite_or_ignore"
-    else:
-        existing_data_behavior = mode
-
-    if basename is None:
-        basename_template = (
-            "data-"
-            f"{dt.datetime.now().strftime('%Y%m%d_%H%M%S%f')[:-3]}-{uuid.uuid4().hex[:16]}-{{i}}.parquet"
-        )
-    else:
-        basename_template = f"{basename}-{{i}}.parquet"
-
-    file_options = pds.ParquetFileFormat().make_write_options(compression=compression)
-
-    create_dir: bool = kwargs.get("create_dir", False)
-
-    if not create_dir:
-        if hasattr(self, "fs"):
-            if "local" in self.fs.protocol:
-                create_dir = True
-        else:
-            if "local" in self.protocol:
-                create_dir = True
-
-    if format == "parquet":
-        metadata = []
-
-        def file_visitor(written_file):
-            file_metadata = written_file.metadata
-            file_metadata.set_file_path(written_file.path)
-            metadata.append(file_metadata)
-
-    pds.write_dataset(
-        data=data,
-        base_dir=path,
-        basename_template=basename_template,
-        partitioning=partition_by,
-        partitioning_flavor=partitioning_flavor,
-        filesystem=self,
-        existing_data_behavior=existing_data_behavior,
-        min_rows_per_group=row_group_size,
-        max_rows_per_group=row_group_size,
-        max_rows_per_file=max_rows_per_file,
-        schema=schema,
-        format=format,
-        create_dir=create_dir,
-        file_options=file_options,
-        file_visitor=file_visitor if format == "parquet" else None,
-        **kwargs,
-    )
-    if format == "parquet":
-        return metadata

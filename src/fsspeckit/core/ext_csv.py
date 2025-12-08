@@ -18,30 +18,14 @@ if TYPE_CHECKING:
 
 from fsspec import AbstractFileSystem
 
+# Import lazy helpers for optional dependencies
+from fsspeckit.common.optional import _import_polars, _import_pandas, _import_pyarrow
+
 from fsspeckit.common.misc import path_to_glob, run_parallel
 from fsspeckit.common.logging import get_logger
 
 # Get module logger
 logger = get_logger(__name__)
-
-# Conditionally import polars utilities
-try:
-    from fsspeckit.common.polars import opt_dtype as opt_dtype_pl
-    from fsspeckit.common.polars import pl
-except ImportError:
-    opt_dtype_pl = None
-    pl = None
-
-# Conditionally import pandas and pyarrow
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
-
-try:
-    import pyarrow as pa
-except ImportError:
-    pa = None
 
 
 def _read_csv_file(
@@ -85,8 +69,14 @@ def _read_csv_file(
         # True
         ```
     """
-    if pl is None:
-        raise ImportError("polars is required for CSV operations")
+    # Import polars lazily
+    pl = _import_polars()
+
+    # Try to import polars utilities, but don't fail if they're not available
+    try:
+        from fsspeckit.common.polars import opt_dtype as opt_dtype_pl
+    except ImportError:
+        opt_dtype_pl = None
 
     operation = "read CSV"
     context = {"path": path, "operation": operation}
@@ -98,7 +88,7 @@ def _read_csv_file(
 
         if include_file_path:
             df = df.with_columns(pl.lit(path).alias("file_path"))
-        if opt_dtypes:
+        if opt_dtypes and opt_dtype_pl is not None:
             df = opt_dtype_pl(df, strict=False)
         return df
 
@@ -155,17 +145,23 @@ def _read_csv(
 
     Args:
         path: (str | list[str]) Path to the CSV file(s).
-        include_file_path: (bool, optional) If True, return a DataFrame with a 'file_path' column.
+        include_file_path: (bool, optional) If True, return a DataFrame with a
+            'file_path' column.
             Defaults to False.
         use_threads: (bool, optional) If True, read files in parallel. Defaults to True.
-        concat: (bool, optional) If True, concatenate the DataFrames. Defaults to True.
+        concat: (bool, optional) If True, concatenate the DataFrames.
+            Defaults to True.
         verbose: (bool, optional) If True, print verbose output. Defaults to False.
-        opt_dtypes: (bool, optional) If True, optimize DataFrame dtypes. Defaults to False.
+        opt_dtypes: (bool, optional) If True, optimize DataFrame dtypes.
+            Defaults to False.
         **kwargs: Additional keyword arguments.
 
     Returns:
         (pl.DataFrame | list[pl.DataFrame]): Polars DataFrame or list of DataFrames.
     """
+    # Import polars lazily
+    pl = _import_polars()
+
     # Handle path resolution and determine if we have multiple files
     if isinstance(path, str):
         path = path_to_glob(path, format="csv")
@@ -273,6 +269,9 @@ def _read_csv_batches(
         ...     for df in batch:
         ...         print(f"DataFrame shape: {df.shape}")
     """
+    # Import polars lazily
+    pl = _import_polars()
+
     # Handle path resolution
     if isinstance(path, str):
         path = path_to_glob(path, format="csv")
@@ -484,12 +483,8 @@ def write_csv(
         ...     float_precision=2
         ... )
     """
-    from fsspeckit.common.optional import _import_pyarrow
-
-    pa_mod = _import_pyarrow()
-
-    if pl is None:
-        raise ImportError("polars is required for CSV operations")
+    # Import dependencies lazily
+    pl = _import_polars()
 
     operation = "write CSV"
     context = {"path": path, "operation": operation}
@@ -504,9 +499,25 @@ def write_csv(
             else:
                 with self.open(path, "wb") as f:
                     data.write_csv(f, **kwargs)
-        elif isinstance(data, (pa.Table, pd.DataFrame)):
-            pl.from_arrow(pa.table(data)).write_csv(path, **kwargs)
         else:
+            # Handle other data types (pa.Table, pd.DataFrame, etc.)
+            try:
+                pa = _import_pyarrow()
+                if isinstance(data, pa.Table):
+                    pl.from_arrow(data).write_csv(path, **kwargs)
+                    return
+            except ImportError:
+                pass
+
+            try:
+                pd = _import_pandas()
+                if isinstance(data, pd.DataFrame):
+                    pl.from_pandas(data).write_csv(path, **kwargs)
+                    return
+            except ImportError:
+                pass
+
+            # Fallback: try to convert to DataFrame
             pl.DataFrame(data).write_csv(path, **kwargs)
 
         logger.debug("Successfully wrote CSV: {path}", extra=context)

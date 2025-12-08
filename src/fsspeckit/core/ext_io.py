@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
-from typing import TYPE_CHECKING, Any, Generator
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import polars as pl
-    import pyarrow as pa
+    pass  # Type checking imports moved to individual functions as needed
 
 from fsspec import AbstractFileSystem
+
+# Import lazy helpers for optional dependencies
+from fsspeckit.common.optional import _import_polars
 
 # Import format-specific readers and writers
 from fsspeckit.core.ext_json import read_json as _read_json_json
@@ -24,11 +26,23 @@ from fsspeckit.core.ext_parquet import read_parquet as _read_json_parquet
 from fsspeckit.core.ext_json import write_json as _write_json_format
 from fsspeckit.core.ext_csv import write_csv as _write_csv_format
 from fsspeckit.core.ext_parquet import write_parquet as _write_parquet_format
-from fsspeckit.core.ext_parquet import write_pyarrow_dataset as _write_pyarrow_dataset
 from fsspeckit.common.logging import get_logger
 
 # Get module logger
 logger = get_logger(__name__)
+
+# Format dispatch mappings
+READ_HANDLERS = {
+    "json": _read_json_json,
+    "csv": _read_json_csv,
+    "parquet": _read_json_parquet,
+}
+
+WRITE_HANDLERS = {
+    "json": _write_json_format,
+    "csv": _write_csv_format,
+    "parquet": _write_parquet_format,
+}
 
 
 def read_files(
@@ -43,15 +57,7 @@ def read_files(
     verbose: bool = False,
     opt_dtypes: bool = False,
     **kwargs: Any,
-) -> (
-    pl.DataFrame
-    | pa.Table
-    | list[pl.DataFrame]
-    | list[pa.Table]
-    | Generator[
-        pl.DataFrame | pa.Table | list[pl.DataFrame] | list[pa.Table], None, None
-    ]
-):
+) -> Any:
     """Universal interface for reading data files of any supported format.
 
     A unified API that automatically delegates to the appropriate reading function
@@ -117,82 +123,39 @@ def read_files(
         print(df.columns)
         ```
     """
+    if format not in READ_HANDLERS:
+        raise ValueError(
+            f"Unsupported format: {format}. Supported formats: "
+            f"{list(READ_HANDLERS.keys())}"
+        )
+
+    handler = READ_HANDLERS[format]
+
+    # Prepare common arguments
+    common_args = {
+        "self": self,
+        "path": path,
+        "include_file_path": include_file_path,
+        "concat": concat,
+        "use_threads": use_threads,
+        "verbose": verbose,
+        "opt_dtypes": opt_dtypes,
+        **kwargs,
+    }
+
+    # Add format-specific arguments
     if format == "json":
-        if batch_size is not None:
-            return _read_json_json(
-                self=self,
-                path=path,
-                batch_size=batch_size,
-                include_file_path=include_file_path,
-                jsonlines=jsonlines,
-                concat=concat,
-                use_threads=use_threads,
-                verbose=verbose,
-                opt_dtypes=opt_dtypes,
-                **kwargs,
-            )
-        return _read_json_json(
-            self=self,
-            path=path,
-            include_file_path=include_file_path,
-            jsonlines=jsonlines,
-            concat=concat,
-            use_threads=use_threads,
-            verbose=verbose,
-            opt_dtypes=opt_dtypes,
-            **kwargs,
-        )
-    elif format == "csv":
-        if batch_size is not None:
-            return _read_json_csv(
-                self=self,
-                path=path,
-                batch_size=batch_size,
-                include_file_path=include_file_path,
-                concat=concat,
-                use_threads=use_threads,
-                verbose=verbose,
-                opt_dtypes=opt_dtypes,
-                **kwargs,
-            )
-        return _read_json_csv(
-            self=self,
-            path=path,
-            include_file_path=include_file_path,
-            use_threads=use_threads,
-            concat=concat,
-            verbose=verbose,
-            opt_dtypes=opt_dtypes,
-            **kwargs,
-        )
-    elif format == "parquet":
-        if batch_size is not None:
-            return _read_json_parquet(
-                self=self,
-                path=path,
-                batch_size=batch_size,
-                include_file_path=include_file_path,
-                concat=concat,
-                use_threads=use_threads,
-                verbose=verbose,
-                opt_dtypes=opt_dtypes,
-                **kwargs,
-            )
-        return _read_json_parquet(
-            self=self,
-            path=path,
-            include_file_path=include_file_path,
-            use_threads=use_threads,
-            concat=concat,
-            verbose=verbose,
-            opt_dtypes=opt_dtypes,
-            **kwargs,
-        )
+        common_args["jsonlines"] = jsonlines
+
+    if batch_size is not None:
+        common_args["batch_size"] = batch_size
+
+    return handler(**common_args)
 
 
 def write_file(
     self,
-    data: pl.DataFrame | pl.LazyFrame | pa.Table | pd.DataFrame | dict,
+    data: Any,
     path: str,
     format: str,
     **kwargs,
@@ -201,7 +164,8 @@ def write_file(
     Write a DataFrame to a file in the given format.
 
     Args:
-        data: (pl.DataFrame | pl.LazyFrame | pa.Table | pd.DataFrame) Data to write.
+        data: Data to write (polars DataFrame/LazyFrame, pyarrow Table,
+            pandas DataFrame, or dict).
         path (str): Path to write the data.
         format (str): Format of the file.
         **kwargs: Additional keyword arguments.
@@ -209,34 +173,19 @@ def write_file(
     Returns:
         None
     """
-    if format == "json":
-        _write_json_format(self, data, path, **kwargs)
-    elif format == "csv":
-        _write_csv_format(self, data, path, **kwargs)
-    elif format == "parquet":
-        _write_parquet_format(self, data, path, **kwargs)
+    if format not in WRITE_HANDLERS:
+        raise ValueError(
+            f"Unsupported format: {format}. Supported formats: "
+            f"{list(WRITE_HANDLERS.keys())}"
+        )
+
+    handler = WRITE_HANDLERS[format]
+    handler(self, data, path, **kwargs)
 
 
 def write_files(
     self,
-    data: (
-        pl.DataFrame
-        | pl.LazyFrame
-        | pa.Table
-        | pa.RecordBatch
-        | pa.RecordBatchReader
-        | pd.DataFrame
-        | dict
-        | list[
-            pl.DataFrame
-            | pl.LazyFrame
-            | pa.Table
-            | pa.RecordBatch
-            | pa.RecordBatchReader
-            | pd.DataFrame
-            | dict
-        ]
-    ),
+    data: Any,
     path: str | list[str],
     basename: str = None,
     format: str = None,
@@ -250,16 +199,18 @@ def write_files(
     """Write a DataFrame or a list of DataFrames to a file or a list of files.
 
     Args:
-        data: (pl.DataFrame | pl.LazyFrame | pa.Table | pd.DataFrame | dict | list[pl.DataFrame | pl.LazyFrame |
-            pa.Table | pd.DataFrame | dict]) Data to write.
-        path: (str | list[str]) Path to write the data.
+        data: Data to write. Can be a single item or list of items
+            (polars DataFrame/LazyFrame, pyarrow Table/RecordBatch/RecordBatchReader,
+            pandas DataFrame, or dict).
+        path: Path to write the data. Can be a single path string or list of paths.
         basename: (str, optional) Basename of the files. Defaults to None.
         format: (str, optional) Format of the data. Defaults to None.
         concat: (bool, optional) If True, concatenate the DataFrames. Defaults to True.
         unique: (bool, optional) If True, remove duplicates. Defaults to False.
-        mode: (str, optional) Write mode. Defaults to 'append'. Options: 'append', 'overwrite', 'delete_matching',
-            'error_if_exists'.
-        use_threads: (bool, optional) If True, use parallel processing. Defaults to True.
+        mode: (str, optional) Write mode. Defaults to 'append'. Options:
+            'append', 'overwrite', 'delete_matching', 'error_if_exists'.
+        use_threads: (bool, optional) If True, use parallel processing.
+            Defaults to True.
         verbose: (bool, optional) If True, print verbose output. Defaults to False.
         **kwargs: Additional keyword arguments.
 
@@ -271,25 +222,48 @@ def write_files(
     """
     from fsspeckit.common.misc import run_parallel
     from fsspeckit.common.types import dict_to_dataframe
-    from fsspeckit.common.optional import _import_pyarrow
 
-    pa_mod = _import_pyarrow()
+    # Import polars for type checking and data manipulation
+    pl = _import_polars()
 
+    # Normalize data to a list
     if not isinstance(data, list):
         data = [data]
 
+    # Handle concatenation
     if concat:
         if isinstance(data[0], dict):
             data = dict_to_dataframe(data)
+        # Import polars to check for LazyFrame
+        pl = _import_polars()
         if isinstance(data[0], pl.LazyFrame):
             data = pl.concat([d.collect() for d in data], how="diagonal_relaxed")
 
-        if isinstance(
-            data[0], pa.Table | pa.RecordBatch | pa.RecordBatchReader | Generator
-        ):
-            data = pl.concat([pl.from_arrow(d) for d in data], how="diagonal_relaxed")
-        elif isinstance(data[0], pd.DataFrame):
-            data = pl.concat([pl.from_pandas(d) for d in data], how="diagonal_relaxed")
+        # Check for pyarrow types - we need to import them lazily
+        try:
+            from fsspeckit.common.optional import _import_pyarrow
+
+            pa = _import_pyarrow()
+
+            if isinstance(data[0], (pa.Table, pa.RecordBatch, pa.RecordBatchReader)):
+                data = pl.concat(
+                    [pl.from_arrow(d) for d in data], how="diagonal_relaxed"
+                )
+        except ImportError:
+            pass  # PyArrow not available, skip this path
+
+        # Check for pandas
+        try:
+            from fsspeckit.common.optional import _import_pandas
+
+            pd = _import_pandas()
+
+            if isinstance(data[0], pd.DataFrame):
+                data = pl.concat(
+                    [pl.from_pandas(d) for d in data], how="diagonal_relaxed"
+                )
+        except ImportError:
+            pass  # Pandas not available, skip this path
 
         if unique:
             data = data.unique(
@@ -299,59 +273,84 @@ def write_files(
 
         data = [data]
 
+    # Determine format if not specified
     if format is None:
         format = (
             path[0].split(".")[-1]
             if isinstance(path, list) and "." in path[0]
             else path.split(".")[-1]
-            if "." in path
+            if isinstance(path, str) and "." in path
             else "parquet"
         )
 
-    def _write(d, p, basename, i):
-        if f".{format}" not in p:
-            if not basename:
-                basename = f"data-{dt.datetime.now().strftime('%Y%m%d_%H%M%S%f')[:-3]}-{uuid.uuid4().hex[:16]}"
-            p = f"{p}/{basename}-{i}.{format}"
+    # Normalize path to a list
+    if isinstance(path, str):
+        path = [path]
 
-        if mode == "delete_matching":
-            write_file(self, d, p, format, **kwargs)
-        elif mode == "overwrite":
-            if self.exists(p):
-                self.fs.rm(p, recursive=True)
-            write_file(self, d, p, format, **kwargs)
-        elif mode == "append":
-            if not self.exists(p):
-                write_file(self, d, p, format, **kwargs)
-            else:
-                p = p.replace(f".{format}", f"-{i}.{format}")
-                write_file(self, d, p, format, **kwargs)
-        elif mode == "error_if_exists":
-            if self.exists(p):
-                raise FileExistsError(f"File already exists: {p}")
-            else:
-                write_file(self, d, p, format, **kwargs)
-
-    if mode == "overwrite":
-        if isinstance(path, list):
-            for p in path:
-                # Remove existing files
-                if self.exists(p):
-                    self.rm(p, recursive=True)
+    # Ensure data and path lists have compatible lengths
+    if len(data) != len(path):
+        if len(data) == 1:
+            # Single data item, replicate to match path length
+            data = data * len(path)
+        elif len(path) == 1:
+            # Single path, replicate to match data length
+            path = path * len(data)
         else:
-            # Remove existing files
-            if self.exists(path):
-                self.rm(path, recursive=True)
+            raise ValueError(
+                f"Data and path lists must have compatible lengths. "
+                f"Got {len(data)} data items and {len(path)} paths."
+            )
 
+    def _write(
+        data_item: Any, path_item: str, basename: str | None, index: int
+    ) -> None:
+        """Write a single data item to a single path."""
+        # Add format extension if missing
+        if f".{format}" not in path_item:
+            if not basename:
+                basename = (
+                    f"data-{dt.datetime.now().strftime('%Y%m%d_%H%M%S%f')[:-3]}-"
+                    f"{uuid.uuid4().hex[:16]}"
+                )
+            path_item = f"{path_item}/{basename}-{index}.{format}"
+
+        # Handle different write modes
+        if mode == "delete_matching":
+            write_file(self, data_item, path_item, format, **kwargs)
+        elif mode == "overwrite":
+            if self.exists(path_item):
+                self.fs.rm(path_item, recursive=True)
+            write_file(self, data_item, path_item, format, **kwargs)
+        elif mode == "append":
+            if not self.exists(path_item):
+                write_file(self, data_item, path_item, format, **kwargs)
+            else:
+                path_item = path_item.replace(f".{format}", f"-{index}.{format}")
+                write_file(self, data_item, path_item, format, **kwargs)
+        elif mode == "error_if_exists":
+            if self.exists(path_item):
+                raise FileExistsError(f"File already exists: {path_item}")
+            else:
+                write_file(self, data_item, path_item, format, **kwargs)
+
+    # Handle overwrite mode pre-processing
+    if mode == "overwrite":
+        for p in path:
+            if self.exists(p):
+                self.rm(p, recursive=True)
+
+    # Execute writes
     if use_threads:
+        # For parallel execution, pass iterables as positional args
+        # and fixed values as kwargs
         run_parallel(
             _write,
-            d=data,
-            p=path,
+            data,
+            path,
             basename=basename,
-            i=list(range(len(data))),
+            index=list(range(len(data))),
             verbose=verbose,
         )
     else:
-        for i, p in enumerate(path):
-            _write(i, data, p, basename)
+        for i, (data_item, path_item) in enumerate(zip(data, path)):
+            _write(data_item, path_item, basename, i)
