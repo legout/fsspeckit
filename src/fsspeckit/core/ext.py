@@ -10,29 +10,42 @@ This module has been decomposed into focused submodules:
 
 All public APIs are re-exported here to maintain backward compatibility.
 New code should import directly from the submodules for better organization.
+
+DEPRECATED: This module is deprecated. Import from fsspeckit.core.ext instead.
 """
 
-# Re-export all public APIs for backward compatibility
-from fsspeckit.core.ext_json import (
-    read_json_file,
-    read_json,
-    write_json,
+import warnings
+
+# Emit deprecation warning
+warnings.warn(
+    "Importing from fsspeckit.core.ext is deprecated. "
+    "Import from fsspeckit.core.ext directly instead, e.g., "
+    "from fsspeckit.core.ext import read_csv",
+    DeprecationWarning,
+    stacklevel=2,
 )
-from fsspeckit.core.ext_csv import (
+
+# Re-export all public APIs for backward compatibility
+from fsspeckit.core.ext.csv import (
     read_csv_file,
     read_csv,
     write_csv,
 )
-from fsspeckit.core.ext_parquet import (
+from fsspeckit.core.ext.json import (
+    read_json_file,
+    read_json,
+    write_json,
+)
+from fsspeckit.core.ext.parquet import (
     read_parquet_file,
     read_parquet,
     write_parquet,
 )
-from fsspeckit.core.ext_dataset import (
+from fsspeckit.core.ext.dataset import (
     pyarrow_dataset,
     pyarrow_parquet_dataset,
 )
-from fsspeckit.core.ext_io import (
+from fsspeckit.core.ext.io import (
     read_files,
     write_file,
     write_files,
@@ -40,7 +53,7 @@ from fsspeckit.core.ext_io import (
 
 # Import the registration layer to attach methods to AbstractFileSystem
 # This must happen after all imports
-from fsspeckit.core import ext_register  # noqa: F401
+from fsspeckit.core.ext import register  # noqa: F401
 
 __all__ = [
     # JSON I/O

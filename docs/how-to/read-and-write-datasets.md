@@ -2,14 +2,19 @@
 
 This guide covers how to read and write datasets in various formats using fsspeckit's extended I/O helpers and dataset operations.
 
+> **Package Structure Note:** fsspeckit has been refactored to use a package-based structure. While legacy import paths still work for backward compatibility, the new structure provides better organization. The examples below show the new preferred import paths.
+
 ## Reading JSON Data
 
 ### Single JSON Files
 
 ```python
-from fsspeckit.core.filesystem import filesystem
+from fsspeckit.core import filesystem
 
 fs = filesystem(".")
+
+# Legacy import (still works but deprecated)
+# from fsspeckit.core.filesystem import filesystem
 
 # Read JSON file as dictionary
 data = fs.read_json_file("data.json")

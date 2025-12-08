@@ -1,48 +1,19 @@
-"""DuckDB cleanup helpers for standardized error handling.
+"""Utility functions for DuckDB operations.
 
-This module provides helper functions for safely unregistering DuckDB tables
-with proper error handling and logging, following standardized
-error handling patterns defined in change proposal.
+DEPRECATED: This module is deprecated. Import from fsspeckit.datasets.duckdb.helpers instead.
 """
 
-from __future__ import annotations
+import warnings
 
-from typing import Any
-from fsspeckit.common.logging import get_logger
-from fsspeckit.common.optional import _DUCKDB_AVAILABLE
+# Emit deprecation warning
+warnings.warn(
+    "Importing from fsspeckit.datasets._duckdb_helpers is deprecated. "
+    "Import from fsspeckit.datasets.duckdb.helpers instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
-logger = get_logger(__name__)
+# Re-export from new location
+from fsspeckit.datasets.duckdb.helpers import *  # noqa: F401,F403
 
-# DuckDB exception types for specific error handling
-_DUCKDB_EXCEPTIONS = {}
-if _DUCKDB_AVAILABLE:
-    import duckdb
-
-    _DUCKDB_EXCEPTIONS = {
-        "InvalidInputException": duckdb.InvalidInputException,
-        "OperationalException": duckdb.OperationalError,
-        "CatalogException": duckdb.CatalogException,
-        "IOException": duckdb.IOException,
-        "OutOfMemoryException": duckdb.OutOfMemoryException,
-        "ParserException": duckdb.ParserException,
-        "ConnectionException": duckdb.ConnectionException,
-        "SyntaxException": duckdb.SyntaxException,
-    }
-
-
-def _unregister_duckdb_table_safely(conn: Any, table_name: str) -> None:
-    """Safely unregister a DuckDB table with proper error handling and logging.
-
-    Args:
-        conn: DuckDB connection instance
-        table_name: Name of table to unregister
-
-    This helper ensures that table unregistration failures are logged but don't
-        interrupt overall cleanup process. Partial cleanup failures are visible
-        in logs rather than being silently swallowed.
-    """
-    try:
-        conn.unregister(table_name)
-    except (_DUCKDB_EXCEPTIONS.get("CatalogException"), _DUCKDB_EXCEPTIONS.get("ConnectionException")) as e:
-        # Log the failure but don't raise - cleanup should continue
-        logger.warning("Failed to unregister DuckDB table '%s': %s", table_name, e)
+__all__ = []  # All exports come from the imported module

@@ -21,7 +21,10 @@ The module uses lazy loading to minimize startup dependencies:
 
 ```python
 # These imports work without optional dependencies
-from fsspeckit.core.ext_io import read_files, write_files, write_file
+from fsspeckit.core.ext import read_files, write_files, write_file
+
+# Legacy import (still works but deprecated)
+# from fsspeckit.core.ext_io import read_files, write_files, write_file
 
 # Using the functions triggers dependency loading
 try:

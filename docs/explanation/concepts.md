@@ -2,6 +2,8 @@
 
 This page explains key concepts that help you understand how and why fsspeckit's APIs are designed the way they are.
 
+> **Package Structure Note:** fsspeckit has been refactored to use a package-based structure. The preferred import paths are now `from fsspeckit.core import filesystem` and `from fsspeckit.datasets.pyarrow import ...`, though legacy imports still work for backward compatibility.
+
 ## Path Safety and DirFileSystem
 
 ### Why Path Safety Matters
@@ -14,7 +16,10 @@ import os
 os.open("../../../etc/passwd", os.O_RDONLY)  # Can access system files
 
 # Safe: Path-constrained access
-from fsspeckit.core.filesystem import DirFileSystem, filesystem
+from fsspeckit.core import DirFileSystem, filesystem
+
+# Legacy import (still works but deprecated)
+# from fsspeckit.core.filesystem import DirFileSystem, filesystem
 
 # Automatic path safety (default)
 safe_fs = filesystem("/data/allowed", dirfs=True)

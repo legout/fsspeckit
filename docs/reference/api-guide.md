@@ -2,6 +2,8 @@
 
 This guide provides a capability-oriented overview of fsspeckit's public API. For detailed method signatures and parameters, see the [generated API documentation](../api/index.md).
 
+> **Package Structure Note:** fsspeckit has been refactored to use a package-based structure. While legacy import paths still work, new code should use the improved package structure for better organization and discoverability.
+
 ## Core Capabilities
 
 ### Filesystem Factory

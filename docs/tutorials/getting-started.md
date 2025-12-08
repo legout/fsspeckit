@@ -2,6 +2,8 @@
 
 This tutorial will walk you through your first steps with `fsspeckit`. You'll learn how to install the library, work with local and cloud storage, and perform basic dataset operations.
 
+> **Package Structure Note:** fsspeckit has been refactored to use a package-based structure. While legacy import paths still work for backward compatibility, the new structure provides better organization and discoverability. See the [Architecture Guide](../explanation/architecture.md) for details.
+
 ## Prerequisites
 
 - Python 3.11 or higher
@@ -29,8 +31,12 @@ For detailed installation instructions, see the [Installation Guide](../installa
 Let's start by creating a local filesystem and performing basic operations:
 
 ```python
-from fsspeckit.core.filesystem import filesystem
+# New preferred import path
+from fsspeckit.core import filesystem
 import os
+
+# Legacy import (still works but deprecated)
+# from fsspeckit.core.filesystem import filesystem
 
 # Create a local filesystem
 # Note: filesystem() wraps the filesystem in DirFileSystem by default (dirfs=True)
@@ -63,7 +69,10 @@ Now let's configure cloud storage. We'll use environment variables for credentia
 
 ```python
 from fsspeckit.storage_options import storage_options_from_env
-from fsspeckit.core.filesystem import filesystem
+from fsspeckit.core import filesystem
+
+# Legacy import (still works but deprecated)
+# from fsspeckit.core.filesystem import filesystem
 
 # Set environment variables (or set them in your environment)
 import os

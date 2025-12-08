@@ -6,33 +6,22 @@ This module has been decomposed into focused submodules:
 
 All public APIs are re-exported here to maintain backward compatibility.
 New code should import directly from the submodules for better organization.
+
+DEPRECATED: This module is deprecated. Import from fsspeckit.datasets.pyarrow instead.
 """
 
-# Re-export schema utilities
-from fsspeckit.datasets.pyarrow_schema import (
-    cast_schema,
-    convert_large_types_to_normal,
-    opt_dtype,
-    remove_empty_columns,
-    unify_schemas,
+import warnings
+
+# Emit deprecation warning
+warnings.warn(
+    "Importing from fsspeckit.datasets.pyarrow is deprecated. "
+    "Import from fsspeckit.datasets.pyarrow directly instead, e.g., "
+    "from fsspeckit.datasets.pyarrow import merge_parquet_dataset_pyarrow",
+    DeprecationWarning,
+    stacklevel=2,
 )
 
-# Re-export dataset operations
-from fsspeckit.datasets.pyarrow_dataset import (
-    collect_dataset_stats_pyarrow,
-    compact_parquet_dataset_pyarrow,
-    merge_parquet_dataset_pyarrow,
-    optimize_parquet_dataset_pyarrow,
-)
+# Re-export from new location
+from fsspeckit.datasets.pyarrow import *  # noqa: F401,F403
 
-__all__ = [
-    # Schema utilities
-    "cast_schema",
-    "collect_dataset_stats_pyarrow",
-    "compact_parquet_dataset_pyarrow",
-    "convert_large_types_to_normal",
-    "merge_parquet_dataset_pyarrow",
-    "opt_dtype",
-    "optimize_parquet_dataset_pyarrow",
-    "unify_schemas",
-]
+__all__ = []  # All exports come from the imported module

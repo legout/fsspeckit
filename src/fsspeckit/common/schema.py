@@ -38,7 +38,7 @@ import numpy as np
 import pyarrow as pa
 import pyarrow.dataset as ds
 
-from fsspeckit.common.logging_config import get_logger
+from fsspeckit.common.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -851,7 +851,11 @@ def unify_schemas(
 
             except (pa.ArrowInvalid, pa.ArrowTypeError, ValueError) as e:
                 if verbose:
-                    logger.debug("✗ Remove conflicting fields fallback failed: %s", str(e), exc_info=True)
+                    logger.debug(
+                        "✗ Remove conflicting fields fallback failed: %s",
+                        str(e),
+                        exc_info=True,
+                    )
 
         # Fallback 3: Remove problematic fields that can't be unified
         try:
@@ -870,7 +874,9 @@ def unify_schemas(
 
         except (pa.ArrowInvalid, pa.ArrowTypeError, ValueError) as e:
             if verbose:
-                logger.debug("✗ Minimal schema fallback failed: %s", str(e), exc_info=True)
+                logger.debug(
+                    "✗ Minimal schema fallback failed: %s", str(e), exc_info=True
+                )
 
         # Fallback 4: Return first schema as last resort
         if verbose:

@@ -2,6 +2,8 @@
 
 This page explains the `fsspeckit.utils` module as a backwards-compatible façade and provides guidance for migrating to domain packages.
 
+> **Package Structure Note:** fsspeckit has been refactored to use a package-based structure. This page provides migration guidance from the old flat module structure to the new package-based organization.
+
 ## Overview
 
 `fsspeckit.utils` serves as a backwards-compatible façade that re-exports selected helpers from domain packages. While existing code continues to work, new development should import directly from domain packages for better discoverability and type hints.
