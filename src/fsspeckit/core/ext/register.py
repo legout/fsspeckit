@@ -24,8 +24,13 @@ from fsspeckit.core.ext.parquet import (
 from fsspeckit.core.ext.json import write_json
 from fsspeckit.core.ext.csv import write_csv
 from fsspeckit.core.ext.dataset import (
+    deduplicate_dataset,
+    insert_dataset,
     pyarrow_dataset,
     pyarrow_parquet_dataset,
+    update_dataset,
+    upsert_dataset,
+    write_pyarrow_dataset,
 )
 
 # Import universal I/O helpers
@@ -68,3 +73,8 @@ AbstractFileSystem.write_json = write_json
 AbstractFileSystem.write_csv = write_csv
 AbstractFileSystem.write_file = write_file
 AbstractFileSystem.write_files = write_files
+AbstractFileSystem.write_pyarrow_dataset = write_pyarrow_dataset
+AbstractFileSystem.insert_dataset = insert_dataset
+AbstractFileSystem.upsert_dataset = upsert_dataset
+AbstractFileSystem.update_dataset = update_dataset
+AbstractFileSystem.deduplicate_dataset = deduplicate_dataset

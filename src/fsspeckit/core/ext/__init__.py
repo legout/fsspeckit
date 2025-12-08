@@ -39,8 +39,13 @@ from .parquet import (
 
 # Dataset helpers
 from .dataset import (
+    deduplicate_dataset,
+    insert_dataset,
     pyarrow_dataset,
     pyarrow_parquet_dataset,
+    update_dataset,
+    upsert_dataset,
+    write_pyarrow_dataset,
 )
 
 # Universal I/O
@@ -70,6 +75,11 @@ __all__ = [
     # Dataset helpers
     "pyarrow_dataset",
     "pyarrow_parquet_dataset",
+    "write_pyarrow_dataset",
+    "insert_dataset",
+    "upsert_dataset",
+    "update_dataset",
+    "deduplicate_dataset",
     # Universal I/O
     "read_files",
     "write_file",

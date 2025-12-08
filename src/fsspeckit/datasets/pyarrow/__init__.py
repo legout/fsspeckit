@@ -24,6 +24,17 @@ from .dataset import (
     optimize_parquet_dataset_pyarrow,
 )
 
+# Re-export dataset write functions
+from fsspeckit.core.ext.dataset import (
+    deduplicate_dataset,
+    insert_dataset,
+    pyarrow_dataset,
+    pyarrow_parquet_dataset,
+    update_dataset,
+    upsert_dataset,
+    write_pyarrow_dataset,
+)
+
 __all__ = [
     # Schema utilities
     "cast_schema",
@@ -33,6 +44,13 @@ __all__ = [
     "merge_parquet_dataset_pyarrow",
     "opt_dtype",
     "optimize_parquet_dataset_pyarrow",
+    "pyarrow_dataset",
+    "pyarrow_parquet_dataset",
     "remove_empty_columns",
     "unify_schemas",
+    "write_pyarrow_dataset",
+    "deduplicate_dataset",
+    "insert_dataset",
+    "update_dataset",
+    "upsert_dataset",
 ]

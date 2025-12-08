@@ -548,14 +548,7 @@ def merge_parquet_dataset_pyarrow(
         print(f"Merged {stats.total_rows} rows")
         ```
     """
-    # Validate inputs using shared core logic
-    validate_merge_inputs(
-        sources=sources,
-        strategy=strategy,
-        key_columns=key_columns,
-        target=target,
-    )
-
+    # Validate strategy compatibility
     validate_strategy_compatibility(strategy, key_columns, target)
 
     # Normalize parameters

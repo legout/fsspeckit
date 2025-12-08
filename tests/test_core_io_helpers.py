@@ -5,6 +5,10 @@ import json
 from unittest.mock import patch
 
 import pytest
+import pyarrow as pa
+
+# Import to trigger registration
+import fsspeckit.core.ext  # noqa: F401
 
 
 class MockFileSystem:
@@ -219,4 +223,359 @@ class TestJoblibAvailability:
         finally:
             # Restore original state
             optional_mod._JOBLIB_AVAILABLE = original_joblib_available
+
+
+class TestWritePyArrowDataset:
+    """Test write_pyarrow_dataset with various strategies."""
+
+    def test_write_standard_dataset(self, tmp_path):
+        """Test standard dataset write without merge strategy."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        table = pa.table({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+        dataset_path = str(tmp_path / "dataset")
+
+        # Write without merge strategy
+        result = fs.write_pyarrow_dataset(
+            data=table,
+            path=dataset_path,
+        )
+
+        # Verify dataset was created
+        assert fs.exists(dataset_path)
+        assert any(fs.glob(f"{dataset_path}/**/*.parquet"))
+
+        # Read back and verify
+        result_table = _read_dataset_table(dataset_path)
+        assert result_table.num_rows == 3
+        assert result_table.column_names == ["id", "value"]
+
+    def test_write_with_upsert_strategy(self, tmp_path):
+        """Test upsert merge strategy."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        # Create initial dataset
+        initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
+        dataset_path = str(tmp_path / "dataset")
+        fs.write_pyarrow_dataset(
+            data=initial,
+            path=dataset_path,
+        )
+
+        # Upsert with new and updated data
+        upsert_data = pa.table({"id": [2, 3], "value": ["updated", "c"]})
+        fs.write_pyarrow_dataset(
+            data=upsert_data,
+            path=dataset_path,
+            strategy="upsert",
+            key_columns="id",
+        )
+
+        # Verify results
+        result = _read_dataset_table(dataset_path)
+        assert result.num_rows == 3
+        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
+        assert values[1] == "a"  # Unchanged
+        assert values[2] == "updated"  # Updated
+        assert values[3] == "c"  # Inserted
+
+    def test_write_with_insert_strategy(self, tmp_path):
+        """Test insert-only merge strategy."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        # Create initial dataset
+        initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
+        dataset_path = str(tmp_path / "dataset")
+        fs.write_pyarrow_dataset(
+            data=initial,
+            path=dataset_path,
+        )
+
+        # Insert with new and existing data
+        insert_data = pa.table({"id": [2, 3], "value": ["dupe", "c"]})
+        fs.write_pyarrow_dataset(
+            data=insert_data,
+            path=dataset_path,
+            strategy="insert",
+            key_columns="id",
+        )
+
+        # Verify only new rows were inserted
+        result = _read_dataset_table(dataset_path)
+        assert result.num_rows == 3
+        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
+        assert values[1] == "a"  # Unchanged
+        assert values[2] == "b"  # Unchanged (was "dupe" in source)
+        assert values[3] == "c"  # Inserted
+
+    def test_write_with_update_strategy(self, tmp_path):
+        """Test update-only merge strategy."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        # Create initial dataset
+        initial = pa.table({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+        dataset_path = str(tmp_path / "dataset")
+        fs.write_pyarrow_dataset(
+            data=initial,
+            path=dataset_path,
+        )
+
+        # Update existing and try to insert new
+        update_data = pa.table({"id": [2, 4], "value": ["updated", "new"]})
+        fs.write_pyarrow_dataset(
+            data=update_data,
+            path=dataset_path,
+            strategy="update",
+            key_columns="id",
+        )
+
+        # Verify only existing rows were updated
+        result = _read_dataset_table(dataset_path)
+        assert result.num_rows == 3
+        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
+        assert values[1] == "a"  # Unchanged
+        assert values[2] == "updated"  # Updated
+        assert values[3] == "c"  # Unchanged (new row was ignored)
+
+    def test_write_with_deduplicate_strategy(self, tmp_path):
+        """Test deduplicate merge strategy."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        # Create initial dataset
+        initial = pa.table({"id": [1], "value": ["original"], "ts": [1]})
+        dataset_path = str(tmp_path / "dataset")
+        fs.write_pyarrow_dataset(
+            data=initial,
+            path=dataset_path,
+        )
+
+        # Deduplicate with multiple rows
+        dedup_data = pa.table({
+            "id": [1, 1, 2],
+            "value": ["old", "new", "c"],
+            "ts": [1, 2, 1],
+        })
+        fs.write_pyarrow_dataset(
+            data=dedup_data,
+            path=dataset_path,
+            strategy="deduplicate",
+            key_columns="id",
+            dedup_order_by="ts",
+        )
+
+        # Verify deduplication kept the right row
+        result = _read_dataset_table(dataset_path)
+        assert result.num_rows == 2
+        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
+        assert values[1] == "new"  # Latest timestamp
+        assert values[2] == "c"  # Inserted
+
+    def test_write_with_full_merge_strategy(self, tmp_path):
+        """Test full_merge strategy."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        # Create initial dataset
+        initial = pa.table({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+        dataset_path = str(tmp_path / "dataset")
+        fs.write_pyarrow_dataset(
+            data=initial,
+            path=dataset_path,
+        )
+
+        # Full merge with subset
+        merge_data = pa.table({"id": [2, 4], "value": ["updated", "d"]})
+        fs.write_pyarrow_dataset(
+            data=merge_data,
+            path=dataset_path,
+            strategy="full_merge",
+            key_columns="id",
+        )
+
+        # Verify full replacement
+        result = _read_dataset_table(dataset_path)
+        assert result.num_rows == 2
+        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
+        assert values[2] == "updated"
+        assert values[4] == "d"
+
+
+class TestConvenienceHelpers:
+    """Test convenience helper methods."""
+
+    def test_insert_dataset(self, tmp_path):
+        """Test insert_dataset convenience helper."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        # Create initial dataset
+        initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
+        dataset_path = str(tmp_path / "dataset")
+        fs.write_pyarrow_dataset(data=initial, path=dataset_path)
+
+        # Use convenience helper
+        new_data = pa.table({"id": [2, 3], "value": ["dupe", "c"]})
+        fs.insert_dataset(
+            data=new_data,
+            path=dataset_path,
+            key_columns="id",
+        )
+
+        # Verify
+        result = _read_dataset_table(dataset_path)
+        assert result.num_rows == 3
+        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
+        assert values[2] == "b"  # Unchanged
+        assert values[3] == "c"  # Inserted
+
+    def test_upsert_dataset(self, tmp_path):
+        """Test upsert_dataset convenience helper."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        # Create initial dataset
+        initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
+        dataset_path = str(tmp_path / "dataset")
+        fs.write_pyarrow_dataset(data=initial, path=dataset_path)
+
+        # Use convenience helper
+        upsert_data = pa.table({"id": [2, 3], "value": ["updated", "c"]})
+        fs.upsert_dataset(
+            data=upsert_data,
+            path=dataset_path,
+            key_columns="id",
+        )
+
+        # Verify
+        result = _read_dataset_table(dataset_path)
+        assert result.num_rows == 3
+        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
+        assert values[2] == "updated"
+        assert values[3] == "c"
+
+    def test_update_dataset(self, tmp_path):
+        """Test update_dataset convenience helper."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        # Create initial dataset
+        initial = pa.table({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+        dataset_path = str(tmp_path / "dataset")
+        fs.write_pyarrow_dataset(data=initial, path=dataset_path)
+
+        # Use convenience helper
+        update_data = pa.table({"id": [2, 4], "value": ["updated", "new"]})
+        fs.update_dataset(
+            data=update_data,
+            path=dataset_path,
+            key_columns="id",
+        )
+
+        # Verify
+        result = _read_dataset_table(dataset_path)
+        assert result.num_rows == 3
+        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
+        assert values[2] == "updated"
+        assert values[3] == "c"  # Unchanged
+
+    def test_deduplicate_dataset(self, tmp_path):
+        """Test deduplicate_dataset convenience helper."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        # Create initial dataset
+        initial = pa.table({"id": [1], "value": ["original"], "ts": [1]})
+        dataset_path = str(tmp_path / "dataset")
+        fs.write_pyarrow_dataset(data=initial, path=dataset_path)
+
+        # Use convenience helper
+        dedup_data = pa.table({
+            "id": [1, 1, 2],
+            "value": ["old", "new", "c"],
+            "ts": [1, 2, 1],
+        })
+        fs.deduplicate_dataset(
+            data=dedup_data,
+            path=dataset_path,
+            key_columns="id",
+            dedup_order_by="ts",
+        )
+
+        # Verify
+        result = _read_dataset_table(dataset_path)
+        assert result.num_rows == 2
+        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
+        assert values[1] == "new"
+        assert values[2] == "c"
+
+    def test_insert_dataset_requires_key_columns(self, tmp_path):
+        """Test that insert_dataset requires key_columns."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        dataset_path = str(tmp_path / "dataset")
+        data = pa.table({"id": [1, 2], "value": ["a", "b"]})
+
+        # Should raise ValueError
+        with pytest.raises(ValueError, match="key_columns is required"):
+            fs.insert_dataset(
+                data=data,
+                path=dataset_path,
+            )
+
+    def test_upsert_dataset_requires_key_columns(self, tmp_path):
+        """Test that upsert_dataset requires key_columns."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        dataset_path = str(tmp_path / "dataset")
+        data = pa.table({"id": [1, 2], "value": ["a", "b"]})
+
+        # Should raise ValueError
+        with pytest.raises(ValueError, match="key_columns is required"):
+            fs.upsert_dataset(
+                data=data,
+                path=dataset_path,
+            )
+
+    def test_update_dataset_requires_key_columns(self, tmp_path):
+        """Test that update_dataset requires key_columns."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        dataset_path = str(tmp_path / "dataset")
+        data = pa.table({"id": [1, 2], "value": ["a", "b"]})
+
+        # Should raise ValueError
+        with pytest.raises(ValueError, match="key_columns is required"):
+            fs.update_dataset(
+                data=data,
+                path=dataset_path,
+            )
+
+
+def _read_dataset_table(path: str) -> pa.Table:
+    """Read a dataset as a single table."""
+    import pyarrow.dataset as ds
+
+    dataset = ds.dataset(path)
+    return dataset.to_table()
 
