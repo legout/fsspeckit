@@ -46,6 +46,11 @@ dependencies = [
     "rich>=14.0.0",
     "obstore>=0.8.2",
     "mcp>=1.23.1",
+    "numpy>=2.3.5",
+    "pyarrow>=22.0.0",
+    "pandas>=2.3.3",
+    "polars>=1.35.2",
+    "orjson>=3.11.4",
 ]
 [project.optional-dependencies]
 aws = ["boto3>=1.26.0", "s3fs>=2025.1.0"]

@@ -175,6 +175,32 @@ df_polars = fs.read_files("data/*.parquet", as_dataframe=True)
 table_arrow = fs.read_files("data/*.parquet", as_dataframe=False)
 ```
 
+### Threading and Performance
+
+The `use_threads` parameter controls parallel processing:
+
+```python
+# Enable parallel reading (default: True)
+df = fs.read_files("data/*.csv", format="csv", use_threads=True)
+
+# Sequential processing for debugging
+df = fs.read_files("data/*.csv", format="csv", use_threads=False)
+
+# Batch processing with threading
+for batch in fs.read_files(
+    "large_dataset/*.parquet",
+    format="parquet",
+    batch_size=10,
+    use_threads=True  # Parallel processing within batches
+):
+    process_batch(batch)
+```
+
+**Performance Guidelines:**
+- Single files: `use_threads` has no effect
+- Multiple files: `use_threads=True` can provide 2-10x speedup
+- Use `use_threads=False` for debugging or when parallel processing causes issues
+
 ## Writing Data
 
 ### Writing DataFrames
@@ -201,6 +227,38 @@ fs.write_json(df, "output.json")
 
 # Write with compression
 fs.write_parquet(df, "output.parquet", compression="zstd")
+```
+
+### Writing Multiple Files with Threading
+
+```python
+# Create sample data
+data1 = pl.DataFrame({"id": [1, 2], "value": ["a", "b"]})
+data2 = pl.DataFrame({"id": [3, 4], "value": ["c", "d"]})
+
+# Write multiple files with parallel processing (default)
+fs.write_files(
+    data=[data1, data2],
+    path=["output1.json", "output2.json"],
+    format="json",
+    use_threads=True  # Enable parallel writing
+)
+
+# Sequential writing for debugging
+fs.write_files(
+    data=[data1, data2],
+    path=["output1.csv", "output2.csv"],
+    format="csv",
+    use_threads=False  # Sequential processing
+)
+
+# Single path, multiple data (auto-replicates path)
+fs.write_files(
+    data=[data1, data2],
+    path="output.json",
+    format="json"
+)
+# Creates: output.json, output-1.json
 ```
 
 ### Writing PyArrow Tables

@@ -2,6 +2,69 @@
 
 This module provides extended functionalities for `fsspec.AbstractFileSystem`, including methods for reading and writing various file formats (JSON, CSV, Parquet) with advanced options like batch processing, parallelization, and data type optimization. It also includes functions for creating PyArrow datasets.
 
+## Optional Dependencies
+
+The extended I/O helpers support multiple data formats through optional dependencies. The core module imports work without these dependencies, but format-specific operations require the corresponding packages to be installed.
+
+### Format Requirements
+
+| Format | Required Package | Install Command | Extras Group |
+| :----- | :--------------- | :-------------- | :----------- |
+| JSON | `orjson` (recommended) or `json` (built-in) | `pip install orjson` | `sql` |
+| CSV | `polars` | `pip install polars` | `datasets` |
+| Parquet | `pyarrow` | `pip install pyarrow` | `datasets` |
+| Dataset Operations | `polars`, `pyarrow`, `pandas` | `pip install polars pyarrow pandas` | `datasets` |
+
+### Lazy Loading Behavior
+
+The module uses lazy loading to minimize startup dependencies:
+
+```python
+# These imports work without optional dependencies
+from fsspeckit.core.ext_io import read_files, write_files, write_file
+
+# Using the functions triggers dependency loading
+try:
+    df = fs.read_files("data.csv", format="csv")  # Requires polars
+    table = fs.read_files("data.parquet", format="parquet")  # Requires pyarrow
+    fs.write_files(data, "output.json", format="json")  # Requires orjson
+except ImportError as e:
+    print(f"Missing dependency: {e}")
+    print("Install with: pip install fsspeckit[datasets]")
+```
+
+### Error Messages
+
+When optional dependencies are missing, you'll receive helpful error messages:
+
+```python
+# Missing polars for CSV operations
+ImportError: polars is required for this function. Install with: pip install fsspeckit[datasets]
+
+# Missing pyarrow for Parquet operations  
+ImportError: pyarrow is required for this function. Install with: pip install fsspeckit[datasets]
+
+# Missing orjson for JSON operations
+ImportError: orjson is required for this function. Install with: pip install fsspeckit[sql]
+```
+
+### Installation Recommendations
+
+**For basic CSV operations:**
+```bash
+pip install fsspeckit[datasets]
+```
+
+**For full functionality including JSON, Parquet, and datasets:**
+```bash
+pip install fsspeckit[datasets,sql]
+```
+
+**For development and testing:**
+```bash
+pip install fsspeckit[datasets,sql,dev]
+```
+
 ---
 
 ## `path_to_glob()`
@@ -359,21 +422,33 @@ A unified API that automatically delegates to the appropriate reading function b
 - File path tracking
 - Format-specific optimizations
 
+### Threading Behavior
+
+The `use_threads` parameter controls parallel file reading:
+
+- **`use_threads=True`** (default): Enables parallel processing using threading backend. Files are read concurrently, which significantly improves performance for multiple files.
+- **`use_threads=False`**: Sequential processing. Files are read one after another, useful for debugging or when parallel processing causes issues.
+
+**Performance Impact:**
+- For single files: No difference in performance
+- For multiple files: `use_threads=True` can provide 2-10x speedup depending on file count and size
+- Memory usage: Threading mode may use slightly more memory due to concurrent operations
+
 | Parameter | Type | Description |
-| :-------- | :--- | :---------- |
+| | :-------- | :--- | :---------- |
 | `path` | `str` or `list[str]` | Path(s) to data file(s). Can be: - Single path string (globs supported) - List of path strings |
 | `format` | `str` | File format to read. Supported values: - "json": Regular JSON or JSON Lines - "csv": CSV files - "parquet": Parquet files |
 | `batch_size` | `int | None` | If set, enables batch reading with this many files per batch |
 | `include_file_path` | `bool` | Add source filepath as column/field |
 | `concat` | `bool` | Combine multiple files/batches into single result |
 | `jsonlines` | `bool` | For JSON format, whether to read as JSON Lines |
-| `use_threads` | `bool` | Enable parallel file reading |
+| `use_threads` | `bool` | Enable parallel file reading (default: True) |
 | `verbose` | `bool` | Print progress information |
 | `opt_dtypes` | `bool` | Optimize DataFrame/Arrow Table dtypes for performance |
 | `**kwargs` | `Any` | Additional format-specific arguments |
 
 | Returns | Type | Description |
-| :------ | :--- | :---------- |
+| | :------ | :--- | :---------- |
 | `pl.DataFrame` or `pa.Table` or `list[pl.DataFrame]` or `list[pa.Table]` or `Generator` | Various types depending on format and arguments: - `pl.DataFrame`: For CSV and optionally JSON - `pa.Table`: For Parquet - `list[pl.DataFrame` or `pa.Table]`: Without concatenation - `Generator`: If `batch_size` set, yields batches |
 
 **Example:**
@@ -382,7 +457,7 @@ A unified API that automatically delegates to the appropriate reading function b
 from fsspec.implementations.local import LocalFileSystem
 
 fs = LocalFileSystem()
-# Read CSV files
+# Read CSV files with parallel processing (default)
 df = fs.read_files(
     "data/*.csv",
     format="csv",
@@ -391,21 +466,22 @@ df = fs.read_files(
 print(type(df))
 # <class 'polars.DataFrame'>
 
-# Batch process Parquet files
+# Batch process Parquet files with threading
 for batch in fs.read_files(
     "data/*.parquet",
     format="parquet",
     batch_size=100,
-    use_threads=True
+    use_threads=True  # Enable parallel processing
 ):
     print(f"Batch type: {type(batch)}")
 
-# Read JSON Lines
+# Sequential processing for debugging
 df = fs.read_files(
     "logs/*.jsonl",
     format="json",
     jsonlines=True,
-    concat=True
+    concat=True,
+    use_threads=False  # Sequential processing
 )
 print(df.columns)
 ```
@@ -748,26 +824,88 @@ Write a DataFrame to a file in the given format.
 
 Write a DataFrame or a list of DataFrames to a file or a list of files.
 
+### Threading Behavior
+
+The `use_threads` parameter controls parallel file writing:
+
+- **`use_threads=True`** (default): Enables parallel processing using joblib's threading backend. Multiple files are written concurrently, which significantly improves performance for writing many files.
+- **`use_threads=False`**: Sequential processing. Files are written one after another, useful for debugging or when parallel processing causes issues.
+
+**Performance Impact:**
+- For single files: No difference in performance
+- For multiple files: `use_threads=True` can provide 2-8x speedup depending on file count and size
+- Memory usage: Threading mode may use slightly more memory due to concurrent operations
+
+### Path Handling
+
+The function intelligently handles different path and data combinations:
+
+- **Single path + Single data**: Writes to the specified path
+- **Single path + Multiple data**: Replicates the path for each data item
+- **Multiple paths + Single data**: Replicates the data for each path
+- **Multiple paths + Multiple data**: Pairs data items with paths by index
+
 | Parameter | Type | Description |
-| :-------- | :--- | :---------- |
+| | :-------- | :--- | :---------- |
 | `data` | `pl.DataFrame` or `pl.LazyFrame` or `pa.Table` or `pa.RecordBatch` or `pa.RecordBatchReader` or `pd.DataFrame` or `dict` or `list[pl.DataFrame` or `pl.LazyFrame` or `pa.Table` or `pa.RecordBatch` or `pa.RecordBatchReader` or `pd.DataFrame` or `dict]` | Data to write. |
-| `path` | `str` or `list[str]` | Path to write the data. |
+| `path` | `str` or `list[str]` | Path to write the data. Can be single path or list of paths. |
 | `basename` | `str` | Basename of the files. Defaults to None. |
-| `format` | `str` | Format of the data. Defaults to None. |
+| `format` | `str` | Format of the data. Defaults to None (inferred from path). |
 | `concat` | `bool` | If True, concatenate the DataFrames. Defaults to True. |
 | `unique` | `bool` or `list[str]` or `str` | If True, remove duplicates. Defaults to False. |
-| `mode` | `str` | Write mode. Defaults to 'append'. Options: 'append', 'overwrite', 'delete_matching', 'error_if_exists'. |
-| `use_threads` | `bool` | If True, use parallel processing. Defaults to True. |
-| `verbose` | `bool` | If True, print verbose output. Defaults to True. |
+| `mode` | `str` | Write mode. Defaults to 'append'. Options: - 'append': Append to existing files or create numbered variants - 'overwrite': Remove existing files first - 'delete_matching': Delete matching files before writing - 'error_if_exists': Raise error if files exist |
+| `use_threads` | `bool` | If True, use parallel processing (default: True). Controls whether files are written concurrently. |
+| `verbose` | `bool` | If True, print verbose output. Defaults to False. |
 | `**kwargs` | `Any` | Additional keyword arguments. |
 
 | Returns | Type | Description |
-| :------ | :--- | :---------- |
+| | :------ | :--- | :---------- |
 | `None` | `None` | |
 
 | Raises | Type | Description |
-| :----- | :--- | :---------- |
+| | :----- | :--- | :---------- |
 | `FileExistsError` | `FileExistsError` | If file already exists and mode is 'error_if_exists'. |
+
+**Example:**
+
+```python
+from fsspec.implementations.local import LocalFileSystem
+import polars as pl
+
+fs = LocalFileSystem()
+
+# Create sample data
+data1 = pl.DataFrame({"id": [1, 2], "value": ["a", "b"]})
+data2 = pl.DataFrame({"id": [3, 4], "value": ["c", "d"]})
+
+# Write multiple files with parallel processing (default)
+fs.write_files(
+    data=[data1, data2],
+    path=["output1.json", "output2.json"],
+    format="json",
+    use_threads=True  # Enable parallel writing
+)
+
+# Sequential writing for debugging
+fs.write_files(
+    data=[data1, data2],
+    path=["output1.csv", "output2.csv"],
+    format="csv",
+    use_threads=False  # Sequential processing
+)
+
+# Single path, multiple data (replicates path)
+fs.write_files(
+    data=[data1, data2],
+    path="output.json",
+    format="json"
+)
+# Creates: output.json, output-1.json
+
+# Different write modes
+fs.write_files(data1, "output.parquet", mode="overwrite")
+fs.write_files(data2, "output.parquet", mode="append")
+```
 
 ---
 

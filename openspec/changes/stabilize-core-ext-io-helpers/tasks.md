@@ -10,16 +10,16 @@
 
 ## 2. Testing
 
-- [ ] 2.1 Add or extend tests for `write_files` covering:
-  - [ ] 2.1.1 Single path (string) vs list of paths for each format.
-  - [ ] 2.1.2 `use_threads=True` and `use_threads=False` for all supported modes.
-- [ ] 2.2 Add or extend tests for `read_files` ensuring:
-  - [ ] 2.2.1 Each format delegates to the correct underlying helper.
-  - [ ] 2.2.2 Behaviour when optional dependencies are missing is a clear `ImportError` with the documented message.
+- [x] 2.1 Add or extend tests for `write_files` covering:
+  - [x] 2.1.1 Single path (string) vs list of paths for each format.
+  - [x] 2.1.2 `use_threads=True` and `use_threads=False` for all supported modes.
+- [x] 2.2 Add or extend tests for `read_files` ensuring:
+  - [x] 2.2.1 Each format delegates to the correct underlying helper.
+  - [x] 2.2.2 Behaviour when optional dependencies are missing is a clear `ImportError` with the documented message.
 
 ## 3. Documentation
 
-- [ ] 3.1 Update reference documentation to clarify:
-  - [ ] 3.1.1 Behaviour of `read_files` / `write_files` in threaded and non-threaded modes.
-  - [ ] 3.1.2 Requirements for optional dependencies and the extras groups required for each format.
+- [x] 3.1 Update reference documentation to clarify:
+  - [x] 3.1.1 Behaviour of `read_files` / `write_files` in threaded and non-threaded modes.
+  - [x] 3.1.2 Requirements for optional dependencies and the extras groups required for each format.
 
