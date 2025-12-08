@@ -1,7 +1,9 @@
 ## 1. Implementation
 
-- [ ] 1.1 Move `_unregister_duckdb_table_safely` into a single canonical DuckDB helpers module.
-- [ ] 1.2 Update `duckdb_connection` and any other DuckDB modules to import and use the canonical helper.
+- [ ] 1.1 Move `_unregister_duckdb_table_safely` into the canonical DuckDB helpers module
+      (for example `fsspeckit.datasets.duckdb.helpers`) defined by the package-based layout.
+- [ ] 1.2 Update the DuckDB connection and dataset implementation modules under `fsspeckit.datasets.duckdb`
+      to import and use the canonical helper (target the package modules, not the legacy shim files).
 - [ ] 1.3 Review CSV/Parquet helpers for `use_threads` defaults and joblib usage:
   - [ ] 1.3.1 Ensure base behaviour does not require joblib when `use_threads=False`.
   - [ ] 1.3.2 Ensure that requesting parallel execution without joblib yields a clear `ImportError` with guidance.
@@ -20,4 +22,3 @@
 - [ ] 3.1 Update performance/parallelism documentation to explain:
   - [ ] 3.1.1 That joblib is only required for threaded execution.
   - [ ] 3.1.2 How to enable threaded execution via the appropriate extras.
-

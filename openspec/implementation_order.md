@@ -1,451 +1,94 @@
-# Implementation Plan for OpenSpec Change Proposals
-
-## Executive Summary
-
-This plan defines the implementation ordering for **10 active OpenSpec change proposals** in the fsspeckit project. The strategy uses a **3-phase approach** with significant parallelization opportunities, designed to minimize dependencies and accelerate completion.
-
-**Total Estimated Duration:** 7-10 days with parallel execution
-**Critical Path:** 2 proposals (`standardize-logging-infrastructure` and `refactor-large-modules-structure`)
-**Maximum Parallelization:** 6 proposals can run simultaneously in Phase 2
-
----
-
-## Current State Analysis
-
-### 10 Active Proposals Identified
+# Implementation Order for Open OpenSpec Changes
 
-| Proposal | Status | Risk Level | Complexity |
-|----------|--------|------------|------------|
-| add-basic-security-validation | Active | Low | Medium |
-| refactor-large-modules-structure | ✅ Completed | High | High |
-| standardize-logging-infrastructure | Draft | Medium | Medium |
-| strengthen-types-and-tests | Active | Medium | Medium |
-| fix-core-io-error-handling | Draft | Medium | Medium |
-| fix-duckdb-error-handling | Draft | Medium | Medium |
-| fix-pyarrow-error-handling | Draft | Medium | Medium |
-| fix-maintenance-error-handling | Draft | Low | Low |
-| fix-common-modules-error-handling | Draft | Low | Medium |
-| fix-storage-options-error-handling | Draft | Low | Medium |
-
-### Key Dependencies
-
-1. **`standardize-logging-infrastructure`** → **Blocks all 6 error handling proposals**
-   - Error handling fixes require centralized logger to be in place first
-
-2. **`refactor-large-modules-structure`** → **Blocks `strengthen-types-and-tests`**
-   - Should complete before adding type annotations to code that will be refactored
-
-3. **`add-basic-security-validation`** → **Independent**
-   - Can proceed at any time, no blocking dependencies
-
----
-
-## Phase-Based Implementation Strategy
-
-### Phase 1: Foundation (Days 1-3) - CRITICAL PATH
-
-**Objective:** Establish foundational infrastructure that enables subsequent work
-
-#### Week 1 (Days 1-2) - Parallel Foundation Work
-
-**1.1 `add-basic-security-validation`** (Low Risk)
-- **Scope:** Path validation, codec validation, credential scrubbing
-- **Files Affected:**
-  - DuckDB/PyArrow dataset helpers
-  - AWS storage options
-- **Execution:** Can run independently, assign to 1 developer
-- **Risk:** Low - defensive additions, minimal API impact
-- **Success Criteria:**
-  - ✅ Path validation rejects control characters and path traversal
-  - ✅ Compression codecs validated against whitelist
-  - ✅ Credentials scrubbed from error logs
-
-**1.2 `standardize-logging-infrastructure`** (Medium Risk) ⚠️ CRITICAL PATH
-- **Scope:** Centralized logging configuration and migration
-- **Files Affected:** All modules with print() statements
-- **Execution:** Assign to 1-2 developers
-- **Risk:** Medium - affects error reporting across project
-- **Success Criteria:**
-  - ✅ `logging_config.py` created and operational
-  - ✅ All `print()` statements replaced with logger calls
-  - ✅ Structured logging with contextual information
-  - ✅ Exception logging with stack traces
-
-#### Week 1 (Day 3) - High-Risk Refactor
-
-**1.3 `refactor-large-modules-structure`** (High Risk) ⚠️ CRITICAL PATH ✅ COMPLETED
-- **Scope:** Decompose 4 large modules into focused submodules
-- **Files Affected:**
-  - `core/ext.py` (~2k lines) → JSON, CSV, Parquet modules
-  - `datasets/pyarrow.py` (~2k lines) → schema + dataset ops modules
-  - `datasets/duckdb.py` (~1.3k lines) → connection mgmt + IO modules
-  - `core/filesystem.py` (~1k lines) → focused helpers
-- **Execution:** Completed successfully
-- **Risk:** High - structural changes, but no public API changes
-- **Success Criteria:**
-  - ✅ All 4 modules successfully decomposed
-  - ✅ Public entrypoints preserved via re-exports
-  - ✅ 100% backward compatibility maintained
-  - ✅ All tests pass
-- **Implementation Details:**
-  - Created 12 focused submodules across the 4 main modules
-  - Maintained backward compatibility through re-export modules
-  - Reduced total lines by ~3500+ lines through better organization
-  - Documentation updated with new architecture
-
-**Phase 1 Milestone (End of Day 3)**
-- ✅ Security validation operational
-- ⚠️ Centralized logging infrastructure in place (still needed for Phase 2)
-- ✅ Large modules refactored into focused submodules - COMPLETED
-- ✅ Foundation ready for error handling work (pending logging completion)
-
----
-
-### Phase 2: Error Handling Standardization (Days 4-7) - PARALLEL EXECUTION
-
-**Objective:** Implement specific exception handling across all modules using centralized logging
-
-**Critical Dependency:** All proposals in this phase depend on `standardize-logging-infrastructure` being complete from Phase 1.2
-
-#### Week 2 (Days 4-7) - Maximum Parallelization
-
-**All 6 error handling proposals can run in PARALLEL**
-
-Assign 1 developer per proposal:
-
-**2.1 `fix-core-io-error-handling`** (Medium Risk)
-- **Files:** `src/fsspeckit/core/ext.py`
-- **Changes:** Replace `except Exception:` with specific types (`FileNotFoundError`, `PermissionError`, `OSError`, `ValueError`)
-- **Success Criteria:**
-  - ✅ No bare `except Exception:` blocks remain
-  - ✅ Context-rich error messages with file paths
-  - ✅ Proper cleanup with individual failure logging
-
-**2.2 `fix-duckdb-error-handling`** (Medium Risk)
-- **Files:** `src/fsspecpec/datasets/duckdb.py`, `_duckdb_helpers.py`
-- **Changes:** Use DuckDB-specific exceptions (`InvalidInputException`, `OperationalException`, `CatalogException`)
-- **Success Criteria:**
-  - ✅ DuckDB-specific exceptions imported with fallback
-  - ✅ Original exception types preserved when re-raising
-  - ✅ Context with query and database info
-
-**2.3 `fix-pyarrow-error-handling`** (Medium Risk)
-- **Files:** `src/fsspeckit/datasets/pyarrow.py`, `src/fsspeckit/utils/pyarrow.py`
-- **Changes:** Use PyArrow-specific exceptions (`ArrowInvalid`, `ArrowIOError`, `ArrowTypeError`)
-- **Success Criteria:**
-  - ✅ PyArrow-specific exceptions with fallback handling
-  - ✅ Context with file paths and schema info
-  - ✅ Proper error propagation
-
-**2.4 `fix-maintenance-error-handling`** (Low Risk)
-- **Files:** `src/fsspeckit/core/maintenance.py`
-- **Changes:** Specific exceptions for file operations and validation
-- **Success Criteria:**
-  - ✅ Maintenance operations use specific exception types
-  - ✅ Context-rich error messages
-  - ✅ Logging routed through centralized logger
-
-**2.5 `fix-common-modules-error-handling`** (Low Risk)
-- **Files:** `src/fsspeckit/common/misc.py`, `src/fsspeckit/common/schema.py`
-- **Changes:** Specific exceptions for schema validation and type conversion
-- **Success Criteria:**
-  - ✅ Schema validation errors properly typed
-  - ✅ Type conversion errors with context
-  - ✅ Centralized logging throughout
+This document lists the current open changes under `openspec/changes/` (excluding `archive/`) in the recommended
+implementation order, with notes on which workstreams can proceed in parallel.
 
-**2.6 `fix-storage-options-error-handling`** (Low Risk)
-- **Files:** `src/fsspeckit/storage_options/*.py`
-- **Changes:** Clear exceptions for configuration failures, environment variable issues
-- **Success Criteria:**
-  - ✅ Configuration errors use specific exception types
-  - ✅ Environment variable issues clearly reported
-  - ✅ No `print()` statements remain
-
-**Phase 2 Milestone (End of Day 7)**
-- ✅ No `except Exception:` or `except:` blocks remain project-wide
-- ✅ All error logging uses centralized logger
-- ✅ Exception import fallbacks implemented and tested
-- ✅ All modules have specific, context-rich error handling
+## Overview of Open Changes
 
----
+This list excludes changes that are already implemented and/or archived. At the time of writing, the following changes
+remain open under `openspec/changes/`:
 
-### Phase 3: Quality & Discipline (Days 8-10) - FINAL POLISH
+1. `refactor-module-layout-packages`
+2. `consolidate-duckdb-cleanup-and-parallel-defaults`
+3. `add-pyarrow-merge-aware-write`
+4. `add-duckdb-merge-aware-write`
+5. `add-pyarrow-dataset-handler`
+6. `unify-dataset-handler-interface`
+7. `refactor-modern-typing-fsspeckit`
+8. `harden-gitlab-resource-management`
 
-**Objective:** Establish long-term quality improvements (typing, testing)
-
-#### Week 3 (Days 8-10) - Sequential Quality Improvements
+## Recommended Implementation Phases
 
-**3.1 `strengthen-types-and-tests`** (Medium Risk)
-- **Prerequisite:** ✅ `refactor-large-modules-structure` (Phase 1.3) COMPLETED - Can now proceed
-- **Scope:** Type coverage and testing discipline
-- **Changes:**
-  - Add mypy configuration for CI
-  - Mark package as typed (`py.typed` marker)
-  - Improve type annotations in refactored modules
-  - Define testing expectations for future refactors
-- **Execution:** Assign to 1-2 developers
-- **Success Criteria:**
-  - ✅ mypy configuration added and integrated into CI
-  - ✅ Type coverage adequate for package marking
-  - ✅ `py.typed` marker file added
-  - ✅ Type annotations completed for refactored modules
-  - ✅ Test expectations documented
+### Phase 1 – Module layout refactor (high priority)
 
-**Phase 3 Milestone (End of Day 10)**
-- ✅ Type checking active in CI pipeline
-- ✅ Adequate type coverage achieved
-- ✅ Package marked as typed
-- ✅ Testing discipline expectations formalized
+These changes restructure the module layout into package-based namespaces with shims and deprecations. They should land
+early so that subsequent work targets the new layout.
 
----
+1. **`refactor-module-layout-packages`**
+   - Scope: Introduce package-based layouts for `core.ext`, `core.filesystem`, `datasets.duckdb`, `datasets.pyarrow`, and `common.logging`, with backwards-compatible shim modules and deprecation warnings.
+   - Dependencies: None (but benefits from the already-implemented core stability changes).
+   - Parallelism: This is a touch-heavy change and should be done in a focused window to minimise conflicts with parallel work.
 
-## Critical Path Analysis
+### Phase 2 – Core DuckDB cleanup and parallel defaults
 
-### Critical Path Items (Cannot Be Delayed)
+2. **`consolidate-duckdb-cleanup-and-parallel-defaults`**
+   - Scope: Deduplicate DuckDB cleanup helpers and clarify/joblib-related parallel execution defaults.
+   - Depends on: Patterns established by the already-implemented core stability work (`stabilize-core-ext-io-helpers`).
+   - Parallelism: Can follow immediately after `refactor-module-layout-packages`, with care taken to update imports to the new package layout.
 
-1. **`standardize-logging-infrastructure`** (Phase 1.2) ⚠️ STILL ACTIVE
-   - **Impact:** Blocks all 6 error handling proposals (Phase 2)
-   - **Delay Impact:** Each day of delay = 6 developer-days of blocked work
-   - **Status:** Must be completed to unlock Phase 2
+### Phase 2 – Merge-aware dataset writes
 
-2. **`refactor-large-modules-structure`** (Phase 1.3) ✅ COMPLETED
-   - **Impact:** Previously blocked `strengthen-types-and-tests` (Phase 3)
-   - **Status:** Completed successfully, Phase 3 can now proceed
-   - **Achievement:** 4 modules decomposed into 12 focused submodules
+These changes add strategy-aware dataset write capabilities. They can be developed largely in parallel once the layout
+refactor is complete so they target the new structure directly.
 
-### Non-Critical Path Items (Can Be Adjusted)
+3. **`add-pyarrow-merge-aware-write`**
+   - Scope: Add `strategy`/`key_columns` to `write_pyarrow_dataset` and expose convenience helpers (`insert_dataset`, etc.).
+   - Depends on: Existing PyArrow merge helpers; should be implemented against the new `datasets.pyarrow` package layout.
+   - Parallelism: Can be implemented in parallel with `consolidate-duckdb-cleanup-and-parallel-defaults` once `refactor-module-layout-packages` is in place.
 
-- **`add-basic-security-validation`** - Can proceed independently at any time
-- All error handling proposals - Can be parallelized freely once Phase 1.2 is complete
+4. **`add-duckdb-merge-aware-write`**
+   - Scope: Add `strategy`/`key_columns` to `write_parquet_dataset` (DuckDB) and corresponding convenience helpers.
+   - Depends on: Existing DuckDB merge helpers; conceptually aligned with `add-pyarrow-merge-aware-write`, and should target the new `datasets.duckdb` package layout.
+   - Parallelism: Can be implemented in parallel with `add-pyarrow-merge-aware-write` as long as shared semantics are coordinated.
 
----
+### Phase 3 – Handler parity and shared interface
 
-## Resource Allocation & Parallelization
+These changes provide a symmetric handler UX across PyArrow and DuckDB and define a shared surface.
 
-### Maximum Team Utilization
+5. **`add-pyarrow-dataset-handler`**
+   - Scope: Introduce `PyarrowDatasetIO` and `PyarrowDatasetHandler`, mirroring DuckDB’s handler where feasible.
+   - Depends on: `add-pyarrow-merge-aware-write` (so the handler can rely on merge-aware writes) and the new `datasets.pyarrow` package layout.
+   - Parallelism: Should follow completion of `add-pyarrow-merge-aware-write`; can overlap with late-stage work on `add-duckdb-merge-aware-write`.
 
-| Phase | Parallel Proposals | Recommended Team Size |
-|-------|-------------------|----------------------|
-| Phase 1 (Days 1-3) | 3 proposals | 3-4 developers |
-| Phase 2 (Days 4-7) | 6 proposals | 6 developers |
-| Phase 3 (Days 8-10) | 1 proposal | 1-2 developers |
+6. **`unify-dataset-handler-interface`**
+   - Scope: Define/document a shared handler surface (and optional protocol) across DuckDB and PyArrow handlers.
+   - Depends on: Both handlers being in place (`DuckDBDatasetIO`/`DuckDBParquetHandler` existing, `PyarrowDatasetIO`/`PyarrowDatasetHandler` added).
+   - Parallelism: Finalise after `add-pyarrow-dataset-handler`; primarily documentation/type-level work and can be done while other code is stabilising.
 
-### Recommended Team Structure
+### Phase 4 – Cross-cutting typing refactor
 
-**Phase 1:**
-- Developer A: `add-basic-security-validation`
-- Developer B: `standardize-logging-infrastructure` (critical path)
-- Developers C & D: `refactor-large-modules-structure` (pair programming for high-risk work)
+7. **`refactor-modern-typing-fsspeckit`**
+   - Scope: Convert codebase to modern typing conventions (PEP 604 unions, built-in generics), and remove legacy `typing.Union`/`Optional`/`List`/`Dict` usage.
+   - Depends on: All major behavioural and structural changes above being merged, to minimise churn and merge conflicts (especially after layout refactor).
+   - Parallelism: Best done after other feature changes are stabilised; can be executed as a focused, mechanical pass.
 
-**Phase 2 (Parallel):**
-- Assign each developer to one error handling proposal for focused execution
+### Phase 5 – Post-feature stability hardening
 
-**Phase 3:**
-- Developers A & B: `strengthen-types-and-tests`
+8. **`harden-gitlab-resource-management`**
+   - Scope: Add session resource cleanup, pagination limits, and input validation to GitLab filesystem to prevent resource leaks and infinite loops.
+   - Depends on: All major feature changes being complete and stable; this is a stability hardening change that should be implemented after all functional work.
+   - Parallelism: Can be done independently as it affects a specific filesystem implementation; lowest priority as it addresses production stability rather than new features.
 
----
+## Parallelisation Summary
 
-## Risk Mitigation Strategies
+- **Safe to implement in parallel:**
+  - `add-pyarrow-merge-aware-write` ↔ `add-duckdb-merge-aware-write` (after the layout refactor is complete).
+  - `unify-dataset-handler-interface` can be done alongside final polish once both handlers exist.
 
-### High-Risk Item: `refactor-large-modules-structure`
-
-**Risks:**
-- Breaking internal API assumptions
-- Merge conflicts with ongoing development
-- Test failures from structural changes
-
-**Mitigation:**
-1. Complete Phase 1.3 before anyone builds on the new structure
-2. Use atomic commits for each module refactor
-3. Run full test suite after each module completion
-4. Maintain 100% backward compatibility via re-exports
-5. Document internal API changes for team
-
-### Medium-Risk Items: Error Handling Proposals
-
-**Risks:**
-- Exception type mismatches with existing error handling
-- Missing import fallbacks for optional dependencies
-- Inconsistent error messages
-
-**Mitigation:**
-1. Use centralized logger from Phase 1.2 (blocking dependency)
-2. Implement comprehensive test coverage for error scenarios
-3. Create shared helper utilities for common error patterns
-4. Provide migration guide for any breaking changes
-
-### Low-Risk Items: `add-basic-security-validation`
-
-**Risks:**
-- False positives in validation (legitimate paths rejected)
-- Performance impact of validation checks
-
-**Mitigation:**
-1. Use conservative validation rules initially
-2. Benchmark validation overhead
-3. Provide configuration options for strictness levels
-
----
-
-## Success Metrics & Validation
-
-### Phase 1 Success Metrics
-
-- [ ] Security validation operational (100% path validation coverage)
-- [ ] Centralized logger implemented (0 `print()` statements in codebase)
-- ✅ Module decomposition complete (4 modules → 12+ focused modules)
-- ✅ Backward compatibility maintained (all existing tests pass)
-- ✅ No regression in test coverage
-
-### Phase 2 Success Metrics
-
-- [ ] Zero `except Exception:` or bare `except:` blocks project-wide
-- [ ] All error paths use specific exception types
-- [ ] 100% error logging uses centralized logger
-- [ ] All error messages include contextual information
-- [ ] Optional dependency fallbacks tested and working
-
-### Phase 3 Success Metrics
-
-- [ ] mypy CI check passing with no errors
-- [ ] Type coverage >80% for core modules
-- [ ] `py.typed` marker file deployed
-- [ ] Testing expectations documented and enforced
-- [ ] Type checking integrated into PR workflow
-
-### Overall Success Metrics
-
-- [ ] All 10 proposals completed and archived
-- [ ] No critical bugs introduced during refactoring
-- [ ] Performance maintained or improved
-- [ ] Documentation updated to reflect changes
-- [ ] Team adoption of new patterns and tools
-
----
-
-## Alternative Sequencing Options
-
-### Option A: Conservative (Recommended)
-
-Follow the 3-phase plan as outlined above, prioritizing dependency management and risk mitigation.
-
-### Option B: Aggressive Parallelization
-
-**If team size is limited:**
-- Phase 1: Sequential (Day 1: security, Day 2: logging, Day 3: refactor)
-- Phase 2: Batch into 2 groups (3 proposals each)
-- **Trade-off:** Slightly longer timeline but fewer coordination challenges
-
-### Option C: Risk-First
-
-**If `refactor-large-modules-structure` is highest concern:**
-- Phase 1: Complete only refactor (Day 1-3)
-- Phase 2: Complete logging + error handling (Day 4-7)
-- Phase 3: Security + typing (Day 8-10)
-- **Trade-off:** Security and logging wait longer, but refactor risk is minimized
-
----
-
-## Communication & Coordination Plan
-
-### Daily Standups
-
-**Phase 1 (Days 1-3):**
-- Focus on critical path items (logging, refactor)
-- Identify blockers early
-- Coordinate on refactor approach
-
-**Phase 2 (Days 4-7):**
-- Report progress on parallel proposals
-- Share common patterns and utilities
-- Identify cross-module error handling consistency issues
-
-**Phase 3 (Days 8-10):**
-- Type annotation progress
-- CI integration challenges
-- Final quality gate planning
-
-### Checkpoint Reviews
-
-**End of Phase 1 (Day 3):**
-- Review refactor completion and test results
-- Validate logging infrastructure
-- Approve Phase 2 parallel execution
-
-**End of Phase 2 (Day 7):**
-- Audit error handling completeness
-- Validate centralized logging usage
-- Approve Phase 3 execution
-
-**End of Phase 3 (Day 10):**
-- Final quality review
-- Archive all completed proposals
-- Plan next iteration of improvements
-
----
-
-## Post-Implementation Recommendations
-
-### Immediate Actions (After Completion)
-
-1. **Archive all 10 proposals** using `/openspec/archive` command
-2. **Update project documentation** to reflect new architecture
-3. **Brief team on new patterns:**
-   - Centralized logging usage
-   - Error handling best practices
-   - Type checking requirements
-4. **Integrate into onboarding** materials for new team members
-
-### Future Improvements (Next Iteration)
-
-1. **Performance optimization** - Profile validation overhead from security checks
-2. **Advanced type patterns** - Generic types, protocols, type narrowing
-3. **Test automation** - Automated error handling test generation
-4. **Monitoring** - Error rate dashboards using structured logging
-
----
-
-## Action Items
-
-### For Project Maintainers
-
-- [ ] Review and approve this implementation plan
-- [ ] Allocate team resources per phase
-- [ ] Schedule checkpoint reviews
-- [ ] Prepare communication to broader team
-- [ ] Ensure CI/CD pipeline can handle increased load during refactor
-
-### For Development Team
-
-- [ ] Review proposal specifications for assigned tasks
-- [ ] Set up local development environment for parallel work
-- [ ] Familiarize with OpenSpec workflow (`/openspec` commands)
-- [ ] Prepare for pair programming on high-risk refactor
-
----
-
-## Appendix: Proposal Specification Paths
-
-For detailed implementation guidance, consult each proposal's specification:
-
-**Phase 1:**
-- `/openspec/changes/add-basic-security-validation/proposal.md`
-- `/openspec/changes/standardize-logging-infrastructure/proposal.md`
-- `/openspec/changes/refactor-large-modules-structure/proposal.md`
-
-**Phase 2:**
-- `/openspec/changes/fix-core-io-error-handling/proposal.md`
-- `/openspec/changes/fix-duckdb-error-handling/proposal.md`
-- `/openspec/changes/fix-pyarrow-error-handling/proposal.md`
-- `/openspec/changes/fix-maintenance-error-handling/proposal.md`
-- `/openspec/changes/fix-common-modules-error-handling/proposal.md`
-- `/openspec/changes/fix-storage-options-error-handling/proposal.md`
-
-**Phase 3:**
-- `/openspec/changes/strengthen-types-and-tests/proposal.md`
-
----
-
-**Document Version:** 1.0
-**Last Updated:** 2025-12-04
-**Next Review:** After Phase 1 completion
+- **Should be sequenced:**
+  - `refactor-module-layout-packages` as early as practical, before new feature work that depends on layout.
+  - `consolidate-duckdb-cleanup-and-parallel-defaults` after `refactor-module-layout-packages` (so it targets the new layout).
+  - `add-pyarrow-dataset-handler` after `add-pyarrow-merge-aware-write`.
+  - `unify-dataset-handler-interface` after both handler implementations.
+  - `refactor-modern-typing-fsspeckit` last, after behavioural work.
+  - `harden-gitlab-resource-management` after all other changes, as final stability hardening.
