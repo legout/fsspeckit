@@ -147,6 +147,7 @@ with DuckDBParquetHandler() as handler:
 ### Choose Your Path
 
 **🎯 For Data Analysts:** Start with `datasets/getting_started/01_duckdb_basics.py`
+- 🔄 **For Merge Operations:** Try `datasets/getting_started/03_simple_merges.py`
 
 **🚀 For Data Engineers:** Begin with `datasets/workflows/performance_optimization.py`
 
@@ -165,6 +166,10 @@ examples/
 │
 ├── datasets/                    # Core data processing examples
 │   ├── getting_started/         # Beginner tutorials (3 examples)
+│   │   ├── 01_duckdb_basics.py
+│   │   ├── 02_pyarrow_basics.py
+│   │   ├── 03_simple_merges.py
+│   │   └── 04_pyarrow_merges.py
 │   ├── workflows/               # Intermediate workflows (2 examples)
 │   ├── schema/                  # Schema management (3 examples)
 │   └── advanced/                # Advanced processing (3 examples)
@@ -480,6 +485,7 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](../LIC
 Ready to master fsspeckit? Choose your starting point:
 
 - 🟢 **New to fsspeckit?** Start with `datasets/getting_started/01_duckdb_basics.py`
+- 🔄 **DuckDB Merge Operations?** See `duckdb/duckdb_merge_example.py` for comprehensive merge strategies
 - 🚀 **Have experience?** Jump to `datasets/workflows/performance_optimization.py`
 - 🏭 **Production ready?** Explore `cross_domain/production_patterns.py`
 - 📚 **Want to learn everything?** Follow the complete learning path above

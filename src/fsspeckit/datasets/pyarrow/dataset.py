@@ -345,7 +345,7 @@ def _load_source_table_pyarrow(
         return pq.read_table(
             source,
             filesystem=pa_filesystem,
-            filter=row_filter,
+            filters=row_filter,
             columns=columns,
         )
     else:

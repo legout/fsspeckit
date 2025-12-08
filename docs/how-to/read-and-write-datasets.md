@@ -335,6 +335,116 @@ fs.write_pyarrow_dataset(
 )
 ```
 
+## Merge-Aware Dataset Writes
+
+fsspeckit provides merge-aware write functionality for both PyArrow and DuckDB backends, allowing you to perform sophisticated merge operations directly when writing datasets. This eliminates the need for separate staging and merge steps.
+
+### Merge Strategies Overview
+
+| Strategy | Use Case | Behavior |
+| :-------- | :-------- | :-------- |
+| **INSERT** | Append-only scenarios (event logs, audit trails) | Only inserts new records, ignores existing keys |
+| **UPSERT** | Change Data Capture (CDC), customer data sync | Inserts new records, updates existing ones |
+| **UPDATE** | Dimension table updates, product catalog changes | Only updates existing records, ignores new keys |
+| **FULL_MERGE** | Complete synchronization, inventory snapshots | Replaces entire dataset with source data |
+| **DEDUPLICATE** | Data deduplication, transaction log cleanup | Removes duplicates based on keys or exact rows |
+
+### PyArrow Merge-Aware Writes
+
+```python
+from fsspec.implementations.local import LocalFileSystem
+import pyarrow as pa
+
+fs = LocalFileSystem()
+
+# Create initial dataset
+initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
+fs.write_pyarrow_dataset(data=initial, path="dataset/")
+
+# UPSERT new and updated data
+upsert_data = pa.table({"id": [2, 3], "value": ["updated", "c"]})
+fs.write_pyarrow_dataset(
+    data=upsert_data,
+    path="dataset/",
+    strategy="upsert",
+    key_columns="id"
+)
+
+# Convenience helpers (equivalent to above)
+fs.insert_dataset(data, "events/", key_columns="event_id")     # Insert-only
+fs.upsert_dataset(data, "customers/", key_columns="customer_id")  # Insert-or-update
+fs.update_dataset(data, "products/", key_columns="product_id")   # Update-only
+fs.deduplicate_dataset(data, "transactions/", key_columns="transaction_id")  # Deduplicate
+```
+
+### DuckDB Merge-Aware Writes
+
+```python
+from fsspeckit.datasets import DuckDBParquetHandler
+import polars as pl
+
+# Initialize handler
+handler = DuckDBParquetHandler(storage_options=storage_options)
+
+# Create initial dataset
+initial = pl.DataFrame({"id": [1, 2], "value": ["a", "b"]})
+handler.write_parquet_dataset(data=initial, path="dataset/")
+
+# UPSERT with merge strategy
+upsert_data = pl.DataFrame({"id": [2, 3], "value": ["updated", "c"]})
+handler.write_parquet_dataset(
+    data=upsert_data,
+    path="dataset/",
+    strategy="upsert",
+    key_columns=["id"]
+)
+
+# Convenience helpers (equivalent to above)
+handler.insert_dataset(data, "events/", key_columns=["event_id"])     # Insert-only
+handler.upsert_dataset(data, "customers/", key_columns=["customer_id"])  # Insert-or-update
+handler.update_dataset(data, "products/", key_columns=["product_id"])   # Update-only
+handler.deduplicate_dataset(data, "transactions/", key_columns=["transaction_id"])  # Deduplicate
+```
+
+### Advanced Merge Features
+
+#### Composite Keys
+```python
+# Use multiple columns as keys
+fs.write_pyarrow_dataset(
+    data=data,
+    path="dataset/",
+    strategy="upsert",
+    key_columns=["customer_id", "order_date"]  # Composite key
+)
+```
+
+#### Custom Deduplication Ordering
+```python
+# Control which record to keep during deduplication
+fs.deduplicate_dataset(
+    data=data,
+    path="dataset/",
+    key_columns="user_id",
+    dedup_order_by=["timestamp", "version"]  # Keep latest record
+)
+```
+
+#### Backend Selection Guidance
+- **PyArrow**: Best for in-memory operations, schema flexibility, cloud storage
+- **DuckDB**: Best for large datasets, complex analytics, SQL integration
+
+### Error Handling
+```python
+try:
+    fs.upsert_dataset(data, "dataset/", key_columns=["id"])
+except ValueError as e:
+    if "key_columns is required" in str(e):
+        print("Key columns are required for upsert operations")
+    else:
+        raise
+```
+
 ## DuckDB Dataset Operations
 
 ### Basic Dataset Operations

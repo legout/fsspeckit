@@ -931,11 +931,15 @@ Write a tabular data to a PyArrow dataset.
 | `row_group_size` | `int | None` | Row group size. Defaults to 250,000. |
 | `concat` | `bool` | If True, concatenate the DataFrames. Defaults to True. |
 | `unique` | `bool` or `str` or `list[str]` | If True, remove duplicates. Defaults to False. |
+| `strategy` | `str | None` | Optional merge strategy: 'insert', 'upsert', 'update', 'full_merge', 'deduplicate'. Defaults to None (standard write). |
+| `key_columns` | `str | list[str] | None` | Key columns for merge operations. Required for relational strategies. Defaults to None. |
+| `dedup_order_by` | `str | list[str] | None` | Columns to order by for deduplication. Defaults to key_columns. |
+| `verbose` | `bool` | Print progress information. Defaults to False. |
 | `**kwargs` | `Any` | Additional keyword arguments for `pds.write_dataset`. |
 
 | Returns | Type | Description |
 | :------ | :--- | :---------- |
-| `list[pq.FileMetaData]` or `None` | List of Parquet file metadata or None. |
+| `list[pq.FileMetaData]` or `None` | List of Parquet file metadata for standard writes, or None for merge-aware writes. |
 
 <!-----
 
@@ -958,6 +962,83 @@ Write a tabular data to a Pydala dataset.
 | `unique` | `bool` or `str` or `list[str]` | If True, ensure unique values. Defaults to False. |
 | `delta_subset` | `str` or `list[str]` or `None` | Subset of columns to include in delta table. Defaults to None. |
 | `update_metadata` | `bool` | If True, update metadata. Defaults to True. |
+
+---
+
+## `insert_dataset()`
+
+Insert-only dataset write using PyArrow.
+
+Convenience method that calls `write_pyarrow_dataset` with `strategy='insert'`.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `data` | `pl.DataFrame` or `pa.Table` or `pa.RecordBatch` or `pa.RecordBatchReader` or `pd.DataFrame` or `list[pl.DataFrame]` or `list[pa.Table]` or `list[pa.RecordBatch]` or `list[pa.RecordBatchReader]` or `list[pd.DataFrame]` | Data to write. |
+| `path` | `str` | Path to write the dataset. |
+| `key_columns` | `str` or `list[str]` | Key columns for merge (required). |
+| `**kwargs` | `Any` | Additional arguments passed to `write_pyarrow_dataset`. |
+
+| Returns | Type | Description |
+| :------ | :--- | :---------- |
+| `list[pq.FileMetaData]` or `None` | List of Parquet file metadata or None. |
+
+---
+
+## `upsert_dataset()`
+
+Insert-or-update dataset write using PyArrow.
+
+Convenience method that calls `write_pyarrow_dataset` with `strategy='upsert'`.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `data` | `pl.DataFrame` or `pa.Table` or `pa.RecordBatch` or `pa.RecordBatchReader` or `pd.DataFrame` or `list[pl.DataFrame]` or `list[pa.Table]` or `list[pa.RecordBatch]` or `list[pa.RecordBatchReader]` or `list[pd.DataFrame]` | Data to write. |
+| `path` | `str` | Path to write the dataset. |
+| `key_columns` | `str` or `list[str]` | Key columns for merge (required). |
+| `**kwargs` | `Any` | Additional arguments passed to `write_pyarrow_dataset`. |
+
+| Returns | Type | Description |
+| :------ | :--- | :---------- |
+| `list[pq.FileMetaData]` or `None` | List of Parquet file metadata or None. |
+
+---
+
+## `update_dataset()`
+
+Update-only dataset write using PyArrow.
+
+Convenience method that calls `write_pyarrow_dataset` with `strategy='update'`.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `data` | `pl.DataFrame` or `pa.Table` or `pa.RecordBatch` or `pa.RecordBatchReader` or `pd.DataFrame` or `list[pl.DataFrame]` or `list[pa.Table]` or `list[pa.RecordBatch]` or `list[pa.RecordBatchReader]` or `list[pd.DataFrame]` | Data to write. |
+| `path` | `str` | Path to write the dataset. |
+| `key_columns` | `str` or `list[str]` | Key columns for merge (required). |
+| `**kwargs` | `Any` | Additional arguments passed to `write_pyarrow_dataset`. |
+
+| Returns | Type | Description |
+| :------ | :--- | :---------- |
+| `list[pq.FileMetaData]` or `None` | List of Parquet file metadata or None. |
+
+---
+
+## `deduplicate_dataset()`
+
+Deduplicate dataset write using PyArrow.
+
+Convenience method that calls `write_pyarrow_dataset` with `strategy='deduplicate'`.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `data` | `pl.DataFrame` or `pa.Table` or `pa.RecordBatch` or `pa.RecordBatchReader` or `pd.DataFrame` or `list[pl.DataFrame]` or `list[pa.Table]` or `list[pa.RecordBatch]` or `list[pa.RecordBatchReader]` or `list[pd.DataFrame]` | Data to write. |
+| `path` | `str` | Path to write the dataset. |
+| `key_columns` | `str` or `list[str]` | Optional key columns for deduplication. |
+| `dedup_order_by` | `str` or `list[str]` | Columns to order by for deduplication. |
+| `**kwargs` | `Any` | Additional arguments passed to `write_pyarrow_dataset`. |
+
+| Returns | Type | Description |
+| :------ | :--- | :---------- |
+| `list[pq.FileMetaData]` or `None` | List of Parquet file metadata or None. |
 | `alter_schema` | `bool` | If True, alter schema. Defaults to False. |
 | `timestamp_column` | `str` or `None` | Timestamp column. Defaults to None. |
 | `verbose` | `bool` | If True, print verbose output. Defaults to True. |
