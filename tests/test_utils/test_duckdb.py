@@ -1638,3 +1638,109 @@ class TestDuckDBParquetHandlerMaintenance:
             after_files = list(Path(fragmented_dataset).glob("*.parquet"))
             # Simple proxy: fewer files implies fewer metadata reads
             assert len(after_files) <= len(before_files)
+
+
+class TestUnregisterDuckDBTableSafely:
+    """Tests for _unregister_duckdb_table_safely helper function."""
+
+    @pytest.mark.skipif(
+        not pytest.importorskip("duckdb").__bool__(),
+        reason="duckdb not installed"
+    )
+    def test_successful_unregistration(self, temp_dir):
+        """Test successful table unregistration."""
+        from fsspeckit.datasets.duckdb.helpers import _unregister_duckdb_table_safely
+
+        with DuckDBParquetHandler() as handler:
+            # Create a test table
+            test_table = pa.table({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+            handler.write_parquet(test_table, str(temp_dir / "test.parquet"))
+
+            # Register it
+            handler._connection.register("test_table", str(temp_dir / "test.parquet"))
+
+            # Verify it exists
+            result = handler._connection.execute("SELECT * FROM test_table").fetchall()
+            assert len(result) == 3
+
+            # Unregister successfully
+            _unregister_duckdb_table_safely(handler._connection, "test_table")
+
+            # Verify it's gone (should raise if accessed)
+            with pytest.raises(Exception):
+                handler._connection.execute("SELECT * FROM test_table").fetchall()
+
+    @pytest.mark.skipif(
+        not pytest.importorskip("duckdb").__bool__(),
+        reason="duckdb not installed"
+    )
+    def test_catalog_exception_logging(self, temp_dir, caplog):
+        """Test that CatalogException is logged as warning and doesn't raise."""
+        from fsspeckit.datasets.duckdb.helpers import _unregister_duckdb_table_safely
+
+        with DuckDBParquetHandler() as handler:
+            # Try to unregister a non-existent table (should raise CatalogException)
+            _unregister_duckdb_table_safely(handler._connection, "nonexistent_table")
+
+            # Verify warning was logged
+            assert len(caplog.records) == 1
+            assert caplog.records[0].levelname == "WARNING"
+            assert "Failed to unregister DuckDB table" in caplog.records[0].message
+            assert "nonexistent_table" in caplog.records[0].message
+
+    @pytest.mark.skipif(
+        not pytest.importorskip("duckdb").__bool__(),
+        reason="duckdb not installed"
+    )
+    def test_connection_exception_logging(self, temp_dir, caplog):
+        """Test that ConnectionException is logged as warning and doesn't raise."""
+        from fsspeckit.datasets.duckdb.helpers import _unregister_duckdb_table_safely
+
+        with DuckDBParquetHandler() as handler:
+            # Try to unregister with invalid connection state
+            # We'll close the connection first to trigger ConnectionException
+            handler.close()
+
+            # Try to unregister a table (should raise ConnectionException)
+            _unregister_duckdb_table_safely(handler._connection, "any_table")
+
+            # Verify warning was logged
+            assert len(caplog.records) == 1
+            assert caplog.records[0].levelname == "WARNING"
+            assert "Failed to unregister DuckDB table" in caplog.records[0].message
+
+    @pytest.mark.skipif(
+        not pytest.importorskip("duckdb").__bool__(),
+        reason="duckdb not installed"
+    )
+    def test_cleanup_continues_despite_errors(self, temp_dir, caplog):
+        """Test that cleanup continues even when unregistration fails."""
+        from fsspeckit.datasets.duckdb.helpers import _unregister_duckdb_table_safely
+
+        with DuckDBParquetHandler() as handler:
+            # Try to unregister multiple non-existent tables
+            _unregister_duckdb_table_safely(handler._connection, "table1")
+            _unregister_duckdb_table_safely(handler._connection, "table2")
+            _unregister_duckdb_table_safely(handler._connection, "table3")
+
+            # Verify all attempts were logged as warnings
+            assert len(caplog.records) == 3
+            for record in caplog.records:
+                assert record.levelname == "WARNING"
+                assert "Failed to unregister DuckDB table" in record.message
+
+            # Verify no exceptions were raised
+            # (If exceptions were raised, this test would fail before reaching this point)
+
+    def test_all_duckdb_modules_use_canonical_helper(self):
+        """Verify that DuckDB modules import and use the canonical helper."""
+        from fsspeckit.datasets.duckdb import connection, dataset
+
+        # Verify both modules import the canonical helper
+        assert hasattr(connection, '_unregister_duckdb_table_safely')
+        assert hasattr(dataset, '_unregister_duckdb_table_safely')
+
+        # Verify it's the same function (not duplicates)
+        import fsspeckit.datasets.duckdb.helpers as helpers
+        assert connection._unregister_duckdb_table_safely is helpers._unregister_duckdb_table_safely
+        assert dataset._unregister_duckdb_table_safely is helpers._unregister_duckdb_table_safely

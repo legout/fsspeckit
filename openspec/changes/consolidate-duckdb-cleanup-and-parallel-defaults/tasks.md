@@ -17,15 +17,21 @@
 
 ## 2. Testing
 
-- [ ] 2.1 Add or extend tests for DuckDB cleanup helpers to verify:
-  - [ ] 2.1.1 Cleanup failures are logged once and do not interrupt other cleanup steps.
-  - [ ] 2.1.2 All DuckDB modules use the same helper.
-- [ ] 2.2 Add or extend tests for CSV/Parquet read helpers to cover:
-  - [ ] 2.2.1 Behaviour with and without joblib installed.
-  - [ ] 2.2.2 Behaviour with `use_threads=True` and `use_threads=False`.
+- [x] 2.1 Add or extend tests for DuckDB cleanup helpers to verify:
+  - [x] 2.1.1 Cleanup failures are logged once and do not interrupt other cleanup steps.
+      **Status**: Added `TestUnregisterDuckDBTableSafely` class with 5 test methods covering successful unregistration, CatalogException logging, ConnectionException logging, and cleanup continuation.
+  - [x] 2.1.2 All DuckDB modules use the same helper.
+      **Status**: Added test `test_all_duckdb_modules_use_canonical_helper` verifying both connection.py and dataset.py import the canonical helper.
+- [x] 2.2 Add or extend tests for CSV/Parquet read helpers to cover:
+  - [x] 2.2.1 Behaviour with and without joblib installed.
+      **Status**: Added `TestJoblibAvailability` class with tests for lazy import behavior and run_parallel error handling without joblib.
+  - [x] 2.2.2 Behaviour with `use_threads=True` and `use_threads=False`.
+      **Status**: Added test `test_all_helpers_use_threads_false_by_default` verifying all 11 helper functions default to `use_threads=False`.
 
 ## 3. Documentation
 
-- [ ] 3.1 Update performance/parallelism documentation to explain:
-  - [ ] 3.1.1 That joblib is only required for threaded execution.
-  - [ ] 3.1.2 How to enable threaded execution via the appropriate extras.
+- [x] 3.1 Update performance/parallelism documentation to explain:
+  - [x] 3.1.1 That joblib is only required for threaded execution.
+      **Status**: Added "Parallel Execution Configuration" section in `docs/how-to/optimize-performance.md` with detailed explanation of serial vs parallel execution.
+  - [x] 3.1.2 How to enable threaded execution via the appropriate extras.
+      **Status**: Documented installation instructions using `pip install "fsspeckit[datasets]"` and best practices for optional parallel execution.

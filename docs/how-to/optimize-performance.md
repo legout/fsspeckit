@@ -139,6 +139,100 @@ total_amount = sum(r.get("total_amount", 0) for r in batch_results)
 print(f"Total rows: {total_rows}, Total amount: {total_amount}")
 ```
 
+## Parallel Execution Configuration
+
+### Joblib and Threading Requirements
+
+Parallel execution in fsspeckit is powered by **joblib**, but it's treated as an optional dependency. This design ensures that basic operations work even in minimal environments, while parallel processing is available when needed.
+
+#### Installing Joblib
+
+To enable parallel execution, install fsspeckit with the `datasets` extra which includes joblib:
+
+```bash
+# Install with parallel processing support
+pip install "fsspeckit[datasets]"
+
+# Or install joblib separately
+pip install joblib>=1.5.0
+```
+
+#### Serial Execution (Default)
+
+By default, all CSV/Parquet/JSON read helpers use **serial execution** (`use_threads=False`), which does not require joblib:
+
+```python
+# Serial execution - no joblib required
+df = fs.read_csv("data/*.csv")  # use_threads=False by default
+table = fs.read_parquet("data/*.parquet")  # use_threads=False by default
+df_json = fs.read_json("data/*.json")  # use_threads=False by default
+
+# This works even without joblib installed
+```
+
+#### Parallel Execution (Opt-In)
+
+To enable parallel execution, explicitly set `use_threads=True`:
+
+```python
+# Parallel execution - requires joblib
+df_parallel = fs.read_csv("data/*.csv", use_threads=True)
+table_parallel = fs.read_parquet("data/*.parquet", use_threads=True)
+df_json_parallel = fs.read_json("data/*.json", use_threads=True)
+
+# This requires joblib to be installed
+```
+
+#### Error Handling
+
+If you request parallel execution without joblib installed, you'll get a clear error message:
+
+```python
+# Without joblib installed
+df = fs.read_csv("data/*.csv", use_threads=True)
+# Raises: ImportError: joblib is required for this function.
+# Install with: pip install fsspeckit[datasets]
+```
+
+#### Using run_parallel
+
+The `run_parallel` helper function also requires joblib:
+
+```python
+from fsspeckit.common.misc import run_parallel
+
+# This requires joblib
+results = run_parallel(
+    func=process_file,
+    data=file_list,
+    max_workers=8,
+    progress=True
+)
+
+# Without joblib, raises clear ImportError with installation instructions
+```
+
+#### Best Practices
+
+```python
+# Good: Default to serial execution for compatibility
+df = fs.read_csv("data.csv")  # Fast, no extra dependencies
+
+# Good: Explicitly enable parallel when needed
+df = fs.read_csv("large_data/*.csv", use_threads=True)
+
+# Good: Check joblib availability before using parallel features
+try:
+    import joblib
+    df = fs.read_csv("data/*.csv", use_threads=True)
+except ImportError:
+    print("Parallel execution not available. Install with: pip install fsspeckit[datasets]")
+    df = fs.read_csv("data/*.csv")
+
+# Not recommended: Assuming joblib is always available
+df = fs.read_csv("data/*.csv", use_threads=True)  # May fail in minimal environments
+```
+
 ## Dataset Optimization
 
 ### Parquet Dataset Optimization
