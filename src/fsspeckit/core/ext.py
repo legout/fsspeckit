@@ -27,7 +27,6 @@ from fsspeckit.core.ext_parquet import (
     read_parquet_file,
     read_parquet,
     write_parquet,
-    write_pyarrow_dataset,
 )
 from fsspeckit.core.ext_dataset import (
     pyarrow_dataset,
@@ -56,7 +55,6 @@ __all__ = [
     "read_parquet_file",
     "read_parquet",
     "write_parquet",
-    "write_pyarrow_dataset",
     # Dataset helpers
     "pyarrow_dataset",
     "pyarrow_parquet_dataset",
