@@ -8,6 +8,7 @@ import pytest
 
 from fsspeckit.storage_options import LocalStorageOptions
 from fsspeckit.datasets.duckdb import DuckDBParquetHandler
+from fsspeckit.common.optional import _DUCKDB_AVAILABLE
 from fsspeckit import filesystem
 
 
@@ -1644,7 +1645,7 @@ class TestUnregisterDuckDBTableSafely:
     """Tests for _unregister_duckdb_table_safely helper function."""
 
     @pytest.mark.skipif(
-        not pytest.importorskip("duckdb").__bool__(),
+        not _DUCKDB_AVAILABLE,
         reason="duckdb not installed"
     )
     def test_successful_unregistration(self, temp_dir):
@@ -1671,7 +1672,7 @@ class TestUnregisterDuckDBTableSafely:
                 handler._connection.execute("SELECT * FROM test_table").fetchall()
 
     @pytest.mark.skipif(
-        not pytest.importorskip("duckdb").__bool__(),
+        not _DUCKDB_AVAILABLE,
         reason="duckdb not installed"
     )
     def test_catalog_exception_logging(self, temp_dir, caplog):
@@ -1689,7 +1690,7 @@ class TestUnregisterDuckDBTableSafely:
             assert "nonexistent_table" in caplog.records[0].message
 
     @pytest.mark.skipif(
-        not pytest.importorskip("duckdb").__bool__(),
+        not _DUCKDB_AVAILABLE,
         reason="duckdb not installed"
     )
     def test_connection_exception_logging(self, temp_dir, caplog):
@@ -1710,7 +1711,7 @@ class TestUnregisterDuckDBTableSafely:
             assert "Failed to unregister DuckDB table" in caplog.records[0].message
 
     @pytest.mark.skipif(
-        not pytest.importorskip("duckdb").__bool__(),
+        not _DUCKDB_AVAILABLE,
         reason="duckdb not installed"
     )
     def test_cleanup_continues_despite_errors(self, temp_dir, caplog):
@@ -1744,3 +1745,268 @@ class TestUnregisterDuckDBTableSafely:
         import fsspeckit.datasets.duckdb.helpers as helpers
         assert connection._unregister_duckdb_table_safely is helpers._unregister_duckdb_table_safely
         assert dataset._unregister_duckdb_table_safely is helpers._unregister_duckdb_table_safely
+
+
+class TestDuckDBMergeAwareWrite:
+    """Tests for merge-aware write functionality in DuckDB dataset handler."""
+
+    @pytest.fixture
+    def handler(self):
+        """Create a DuckDB handler for testing."""
+        handler = DuckDBParquetHandler()
+        yield handler
+        handler.close()
+
+    @pytest.fixture
+    def base_table(self):
+        """Create a base table for merge tests."""
+        return pa.table({
+            "id": [1, 2, 3],
+            "value": ["a", "b", "c"],
+        })
+
+    @pytest.fixture
+    def update_table(self):
+        """Create an update table for merge tests."""
+        return pa.table({
+            "id": [2, 3, 4],
+            "value": ["b_updated", "c_updated", "d_new"],
+        })
+
+    def test_write_without_strategy_backward_compatible(self, handler, base_table, temp_dir):
+        """Test that write without strategy works as before (backward compatible)."""
+        output_path = str(temp_dir / "dataset")
+
+        # Write without strategy - should work as before
+        result = handler.write_parquet_dataset(base_table, output_path)
+
+        # Should return None for standard write
+        assert result is None
+
+        # Verify data was written
+        read_back = handler.read_parquet(f"{output_path}/*.parquet")
+        assert read_back.num_rows == 3
+
+    def test_write_with_upsert_strategy(self, handler, base_table, update_table, temp_dir):
+        """Test upsert strategy via write_parquet_dataset."""
+        output_path = str(temp_dir / "dataset")
+
+        # Write initial data
+        handler.write_parquet_dataset(base_table, output_path)
+
+        # Upsert with new and updated records
+        stats = handler.write_parquet_dataset(
+            update_table,
+            output_path,
+            strategy="upsert",
+            key_columns=["id"],
+        )
+
+        # Should return MergeStats
+        assert stats is not None
+
+        # Verify merged result
+        read_back = handler.read_parquet(f"{output_path}/*.parquet")
+        # Should have: id=1 (original), id=2,3 (updated), id=4 (new)
+        assert read_back.num_rows >= 3  # At least the source rows
+
+    def test_write_with_insert_strategy(self, handler, base_table, update_table, temp_dir):
+        """Test insert-only strategy via write_parquet_dataset."""
+        output_path = str(temp_dir / "dataset")
+
+        # Write initial data
+        handler.write_parquet_dataset(base_table, output_path)
+
+        # Insert only - should only add id=4
+        stats = handler.write_parquet_dataset(
+            update_table,
+            output_path,
+            strategy="insert",
+            key_columns=["id"],
+        )
+
+        assert stats is not None
+
+    def test_write_with_update_strategy(self, handler, base_table, update_table, temp_dir):
+        """Test update-only strategy via write_parquet_dataset."""
+        output_path = str(temp_dir / "dataset")
+
+        # Write initial data
+        handler.write_parquet_dataset(base_table, output_path)
+
+        # Update only - should update id=2,3, ignore id=4
+        stats = handler.write_parquet_dataset(
+            update_table,
+            output_path,
+            strategy="update",
+            key_columns=["id"],
+        )
+
+        assert stats is not None
+
+    def test_write_with_deduplicate_strategy(self, handler, temp_dir):
+        """Test deduplication strategy via write_parquet_dataset."""
+        output_path = str(temp_dir / "dataset")
+
+        # Data with duplicates
+        data_with_dupes = pa.table({
+            "id": [1, 1, 2, 2, 3],
+            "value": ["a1", "a2", "b1", "b2", "c"],
+        })
+
+        # Deduplicate on write
+        stats = handler.write_parquet_dataset(
+            data_with_dupes,
+            output_path,
+            strategy="deduplicate",
+            key_columns=["id"],
+        )
+
+        assert stats is not None
+
+    def test_write_with_full_merge_strategy(self, handler, base_table, update_table, temp_dir):
+        """Test full_merge strategy via write_parquet_dataset."""
+        output_path = str(temp_dir / "dataset")
+
+        # Write initial data
+        handler.write_parquet_dataset(base_table, output_path)
+
+        # Full merge - replaces with source
+        stats = handler.write_parquet_dataset(
+            update_table,
+            output_path,
+            strategy="full_merge",
+        )
+
+        assert stats is not None
+
+    def test_write_invalid_strategy_raises_error(self, handler, base_table, temp_dir):
+        """Test that invalid strategy raises ValueError."""
+        output_path = str(temp_dir / "dataset")
+
+        with pytest.raises(ValueError, match="Invalid strategy"):
+            handler.write_parquet_dataset(
+                base_table,
+                output_path,
+                strategy="invalid_strategy",
+            )
+
+    def test_insert_dataset_helper(self, handler, base_table, update_table, temp_dir):
+        """Test insert_dataset convenience helper."""
+        output_path = str(temp_dir / "dataset")
+
+        # Write initial data
+        handler.write_parquet_dataset(base_table, output_path)
+
+        # Use helper
+        stats = handler.insert_dataset(
+            update_table,
+            output_path,
+            key_columns=["id"],
+        )
+
+        assert stats is not None
+
+    def test_upsert_dataset_helper(self, handler, base_table, update_table, temp_dir):
+        """Test upsert_dataset convenience helper."""
+        output_path = str(temp_dir / "dataset")
+
+        # Write initial data
+        handler.write_parquet_dataset(base_table, output_path)
+
+        # Use helper
+        stats = handler.upsert_dataset(
+            update_table,
+            output_path,
+            key_columns=["id"],
+        )
+
+        assert stats is not None
+
+    def test_update_dataset_helper(self, handler, base_table, update_table, temp_dir):
+        """Test update_dataset convenience helper."""
+        output_path = str(temp_dir / "dataset")
+
+        # Write initial data
+        handler.write_parquet_dataset(base_table, output_path)
+
+        # Use helper
+        stats = handler.update_dataset(
+            update_table,
+            output_path,
+            key_columns=["id"],
+        )
+
+        assert stats is not None
+
+    def test_deduplicate_dataset_helper(self, handler, temp_dir):
+        """Test deduplicate_dataset convenience helper."""
+        output_path = str(temp_dir / "dataset")
+
+        data_with_dupes = pa.table({
+            "id": [1, 1, 2],
+            "value": ["a", "b", "c"],
+        })
+
+        # Use helper
+        stats = handler.deduplicate_dataset(
+            data_with_dupes,
+            output_path,
+            key_columns=["id"],
+        )
+
+        assert stats is not None
+
+    def test_insert_dataset_requires_key_columns(self, handler, base_table, temp_dir):
+        """Test that insert_dataset requires key_columns."""
+        output_path = str(temp_dir / "dataset")
+
+        with pytest.raises(ValueError, match="key_columns is required"):
+            handler.insert_dataset(base_table, output_path, key_columns=None)
+
+    def test_upsert_dataset_requires_key_columns(self, handler, base_table, temp_dir):
+        """Test that upsert_dataset requires key_columns."""
+        output_path = str(temp_dir / "dataset")
+
+        with pytest.raises(ValueError, match="key_columns is required"):
+            handler.upsert_dataset(base_table, output_path, key_columns=None)
+
+    def test_update_dataset_requires_key_columns(self, handler, base_table, temp_dir):
+        """Test that update_dataset requires key_columns."""
+        output_path = str(temp_dir / "dataset")
+
+        with pytest.raises(ValueError, match="key_columns is required"):
+            handler.update_dataset(base_table, output_path, key_columns=None)
+
+    def test_deduplicate_dataset_optional_key_columns(self, handler, temp_dir):
+        """Test that deduplicate_dataset works without key_columns (exact dedup)."""
+        output_path = str(temp_dir / "dataset")
+
+        data_with_dupes = pa.table({
+            "id": [1, 1, 2],
+            "value": ["a", "a", "b"],  # First two rows are exact duplicates
+        })
+
+        # Should work without key_columns
+        stats = handler.deduplicate_dataset(
+            data_with_dupes,
+            output_path,
+            key_columns=None,
+        )
+
+        assert stats is not None
+
+    def test_upsert_creates_new_dataset_if_target_missing(self, handler, base_table, temp_dir):
+        """Test that upsert/insert creates new dataset if target doesn't exist."""
+        output_path = str(temp_dir / "new_dataset")
+
+        # No existing dataset - should create one
+        result = handler.upsert_dataset(
+            base_table,
+            output_path,
+            key_columns=["id"],
+        )
+
+        # Verify data was written
+        read_back = handler.read_parquet(f"{output_path}/*.parquet")
+        assert read_back.num_rows == 3

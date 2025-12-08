@@ -213,8 +213,14 @@ class DuckDBDatasetIO:
         max_rows_per_file: int | None = 5_000_000,
         row_group_size: int | None = 500_000,
         use_threads: bool = False,
-    ) -> None:
-        """Write a parquet dataset using DuckDB.
+        strategy: str | CoreMergeStrategy | None = None,
+        key_columns: list[str] | str | None = None,
+    ) -> MergeStats | None:
+        """Write a parquet dataset using DuckDB with optional merge strategies.
+
+        When ``strategy`` is provided, the function delegates to merge logic to apply
+        merge semantics directly on the incoming data. This allows for one-step merge
+        operations without requiring separate staging and merge steps.
 
         Args:
             data: PyArrow table or list of tables to write
@@ -226,6 +232,16 @@ class DuckDBDatasetIO:
             max_rows_per_file: Maximum rows per file
             row_group_size: Rows per row group
             use_threads: Whether to use parallel writing
+            strategy: Optional merge strategy:
+                - 'insert': Only insert new records
+                - 'upsert': Insert or update existing records
+                - 'update': Only update existing records
+                - 'full_merge': Full replacement with source
+                - 'deduplicate': Remove duplicates
+            key_columns: Key columns for merge operations (required for relational strategies)
+
+        Returns:
+            MergeStats if strategy is provided, None otherwise
 
         Example:
             ```python
@@ -233,12 +249,24 @@ class DuckDBDatasetIO:
             from fsspeckit.datasets.duckdb.connection import create_duckdb_connection
             from fsspeckit.datasets.duckdb.dataset import DuckDBDatasetIO
 
-            table = pa.table({'a': [1, 2, 3], 'b': ['x', 'y', 'z']})
+            table = pa.table({'id': [1, 2, 3], 'value': ['x', 'y', 'z']})
             conn = create_duckdb_connection()
             io = DuckDBDatasetIO(conn)
+
+            # Standard write (no merge)
             io.write_parquet_dataset(table, "/tmp/dataset/")
+
+            # Merge-aware write with upsert
+            stats = io.write_parquet_dataset(
+                table,
+                "/tmp/dataset/",
+                strategy="upsert",
+                key_columns=["id"]
+            )
             ```
         """
+        import tempfile
+
         from fsspeckit.common.optional import _import_pyarrow
 
         validate_path(path)
@@ -246,7 +274,254 @@ class DuckDBDatasetIO:
 
         pa_mod = _import_pyarrow()
 
+        # If no strategy, use standard write (backward compatible)
+        if strategy is None:
+            return self._write_parquet_dataset_standard(
+                data=data,
+                path=path,
+                compression=compression,
+                max_rows_per_file=max_rows_per_file,
+                row_group_size=row_group_size,
+            )
+
+        # Handle merge-aware write
+        # Validate strategy
+        if isinstance(strategy, str):
+            try:
+                strategy_enum = CoreMergeStrategy(strategy)
+            except ValueError:
+                valid_strategies = [s.value for s in CoreMergeStrategy]
+                raise ValueError(
+                    f"Invalid strategy '{strategy}'. Valid strategies: {', '.join(valid_strategies)}"
+                )
+        else:
+            strategy_enum = strategy
+
+        # Normalize key columns
+        normalized_key_columns = None
+        if key_columns is not None:
+            normalized_key_columns = normalize_key_columns(key_columns)
+
+        # Check if target exists
+        fs = self._connection.filesystem
+        target_exists = fs.exists(path) and any(fs.glob(f"{path}/**/*.parquet"))
+
+        # Validate strategy compatibility
+        from fsspeckit.common.optional import _import_pyarrow
+        pa = _import_pyarrow()
+        if isinstance(data, list):
+            source_count = sum(t.num_rows for t in data)
+        else:
+            source_count = data.num_rows
+        validate_strategy_compatibility(
+            strategy=strategy_enum,
+            source_count=source_count,
+            target_exists=target_exists,
+        )
+
+        # For INSERT/UPSERT without existing target, do a simple write
+        if strategy_enum in [CoreMergeStrategy.INSERT, CoreMergeStrategy.UPSERT] and not target_exists:
+            logger.info("Target doesn't exist, using simple write for %s", strategy)
+            return self._write_parquet_dataset_standard(
+                data=data,
+                path=path,
+                compression=compression,
+                max_rows_per_file=max_rows_per_file,
+                row_group_size=row_group_size,
+            )
+
+        # Write source to temp location, then merge
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_source = f"{temp_dir}/source"
+
+            # Write source data to temp
+            self._write_parquet_dataset_standard(
+                data=data,
+                path=temp_source,
+                compression=compression,
+                max_rows_per_file=max_rows_per_file,
+                row_group_size=row_group_size,
+            )
+
+            # Determine target for merge
+            merge_target = path if target_exists else None
+
+            # Perform the merge using SQL
+            stats = self._merge_with_sql(
+                source_path=temp_source,
+                output_path=path,
+                target_path=merge_target,
+                strategy=strategy_enum.value,
+                key_columns=normalized_key_columns,
+                compression=compression,
+            )
+
+            return stats
+
+    def _merge_with_sql(
+        self,
+        source_path: str,
+        output_path: str,
+        target_path: str | None,
+        strategy: str,
+        key_columns: list[str] | None,
+        compression: str | None,
+    ) -> MergeStats:
+        """Perform merge operation using DuckDB SQL.
+
+        Args:
+            source_path: Path to source parquet dataset
+            output_path: Path for output
+            target_path: Path to target parquet dataset (or None)
+            strategy: Merge strategy (upsert, insert, update, deduplicate, full_merge)
+            key_columns: Key columns for merging
+            compression: Output compression
+
+        Returns:
+            MergeStats with merge statistics
+        """
+        import shutil
+        import tempfile as temp_module
+
         conn = self._connection.connection
+        fs = self._connection.filesystem
+
+        # Build source and target paths for parquet_scan
+        source_glob = f"{source_path}/**/*.parquet" if fs.isdir(source_path) else source_path
+
+        # Get source row count
+        source_count = conn.execute(
+            f"SELECT COUNT(*) FROM parquet_scan('{source_glob}')"
+        ).fetchone()[0]
+
+        target_count = 0
+        target_glob = None
+        if target_path:
+            target_glob = f"{target_path}/**/*.parquet" if fs.isdir(target_path) else target_path
+            target_count = conn.execute(
+                f"SELECT COUNT(*) FROM parquet_scan('{target_glob}')"
+            ).fetchone()[0]
+
+        # Build the merge query based on strategy
+        if strategy == "full_merge":
+            # Simply use source data
+            query = f"SELECT * FROM parquet_scan('{source_glob}')"
+        elif strategy == "deduplicate":
+            if key_columns:
+                quoted_keys = [f'"{col}"' for col in key_columns]
+                key_list = ", ".join(quoted_keys)
+                # Deduplicate based on keys - keep first occurrence
+                query = f"""
+                SELECT DISTINCT ON ({key_list}) *
+                FROM parquet_scan('{source_glob}')
+                ORDER BY {key_list}
+                """
+            else:
+                # No keys - remove exact duplicates
+                query = f"SELECT DISTINCT * FROM parquet_scan('{source_glob}')"
+        elif strategy in ["upsert", "insert", "update"] and target_glob:
+            quoted_keys = [f'"{col}"' for col in key_columns]
+            key_conditions = " AND ".join(
+                [f's."{col}" = t."{col}"' for col in key_columns]
+            )
+
+            if strategy == "insert":
+                # Only insert rows not in target
+                query = f"""
+                SELECT s.* FROM parquet_scan('{source_glob}') s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM parquet_scan('{target_glob}') t
+                    WHERE {key_conditions}
+                )
+                """
+            elif strategy == "update":
+                # Only update rows that exist in target
+                query = f"""
+                SELECT s.* FROM parquet_scan('{source_glob}') s
+                WHERE EXISTS (
+                    SELECT 1 FROM parquet_scan('{target_glob}') t
+                    WHERE {key_conditions}
+                )
+                """
+            else:  # upsert
+                # Combine: source + target rows not in source
+                query = f"""
+                SELECT * FROM parquet_scan('{source_glob}')
+                UNION ALL
+                SELECT t.* FROM parquet_scan('{target_glob}') t
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM parquet_scan('{source_glob}') s
+                    WHERE {key_conditions}
+                )
+                """
+        else:
+            raise ValueError(f"Unsupported strategy: {strategy}")
+
+        # Get output row count
+        output_count = conn.execute(
+            f"SELECT COUNT(*) FROM ({query}) AS result"
+        ).fetchone()[0]
+
+        # Write to a temp location first to avoid read/write conflicts
+        with temp_module.TemporaryDirectory() as temp_output_dir:
+            temp_output = f"{temp_output_dir}/merged"
+            fs.mkdirs(temp_output, exist_ok=True)
+
+            # Write result to temp
+            write_query = f"COPY ({query}) TO '{temp_output}' (FORMAT PARQUET, PER_THREAD_OUTPUT TRUE"
+            if compression:
+                write_query += f", COMPRESSION {compression}"
+            write_query += ")"
+
+            conn.execute(write_query)
+
+            # Clear output directory and move temp files
+            if fs.exists(output_path):
+                # Remove existing files
+                for f in fs.glob(f"{output_path}/**/*.parquet"):
+                    fs.rm(f)
+            else:
+                fs.mkdirs(output_path, exist_ok=True)
+
+            # Move temp files to output
+            for f in fs.glob(f"{temp_output}/**/*.parquet"):
+                dest = f.replace(temp_output, output_path)
+                shutil.move(f, dest)
+
+        # Calculate stats
+        stats = calculate_merge_stats(
+            strategy=CoreMergeStrategy(strategy),
+            source_count=source_count,
+            target_count_before=target_count,
+            target_count_after=output_count,
+        )
+
+        return stats
+
+    def _write_parquet_dataset_standard(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        compression: str | None = "snappy",
+        max_rows_per_file: int | None = 5_000_000,
+        row_group_size: int | None = 500_000,
+    ) -> None:
+        """Internal: Standard dataset write without merge logic.
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Output directory path
+            compression: Compression codec
+            max_rows_per_file: Maximum rows per file (not used by DuckDB, kept for API compat)
+            row_group_size: Rows per row group
+        """
+        import os
+
+        conn = self._connection.connection
+        fs = self._connection.filesystem
+
+        # Ensure output directory exists
+        fs.mkdirs(path, exist_ok=True)
 
         # Register the data as a temporary table
         table_name = f"temp_{uuid.uuid4().hex[:16]}"
@@ -254,23 +529,19 @@ class DuckDBDatasetIO:
 
         try:
             # Build the COPY command for dataset
-            copy_query = "COPY data_table TO ? (FORMAT PARQUET"
-
-            params = [path + "/{i}.parquet"]
+            # DuckDB writes to directory with PER_THREAD_OUTPUT
+            copy_query = f"COPY data_table TO '{path}' (FORMAT PARQUET, PER_THREAD_OUTPUT TRUE"
 
             if compression:
                 copy_query += f", COMPRESSION {compression}"
-
-            if max_rows_per_file:
-                copy_query += f", MAX_ROWS_PER_FILE {max_rows_per_file}"
 
             if row_group_size:
                 copy_query += f", ROW_GROUP_SIZE {row_group_size}"
 
             copy_query += ")"
 
-            # Execute with file numbering
-            conn.execute(copy_query, params)
+            # Execute
+            conn.execute(copy_query)
 
         finally:
             # Clean up temporary table
@@ -685,3 +956,181 @@ class DuckDBDatasetIO:
             logger.info("Optimization complete: %s", result)
 
         return result
+
+    def insert_dataset(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        key_columns: list[str] | str,
+        **kwargs: Any,
+    ) -> MergeStats | None:
+        """Insert-only dataset write.
+
+        Convenience method that calls write_parquet_dataset with strategy='insert'.
+        Only inserts records whose keys don't already exist in the target dataset.
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Output directory path
+            key_columns: Key columns for merge (required)
+            **kwargs: Additional arguments passed to write_parquet_dataset
+
+        Returns:
+            MergeStats with merge statistics
+
+        Raises:
+            ValueError: If key_columns is not provided
+
+        Example:
+            ```python
+            import pyarrow as pa
+            from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
+
+            conn = create_duckdb_connection()
+            io = DuckDBDatasetIO(conn)
+            new_records = pa.table({'id': [4, 5], 'value': ['d', 'e']})
+            stats = io.insert_dataset(new_records, "/tmp/dataset/", key_columns=["id"])
+            ```
+        """
+        if not key_columns:
+            raise ValueError("key_columns is required for insert_dataset")
+
+        return self.write_parquet_dataset(
+            data=data,
+            path=path,
+            strategy="insert",
+            key_columns=key_columns,
+            **kwargs,
+        )
+
+    def upsert_dataset(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        key_columns: list[str] | str,
+        **kwargs: Any,
+    ) -> MergeStats | None:
+        """Insert-or-update dataset write.
+
+        Convenience method that calls write_parquet_dataset with strategy='upsert'.
+        Inserts new records and updates existing ones based on key columns.
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Output directory path
+            key_columns: Key columns for merge (required)
+            **kwargs: Additional arguments passed to write_parquet_dataset
+
+        Returns:
+            MergeStats with merge statistics
+
+        Raises:
+            ValueError: If key_columns is not provided
+
+        Example:
+            ```python
+            import pyarrow as pa
+            from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
+
+            conn = create_duckdb_connection()
+            io = DuckDBDatasetIO(conn)
+            updates = pa.table({'id': [1, 4], 'value': ['updated', 'new']})
+            stats = io.upsert_dataset(updates, "/tmp/dataset/", key_columns=["id"])
+            ```
+        """
+        if not key_columns:
+            raise ValueError("key_columns is required for upsert_dataset")
+
+        return self.write_parquet_dataset(
+            data=data,
+            path=path,
+            strategy="upsert",
+            key_columns=key_columns,
+            **kwargs,
+        )
+
+    def update_dataset(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        key_columns: list[str] | str,
+        **kwargs: Any,
+    ) -> MergeStats | None:
+        """Update-only dataset write.
+
+        Convenience method that calls write_parquet_dataset with strategy='update'.
+        Only updates records that already exist in the target dataset.
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Output directory path
+            key_columns: Key columns for merge (required)
+            **kwargs: Additional arguments passed to write_parquet_dataset
+
+        Returns:
+            MergeStats with merge statistics
+
+        Raises:
+            ValueError: If key_columns is not provided
+
+        Example:
+            ```python
+            import pyarrow as pa
+            from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
+
+            conn = create_duckdb_connection()
+            io = DuckDBDatasetIO(conn)
+            updates = pa.table({'id': [1, 2], 'value': ['updated1', 'updated2']})
+            stats = io.update_dataset(updates, "/tmp/dataset/", key_columns=["id"])
+            ```
+        """
+        if not key_columns:
+            raise ValueError("key_columns is required for update_dataset")
+
+        return self.write_parquet_dataset(
+            data=data,
+            path=path,
+            strategy="update",
+            key_columns=key_columns,
+            **kwargs,
+        )
+
+    def deduplicate_dataset(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        key_columns: list[str] | str | None = None,
+        **kwargs: Any,
+    ) -> MergeStats | None:
+        """Deduplicate dataset write.
+
+        Convenience method that calls write_parquet_dataset with strategy='deduplicate'.
+        Removes duplicate records based on key columns (or exact duplicates if no keys provided).
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Output directory path
+            key_columns: Key columns for deduplication (optional; if None, removes exact duplicates)
+            **kwargs: Additional arguments passed to write_parquet_dataset
+
+        Returns:
+            MergeStats with merge statistics
+
+        Example:
+            ```python
+            import pyarrow as pa
+            from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
+
+            conn = create_duckdb_connection()
+            io = DuckDBDatasetIO(conn)
+            data = pa.table({'id': [1, 1, 2], 'value': ['a', 'b', 'c']})
+            stats = io.deduplicate_dataset(data, "/tmp/dataset/", key_columns=["id"])
+            ```
+        """
+        return self.write_parquet_dataset(
+            data=data,
+            path=path,
+            strategy="deduplicate",
+            key_columns=key_columns,
+            **kwargs,
+        )
