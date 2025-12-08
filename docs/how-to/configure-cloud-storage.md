@@ -121,11 +121,18 @@ from fsspeckit.storage_options import GitLabStorageOptions
 
 gitlab_options = GitLabStorageOptions(
     project_id=12345,
-    token="glpat_xxx"
+    token="glpat_xxx",
+    timeout=60.0  # Optional: customize request timeout (default: 30.0)
 )
 
 fs = gitlab_options.to_filesystem()
 ```
+
+The GitLab filesystem now includes hardened features:
+- **Automatic URL encoding** for project names and file paths with special characters
+- **Automatic pagination** for large directory listings (no more truncated results)
+- **Configurable timeouts** to prevent hanging requests
+- **Enhanced error logging** for better debugging
 
 ## URI-Based Configuration
 

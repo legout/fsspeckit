@@ -14,8 +14,9 @@ Internal implementation details have been moved to:
 import inspect
 import os
 import posixpath
+import urllib.parse
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional, Union, List
 
 import fsspec
 import requests
@@ -44,6 +45,8 @@ from .filesystem_paths import (
     _protocol_set,
     _protocol_matches,
     _strip_for_fs,
+    _detect_local_vs_remote_path,
+    _detect_file_vs_directory_path,
     _detect_local_file_path,
     _default_cache_storage,
 )
@@ -57,8 +60,138 @@ from .filesystem_cache import (
 logger = get_logger(__name__)
 
 
+def _resolve_base_and_cache_paths(
+    protocol: Optional[str],
+    base_path_input: str,
+    base_fs: Optional[AbstractFileSystem],
+    dirfs: bool,
+    raw_input: str,
+) -> tuple[str, Optional[str], str]:
+    """Resolve base path and cache path hint from inputs.
+
+    Args:
+        protocol: Detected or provided protocol
+        base_path_input: Base path from input parsing
+        base_fs: Optional base filesystem instance
+        dirfs: Whether DirFileSystem wrapping is enabled
+        raw_input: Original input string
+
+    Returns:
+        Tuple of (resolved_base_path, cache_path_hint, target_path)
+    """
+    if base_fs is not None:
+        # When base_fs is provided, use its structure
+        base_is_dir = isinstance(base_fs, DirFileSystem)
+        underlying_fs = base_fs.fs if base_is_dir else base_fs
+        sep = getattr(underlying_fs, "sep", "/") or "/"
+        base_root = base_fs.path if base_is_dir else ""
+        base_root_norm = _normalize_path(base_root, sep)
+
+        # For base_fs case, cache path is based on the base root
+        cache_path_hint = base_root_norm
+
+        if protocol:
+            # When protocol is specified, target is derived from raw_input
+            target_path = _strip_for_fs(underlying_fs, raw_input)
+            target_path = _normalize_path(target_path, sep)
+
+            # Validate that target is within base directory
+            if (
+                base_is_dir
+                and base_root_norm
+                and not _is_within(base_root_norm, target_path, sep)
+            ):
+                raise ValueError(
+                    f"Requested path '{target_path}' is outside the base directory "
+                    f"'{base_root_norm}'"
+                )
+        else:
+            # When no protocol, target is based on base_path_input relative to base
+            if base_path_input:
+                segments = [
+                    segment for segment in base_path_input.split(sep) if segment
+                ]
+                if any(segment == ".." for segment in segments):
+                    raise ValueError(
+                        "Relative paths must not escape the base filesystem root"
+                    )
+
+                candidate = _normalize_path(base_path_input, sep)
+                target_path = _smart_join(base_root_norm, candidate, sep)
+
+                # Validate that target is within base directory
+                if (
+                    base_is_dir
+                    and base_root_norm
+                    and not _is_within(base_root_norm, target_path, sep)
+                ):
+                    raise ValueError(
+                        f"Resolved path '{target_path}' is outside the base "
+                        f"directory '{base_root_norm}'"
+                    )
+            else:
+                target_path = base_root_norm
+
+        cache_path_hint = target_path
+        return base_root_norm, cache_path_hint, target_path
+    else:
+        # When no base_fs, handle local vs remote path resolution
+        resolved_base_path = base_path_input
+
+        # For local filesystems, detect and normalize local paths
+        if protocol in {None, "file", "local"}:
+            detected_parent, is_local_fs = _detect_local_vs_remote_path(base_path_input)
+            if is_local_fs:
+                resolved_base_path = detected_parent
+
+        resolved_base_path = _normalize_path(resolved_base_path)
+        cache_path_hint = resolved_base_path
+
+        return resolved_base_path, cache_path_hint, resolved_base_path
+
+
+def _build_filesystem_with_caching(
+    fs: AbstractFileSystem,
+    cache_path_hint: Optional[str],
+    cached: bool,
+    cache_storage: Optional[str],
+    verbose: bool,
+) -> AbstractFileSystem:
+    """Wrap filesystem with caching if requested.
+
+    Args:
+        fs: Base filesystem instance
+        cache_path_hint: Hint for cache storage location
+        cached: Whether to enable caching
+        cache_storage: Explicit cache storage path
+        verbose: Whether to enable verbose cache logging
+
+    Returns:
+        Filesystem instance (possibly wrapped with cache)
+    """
+    if cached:
+        if getattr(fs, "is_cache_fs", False):
+            return fs
+
+        storage = cache_storage
+        if storage is None:
+            storage = _default_cache_storage(cache_path_hint or None)
+
+        cached_fs = MonitoredSimpleCacheFileSystem(
+            fs=fs, cache_storage=storage, verbose=verbose
+        )
+        cached_fs.is_cache_fs = True
+        return cached_fs
+
+    if not hasattr(fs, "is_cache_fs"):
+        fs.is_cache_fs = False
+    return fs
+
+
 # Custom DirFileSystem methods
-def dir_ls_p(self, path: str, detail: bool = False, **kwargs: Any) -> Union[List[Any], Any]:
+def dir_ls_p(
+    self, path: str, detail: bool = False, **kwargs: Any
+) -> Union[List[Any], Any]:
     """List directory contents with path handling.
 
     Args:
@@ -73,7 +206,9 @@ def dir_ls_p(self, path: str, detail: bool = False, **kwargs: Any) -> Union[List
     return self.fs.ls(path, detail=detail, **kwargs)
 
 
-def mscf_ls_p(self, path: str, detail: bool = False, **kwargs: Any) -> Union[List[Any], Any]:
+def mscf_ls_p(
+    self, path: str, detail: bool = False, **kwargs: Any
+) -> Union[List[Any], Any]:
     """List directory for monitored cache filesystem.
 
     Args:
@@ -138,6 +273,7 @@ class GitLabFileSystem(AbstractFileSystem):
         ref: str = "main",
         token: Optional[str] = None,
         api_version: str = "v4",
+        timeout: float = 30.0,
         **kwargs: Any,
     ):
         """Initialize GitLab filesystem.
@@ -149,6 +285,7 @@ class GitLabFileSystem(AbstractFileSystem):
             ref: Git reference (branch, tag, or commit SHA)
             token: GitLab personal access token
             api_version: API version to use
+            timeout: Request timeout in seconds
             **kwargs: Additional arguments
         """
         super().__init__(**kwargs)
@@ -159,22 +296,32 @@ class GitLabFileSystem(AbstractFileSystem):
         self.ref = ref
         self.token = token
         self.api_version = api_version
+        self.timeout = timeout
 
         if not project_id and not project_name:
             raise ValueError("Either project_id or project_name must be provided")
 
+        # Create a shared requests session with timeout
+        self._session = requests.Session()
+        if self.token:
+            self._session.headers["PRIVATE-TOKEN"] = self.token
+
     def _get_project_identifier(self) -> str:
-        """Get project identifier for API calls.
+        """Get URL-encoded project identifier for API calls.
 
         Returns:
-            Project identifier (ID or path)
+            URL-encoded project identifier (ID or path)
         """
         if self.project_id:
-            return str(self.project_id)
-        return self.project_name
+            identifier = str(self.project_id)
+        else:
+            identifier = self.project_name
+
+        # URL-encode the project identifier to handle special characters
+        return urllib.parse.quote(identifier, safe="")
 
     def _make_request(self, endpoint: str, params: dict = None) -> requests.Response:
-        """Make API request to GitLab.
+        """Make API request to GitLab with proper error handling.
 
         Args:
             endpoint: API endpoint
@@ -182,35 +329,53 @@ class GitLabFileSystem(AbstractFileSystem):
 
         Returns:
             Response object
+
+        Raises:
+            requests.RequestException: For HTTP errors
         """
         if params is None:
             params = {}
 
-        url = f"{self.base_url}/api/{self.api_version}/projects/{self._get_project_identifier()}/{endpoint}"
+        # URL-encode the endpoint path
+        encoded_endpoint = urllib.parse.quote(endpoint, safe="")
+        project_identifier = self._get_project_identifier()
 
-        headers = {}
-        if self.token:
-            headers["PRIVATE-TOKEN"] = self.token
+        url = f"{self.base_url}/api/{self.api_version}/projects/{project_identifier}/{encoded_endpoint}"
 
-        response = requests.get(url, params=params, headers=headers)
-        response.raise_for_status()
-        return response
+        try:
+            response = self._session.get(url, params=params, timeout=self.timeout)
+            response.raise_for_status()
+            return response
+        except requests.RequestException as e:
+            logger.error(
+                "GitLab API request failed: %s %s - %s",
+                e.response.status_code if e.response else "N/A",
+                e.response.reason if e.response else str(e),
+                url,
+            )
+            if e.response is not None:
+                logger.error("Response content: %s", e.response.text[:500])
+            raise
 
     def _get_file_path(self, path: str) -> str:
-        """Get full file path in repository.
+        """Get URL-encoded full file path in repository.
 
         Args:
             path: File path
 
         Returns:
-            Full file path
+            URL-encoded full file path
         """
         # Remove leading slash if present
         path = path.lstrip("/")
-        return f"/{path}"
+        # URL-encode the path to handle special characters
+        encoded_path = urllib.parse.quote(path, safe="")
+        return f"/{encoded_path}"
 
-    def ls(self, path: str = "", detail: bool = False, **kwargs: Any) -> Union[List[Any], Any]:
-        """List files in repository.
+    def ls(
+        self, path: str = "", detail: bool = False, **kwargs: Any
+    ) -> Union[List[Any], Any]:
+        """List files in repository with pagination support.
 
         Args:
             path: Directory path
@@ -220,18 +385,51 @@ class GitLabFileSystem(AbstractFileSystem):
         Returns:
             List of files
         """
-        params = {"ref": self.ref, "per_page": 100}
+        all_files = []
+        page = 1
+        per_page = 100
 
-        if path:
-            params["path"] = path.lstrip("/")
+        while True:
+            params = {"ref": self.ref, "per_page": per_page, "page": page}
 
-        response = self._make_request("repository/tree", params)
-        files = response.json()
+            if path:
+                params["path"] = path.lstrip("/")
+
+            try:
+                response = self._make_request("repository/tree", params)
+                files = response.json()
+
+                if not files:
+                    # No more pages
+                    break
+
+                all_files.extend(files)
+
+                # Check for pagination headers
+                next_page = response.headers.get("X-Next-Page")
+                if not next_page:
+                    # No more pages
+                    break
+
+                page = int(next_page)
+
+            except requests.RequestException:
+                # If we have some files already, return what we have
+                if all_files:
+                    logger.warning(
+                        "GitLab API request failed for page %d, returning %d files from previous pages",
+                        page,
+                        len(all_files),
+                    )
+                    break
+                else:
+                    # Re-raise if no files collected yet
+                    raise
 
         if detail:
-            return files
+            return all_files
         else:
-            return [item["name"] for item in files]
+            return [item["name"] for item in all_files]
 
     def cat_file(self, path: str, **kwargs: Any) -> bytes:
         """Get file content.
@@ -242,10 +440,16 @@ class GitLabFileSystem(AbstractFileSystem):
 
         Returns:
             File content
+
+        Raises:
+            requests.HTTPError: If file not found or other HTTP error
         """
         params = {"ref": self.ref}
 
-        response = self._make_request(f"repository/files/{path}", params)
+        # URL-encode the file path
+        encoded_path = urllib.parse.quote(path.lstrip("/"), safe="")
+
+        response = self._make_request(f"repository/files/{encoded_path}", params)
         data = response.json()
 
         import base64
@@ -261,10 +465,16 @@ class GitLabFileSystem(AbstractFileSystem):
 
         Returns:
             File information
+
+        Raises:
+            requests.HTTPError: If file not found or other HTTP error
         """
         params = {"ref": self.ref}
 
-        response = self._make_request(f"repository/files/{path}", params)
+        # URL-encode the file path
+        encoded_path = urllib.parse.quote(path.lstrip("/"), safe="")
+
+        response = self._make_request(f"repository/files/{encoded_path}", params)
         return response.json()
 
     def exists(self, path: str, **kwargs: Any) -> bool:
@@ -280,8 +490,14 @@ class GitLabFileSystem(AbstractFileSystem):
         try:
             self.info(path, **kwargs)
             return True
-        except requests.HTTPError:
-            return False
+        except requests.HTTPError as e:
+            if e.response and e.response.status_code == 404:
+                return False
+            # Re-raise for other HTTP errors
+            raise
+        except requests.RequestException:
+            # Re-raise for other request errors
+            raise
 
 
 # Main factory function
@@ -363,19 +579,13 @@ def filesystem(
 
     base_path_input = base_path_input.replace("\\", "/")
 
-    if (
-        base_fs is None
-        and base_path_input
-        and (provided_protocol or protocol_from_kwargs) in {None, "file", "local"}
-    ):
-        detected_parent, is_file = _detect_local_file_path(base_path_input)
-        if is_file:
-            base_path_input = detected_parent
-
-    base_path = _normalize_path(base_path_input)
-    cache_path_hint = base_path
+    # Resolve base path and cache path using helpers
+    resolved_base_path, cache_path_hint, target_path = _resolve_base_and_cache_paths(
+        provided_protocol, base_path_input, base_fs, dirfs, raw_input
+    )
 
     if base_fs is not None:
+        # Handle base filesystem case
         if not dirfs:
             raise ValueError("dirfs must be True when providing base_fs")
 
@@ -393,83 +603,18 @@ def filesystem(
             )
 
         sep = getattr(underlying_fs, "sep", "/") or "/"
-        base_root = base_fs.path if base_is_dir else ""
-        base_root_norm = _normalize_path(base_root, sep)
-        cache_path_hint = base_root_norm
 
-        fs: AbstractFileSystem
-        path_for_cache = base_root_norm
-
-        if requested_protocol:
-            absolute_target = _strip_for_fs(underlying_fs, raw_input)
-            absolute_target = _normalize_path(absolute_target, sep)
-
-            if (
-                base_is_dir
-                and base_root_norm
-                and not _is_within(base_root_norm, absolute_target, sep)
-            ):
-                raise ValueError(
-                    f"Requested path '{absolute_target}' is outside the base directory "
-                    f"'{base_root_norm}'"
-                )
-
-            if base_is_dir and absolute_target == base_root_norm:
-                fs = base_fs
-            else:
-                fs = DirFileSystem(path=absolute_target, fs=underlying_fs)
-
-            path_for_cache = absolute_target
+        # Build the appropriate filesystem
+        if target_path == (base_fs.path if base_is_dir else ""):
+            fs = base_fs
         else:
-            rel_input = base_path
-            if rel_input:
-                segments = [segment for segment in rel_input.split(sep) if segment]
-                if any(segment == ".." for segment in segments):
-                    raise ValueError(
-                        "Relative paths must not escape the base filesystem root"
-                    )
+            fs = DirFileSystem(path=target_path, fs=underlying_fs)
 
-                candidate = _normalize_path(rel_input, sep)
-                absolute_target = _smart_join(base_root_norm, candidate, sep)
+        return _build_filesystem_with_caching(
+            fs, cache_path_hint, cached, cache_storage, verbose
+        )
 
-                if (
-                    base_is_dir
-                    and base_root_norm
-                    and not _is_within(base_root_norm, absolute_target, sep)
-                ):
-                    raise ValueError(
-                        f"Resolved path '{absolute_target}' is outside the base "
-                        f"directory '{base_root_norm}'"
-                    )
-
-                if base_is_dir and absolute_target == base_root_norm:
-                    fs = base_fs
-                else:
-                    fs = DirFileSystem(path=absolute_target, fs=underlying_fs)
-
-                path_for_cache = absolute_target
-            else:
-                fs = base_fs
-                path_for_cache = base_root_norm
-
-        cache_path_hint = path_for_cache
-
-        if cached:
-            if getattr(fs, "is_cache_fs", False):
-                return fs
-            storage = cache_storage
-            if storage is None:
-                storage = _default_cache_storage(cache_path_hint or None)
-            cached_fs = MonitoredSimpleCacheFileSystem(
-                fs=fs, cache_storage=storage, verbose=verbose
-            )
-            cached_fs.is_cache_fs = True
-            return cached_fs
-
-        if not hasattr(fs, "is_cache_fs"):
-            fs.is_cache_fs = False
-        return fs
-
+    # Handle non-base filesystem case
     protocol = provided_protocol or protocol_from_kwargs
     if protocol is None:
         if isinstance(storage_options, dict):
@@ -486,27 +631,17 @@ def filesystem(
             use_listings_cache=use_listings_cache,
             skip_instance_cache=skip_instance_cache,
         )
+
         if dirfs:
-            dir_path: str | Path = base_path or Path.cwd()
+            dir_path: str | Path = resolved_base_path or Path.cwd()
             fs = DirFileSystem(path=dir_path, fs=fs)
             cache_path_hint = _ensure_string(dir_path)
 
-        if cached:
-            if getattr(fs, "is_cache_fs", False):
-                return fs
-            storage = cache_storage
-            if storage is None:
-                storage = _default_cache_storage(cache_path_hint or None)
-            cached_fs = MonitoredSimpleCacheFileSystem(
-                fs=fs, cache_storage=storage, verbose=verbose
-            )
-            cached_fs.is_cache_fs = True
-            return cached_fs
+        return _build_filesystem_with_caching(
+            fs, cache_path_hint, cached, cache_storage, verbose
+        )
 
-        if not hasattr(fs, "is_cache_fs"):
-            fs.is_cache_fs = False
-        return fs
-
+    # Handle other protocols
     protocol_for_instance_cache = protocol
     kwargs["protocol"] = protocol
 
@@ -517,21 +652,9 @@ def filesystem(
         skip_instance_cache=skip_instance_cache,
     )
 
-    if cached:
-        if getattr(fs, "is_cache_fs", False):
-            return fs
-        storage = cache_storage
-        if storage is None:
-            storage = _default_cache_storage(cache_path_hint or None)
-        cached_fs = MonitoredSimpleCacheFileSystem(
-            fs=fs, cache_storage=storage, verbose=verbose
-        )
-        cached_fs.is_cache_fs = True
-        return cached_fs
-
-    if not hasattr(fs, "is_cache_fs"):
-        fs.is_cache_fs = False
-    return fs
+    return _build_filesystem_with_caching(
+        fs, cache_path_hint, cached, cache_storage, verbose
+    )
 
 
 def get_filesystem(

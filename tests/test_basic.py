@@ -227,3 +227,95 @@ def test_filesystem_dirfs_disallows_parent_escape(tmp_path):
 
     with pytest.raises(ValueError):
         filesystem("../escape", base_fs=base_fs)
+
+
+def test_filesystem_local_vs_url_path_resolution(tmp_path):
+    """Test that local paths and URL-based protocols are handled correctly."""
+    from fsspeckit import filesystem, DirFileSystem
+
+    # Test local path detection
+    root = tmp_path / "local" / "path"
+    root.mkdir(parents=True)
+
+    fs = filesystem(root.as_posix())
+    assert isinstance(fs, DirFileSystem)
+    assert Path(fs.path).resolve() == root.resolve()
+
+    # Test URL-based protocol detection
+    fs_url = filesystem(f"file://{root.as_posix()}")
+    assert isinstance(fs_url, DirFileSystem)
+    assert Path(fs_url.path).resolve() == root.resolve()
+
+    # Test that URL paths are not treated as local filesystem paths
+    fs_s3 = filesystem("s3://bucket/path")
+    assert not isinstance(
+        fs_s3, DirFileSystem
+    )  # S3 filesystem doesn't use DirFileSystem wrapper
+
+
+def test_filesystem_path_helper_functions():
+    """Test the new path helper functions for clarity."""
+    from fsspeckit.core.filesystem_paths import (
+        _detect_local_vs_remote_path,
+        _detect_file_vs_directory_path,
+    )
+
+    # Test local vs remote detection
+    local_path = "/path/to/file"
+    normalized, is_local = _detect_local_vs_remote_path(local_path)
+    assert is_local is True
+    assert normalized == local_path
+
+    # Test URL detection
+    url_path = "https://example.com/path"
+    normalized, is_local = _detect_local_vs_remote_path(url_path)
+    assert is_local is False
+
+    # Test file vs directory detection
+    file_path = "/path/to/file"
+    normalized, is_file = _detect_file_vs_directory_path(file_path)
+    assert is_file is True
+
+    dir_path = "/path/to/dir/"
+    normalized, is_file = _detect_file_vs_directory_path(dir_path)
+    assert is_file is False
+
+
+def test_filesystem_cache_path_resolution(tmp_path):
+    """Test that cache path hints are derived correctly."""
+    from fsspeckit import filesystem
+
+    # Create a directory structure
+    root = tmp_path / "dataset"
+    subdir = root / "partition"
+    subdir.mkdir(parents=True)
+
+    # Test cache path for simple directory
+    fs = filesystem(root.as_posix(), cached=True)
+    assert hasattr(fs, "is_cache_fs")
+    assert fs.is_cache_fs is True
+
+    # Test cache path for nested directory
+    fs_nested = filesystem(subdir.as_posix(), cached=True)
+    assert hasattr(fs_nested, "is_cache_fs")
+    assert fs_nested.is_cache_fs is True
+
+
+def test_filesystem_base_path_resolution_with_protocols(tmp_path):
+    """Test that base path resolution works correctly with different protocols."""
+    from fsspeckit import filesystem
+
+    # Create local directory
+    root = tmp_path / "base"
+    root.mkdir()
+
+    base_fs = filesystem(root.as_posix())
+
+    # Test relative path resolution with base filesystem
+    child_fs = filesystem("child", base_fs=base_fs)
+    assert Path(child_fs.path).resolve() == (root / "child").resolve()
+
+    # Test absolute path resolution with base filesystem
+    abs_path = f"file://{root.as_posix()}/absolute"
+    abs_fs = filesystem(abs_path, base_fs=base_fs)
+    assert Path(abs_fs.path).resolve() == (root / "absolute").resolve()

@@ -181,6 +181,10 @@ Provides read-only access to files in GitLab repositories, including:
 - Self-hosted GitLab instances
 - Branch/tag/commit selection
 - Token-based authentication
+- **URL-encoded paths** for handling special characters
+- **Automatic pagination** for large directory listings
+- **Configurable timeouts** to prevent hanging requests
+- **Enhanced error logging** for debugging
 
 **Attributes:**
 
@@ -191,25 +195,185 @@ Provides read-only access to files in GitLab repositories, including:
 *   `ref` (`str`): Git reference (branch, tag, commit)
 *   `token` (`str`): Access token
 *   `api_version` (`str`): API version
+*   `timeout` (`float`): Request timeout in seconds (default: 30.0)
 
 **Example:**
 
 ```python
-# Public repository
+# Public repository with default timeout
 fs = GitLabFileSystem(
     project_name="group/project",
     ref="main"
 )
 files = fs.ls("/")
 
-# Private repository with token
+# Private repository with custom timeout
 fs = GitLabFileSystem(
     project_id="12345",
     token="glpat_xxxx",
-    ref="develop"
+    ref="develop",
+    timeout=60.0  # 1 minute timeout
 )
 content = fs.cat("README.md")
+
+# Repository with special characters in path
+fs = GitLabFileSystem(
+    project_name="group/project with spaces",
+    ref="main"
+)
+# Handles URL encoding automatically for paths like "file with spaces.txt"
 ```
+
+### `__init__()`
+
+Initialize GitLab filesystem.
+
+| Parameter | Type | Description |
+| | :-------- | :--- | :---------- |
+| `base_url` | `str` | GitLab instance URL |
+| `project_id` | `Optional[Union[str, int]]` | Project ID number |
+| `project_name` | `Optional[str]` | Project name/path (alternative to project_id) |
+| `ref` | `str` | Git reference (branch, tag, or commit SHA) |
+| `token` | `Optional[str]` | GitLab personal access token |
+| `api_version` | `str` | API version to use |
+| `timeout` | `float` | Request timeout in seconds (default: 30.0) |
+
+| `**kwargs` | `Any` | Additional filesystem arguments |
+
+| Raises | Type | Description |
+| | :----- | :--- | :----------
+| `ValueError` | `ValueError` | If neither `project_id` nor `project_name` is provided |
+
+**Example:**
+
+```python
+from fsspeckit.core.base import GitLabFileSystem
+
+# Access a public repository
+fs_public = GitLabFileSystem(
+    project_name="gitlab-org/gitlab",
+    ref="master"
+)
+print(fs_public.ls("README.md"))
+
+# Access with custom timeout for slow connections
+fs_slow = GitLabFileSystem(
+    project_name="large-project",
+    ref="main",
+    timeout=120.0  # 2 minutes for large repositories
+)
+
+# Access a private repository (replace with your token and project info)
+# fs_private = GitLabFileSystem(
+#     project_id="12345",
+# #    token="your_private_token",
+#     ref="main"
+# )
+# print(fs_private.ls("/"))
+```
+
+### `ls()`
+
+List directory contents with automatic pagination support.
+
+This method handles large directory listings by automatically following GitLab's pagination headers. For repositories with many files, it will make multiple API requests to ensure complete results.
+
+| Parameter | Type | Description |
+| | :-------- | :--- | :---------- |
+| `path` | `str` | Directory path to list |
+| `detail` | `bool` | Whether to return detailed information |
+| `**kwargs` | `Any` | Additional options |
+
+| Returns | Type | Description |
+| | :------ | :--- | :---------- |
+| `Union[List[str], List[dict]]` | `list` | List of file names (if detail=False) or file info dictionaries (if detail=True) |
+
+**Example:**
+
+```python
+fs = GitLabFileSystem(project_name="gitlab-org/gitlab")
+
+# List files in root directory (automatically handles pagination)
+files = fs.ls("/")
+print(f"Found {len(files)} files")
+
+# Get detailed information
+detailed_files = fs.ls("/", detail=True)
+for file_info in detailed_files:
+    print(f"{file_info['name']}: {file_info['type']}")
+
+# List files in subdirectory
+readme_files = fs.ls("doc/")
+```
+
+### `cat_file()`
+
+Get file content from GitLab repository.
+
+Handles URL encoding automatically for paths with special characters.
+
+| Parameter | Type | Description |
+| | :-------- | :--- | :---------- |
+| `path` | `str` | File path in repository |
+
+| Returns | Type | Description |
+| | :------ | :--- | :---------- |
+| `bytes` | `bytes` | File content as bytes |
+
+| Raises | Type | Description |
+| | :----- | :--- | :---------- |
+| `requests.HTTPError` | `requests.HTTPError` | For HTTP errors (404 for missing files, etc.) |
+
+**Example:**
+
+```python
+fs = GitLabFileSystem(project_name="gitlab-org/gitlab")
+
+# Get file content
+content = fs.cat_file("README.md")
+print(content.decode('utf-8'))
+
+# Files with special characters are handled automatically
+content = fs.cat_file("path with spaces/file-name.txt")
+```
+
+### `exists()`
+
+Check if a file exists in the repository.
+
+| Parameter | Type | Description |
+| | :-------- | :--- | :---------- |
+| `path` | `str` | File path to check |
+
+| Returns | Type | Description |
+| | :------ | :--- | :---------- |
+| `bool` | `bool` | True if file exists, False otherwise |
+
+**Example:**
+
+```python
+fs = GitLabFileSystem(project_name="gitlab-org/gitlab")
+
+if fs.exists("README.md"):
+    print("README.md exists")
+    content = fs.cat_file("README.md")
+else:
+    print("README.md not found")
+```
+
+### Hardened Features
+
+The GitLabFileSystem includes several hardening improvements:
+
+1. **URL Encoding**: All project identifiers and file paths are URL-encoded to handle special characters correctly.
+
+2. **Shared HTTP Session**: Uses a single `requests.Session` with configured timeout for better performance and reliability.
+
+3. **Automatic Pagination**: The `ls()` method automatically follows GitLab pagination headers to return complete directory listings.
+
+4. **Enhanced Error Logging**: HTTP errors are logged with context information including status codes and response content for easier debugging.
+
+5. **Timeout Protection**: All HTTP requests include a timeout to prevent hanging on slow or unresponsive GitLab instances.
 
 ### `__init__()`
 

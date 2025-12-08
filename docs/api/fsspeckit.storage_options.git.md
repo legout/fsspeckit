@@ -98,7 +98,13 @@ fs = filesystem("github", **kwargs)
 
 GitLab repository storage configuration options.
 
-Provides access to files in GitLab repositories with support for: - Public and private repositories - Self-hosted GitLab instances - Project ID or name-based access - Branch/tag/commit selection - Token-based authentication
+Provides access to files in GitLab repositories with support for:
+- Public and private repositories
+- Self-hosted GitLab instances
+- Project ID or name-based access
+- Branch/tag/commit selection
+- Token-based authentication
+- **Hardened HTTP handling** with URL encoding, pagination, and timeouts
 
 **Attributes:**
 
@@ -109,6 +115,7 @@ Provides access to files in GitLab repositories with support for: - Public and p
 - `ref` (`str`): Git reference (branch, tag, or commit SHA)
 - `token` (`str`): GitLab personal access token
 - `api_version` (`str`): API version to use
+- `timeout` (`float`): Request timeout in seconds (default: 30.0)
 
 **Example:**
 ```python
@@ -118,18 +125,20 @@ options = GitLabStorageOptions(
     ref="main"
 )
 
-# Private project with token
+# Private project with custom timeout
 options = GitLabStorageOptions(
     project_id=12345,
     token="glpat_xxxx",
-    ref="develop"
+    ref="develop",
+    timeout=60.0  # 1 minute timeout for slow connections
 )
 
-# Self-hosted instance
+# Self-hosted instance with extended timeout
 options = GitLabStorageOptions(
     base_url="https://gitlab.company.com",
     project_name="internal/project",
-    token="glpat_xxxx"
+    token="glpat_xxxx",
+    timeout=120.0  # 2 minutes for enterprise instances
 )
 ```
 
@@ -137,7 +146,14 @@ options = GitLabStorageOptions(
 
 Create storage options from environment variables.
 
-Reads standard GitLab environment variables: - GITLAB_URL: Instance URL - GITLAB_PROJECT_ID: Project ID - GITLAB_PROJECT_NAME: Project name/path - GITLAB_REF: Git reference - GITLAB_TOKEN: Personal access token - GITLAB_API_VERSION: API version
+Reads standard GitLab environment variables:
+- GITLAB_URL: Instance URL
+- GITLAB_PROJECT_ID: Project ID
+- GITLAB_PROJECT_NAME: Project name/path
+- GITLAB_REF: Git reference
+- GITLAB_TOKEN: Personal access token
+- GITLAB_API_VERSION: API version
+- GITLAB_TIMEOUT: Request timeout in seconds
 
 **Returns:**
 
@@ -146,24 +162,29 @@ Reads standard GitLab environment variables: - GITLAB_URL: Instance URL - GITLAB
 **Example:**
 ```python
 # With environment variables set:
+# export GITLAB_PROJECT_ID=12345
+# export GITLAB_TIMEOUT=60.0
 options = GitLabStorageOptions.from_env()
 print(options.project_id)  # From GITLAB_PROJECT_ID '12345'
+print(options.timeout)     # From GITLAB_TIMEOUT '60.0'
 ```
 
 ### `to_env()`
 
 Export options to environment variables.
 
-Sets standard GitLab environment variables.
+Sets standard GitLab environment variables including GITLAB_TIMEOUT.
 
 **Example:**
 ```python
 options = GitLabStorageOptions(
     project_id=12345,
-    token="glpat_xxxx"
+    token="glpat_xxxx",
+    timeout=60.0
 )
 options.to_env()
 print(os.getenv("GITLAB_PROJECT_ID"))  # '12345'
+print(os.getenv("GITLAB_TIMEOUT"))     # '60.0'
 ```
 
 ### `to_fsspec_kwargs()`

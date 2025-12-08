@@ -207,8 +207,54 @@ def _strip_for_fs(fs, url: str) -> str:
     return url
 
 
+def _detect_local_vs_remote_path(path: str) -> tuple[str, bool]:
+    """Detect if path is local (filesystem) vs remote (URL-based).
+
+    Args:
+        path: Path to check
+
+    Returns:
+        Tuple of (normalized_path, is_local_filesystem)
+    """
+    # Normalize the path
+    normalized = os.path.normpath(path)
+
+    # Check if it's a local filesystem path (not a URL)
+    # Local paths don't start with http/https and don't contain ://
+    is_local_filesystem = not (
+        normalized.startswith("http://")
+        or normalized.startswith("https://")
+        or "://" in normalized
+    )
+
+    return (normalized, is_local_filesystem)
+
+
+def _detect_file_vs_directory_path(path: str) -> tuple[str, bool]:
+    """Detect if path refers to a file vs directory.
+
+    Args:
+        path: Path to check
+
+    Returns:
+        Tuple of (normalized_path, is_file)
+    """
+    # Normalize the path
+    normalized = os.path.normpath(path)
+
+    # Simple heuristic: if path doesn't end with / and exists as a file,
+    # treat it as a file. Otherwise treat as directory.
+    # This is a best-effort detection that may not be perfect for all cases.
+    is_file = not normalized.endswith("/")
+
+    return (normalized, is_file)
+
+
 def _detect_local_file_path(path: str) -> tuple[str, bool]:
-    """Detect if path is a local file path.
+    """Detect if path is a local file path (deprecated name).
+
+    This function is deprecated and maintained for backward compatibility.
+    Use _detect_local_vs_remote_path() instead for clarity.
 
     Args:
         path: Path to check
@@ -216,13 +262,7 @@ def _detect_local_file_path(path: str) -> tuple[str, bool]:
     Returns:
         Tuple of (normalized_path, is_local)
     """
-    # Normalize the path
-    normalized = os.path.normpath(path)
-
-    # Check if it's a local path (not a URL)
-    is_local = not (normalized.startswith("http://") or normalized.startswith("https://") or "://" in normalized)
-
-    return (normalized, is_local)
+    return _detect_local_vs_remote_path(path)
 
 
 def _default_cache_storage(cache_path_hint: str | None) -> str:
