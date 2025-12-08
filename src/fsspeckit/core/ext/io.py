@@ -53,7 +53,7 @@ def read_files(
     include_file_path: bool = False,
     concat: bool = True,
     jsonlines: bool = False,
-    use_threads: bool = True,
+    use_threads: bool = False,
     verbose: bool = False,
     opt_dtypes: bool = False,
     **kwargs: Any,
@@ -192,7 +192,7 @@ def write_files(
     concat: bool = True,
     unique: bool | list[str] | str = False,
     mode: str = "append",  # append, overwrite, delete_matching, error_if_exists
-    use_threads: bool = True,
+    use_threads: bool = False,
     verbose: bool = False,
     **kwargs,
 ) -> None:

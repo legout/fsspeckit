@@ -18,6 +18,7 @@ from fsspec import filesystem as fsspec_filesystem
 
 from fsspeckit.common.logging import get_logger
 from fsspeckit.common.optional import _DUCKDB_AVAILABLE
+from fsspeckit.datasets.duckdb.helpers import _unregister_duckdb_table_safely
 
 logger = get_logger(__name__)
 
@@ -36,25 +37,6 @@ if _DUCKDB_AVAILABLE:
         "ConnectionException": duckdb.ConnectionException,
         "SyntaxException": duckdb.SyntaxException,
     }
-
-
-def _unregister_duckdb_table_safely(conn: Any, table_name: str) -> None:
-    """Safely unregister a DuckDB table with proper error handling and logging.
-
-    Args:
-        conn: DuckDB connection instance
-        table_name: Name of table to unregister
-
-    This helper ensures that table unregistration failures are logged but don't
-    interrupt overall cleanup process. Partial cleanup failures are visible
-    in logs rather than being silently swallowed.
-    """
-    try:
-        conn.unregister(table_name)
-    except (_DUCKDB_EXCEPTIONS.get("CatalogException"), _DUCKDB_EXCEPTIONS.get("ConnectionException")) as e:
-        # Log the failure but don't raise - cleanup should continue
-        # Catch CatalogException (table doesn't exist), ConnectionException (connection issues)
-        logger.warning("Failed to unregister DuckDB table '%s': %s", table_name, e)
 
 
 class DuckDBConnection:

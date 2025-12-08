@@ -35,6 +35,7 @@ from fsspeckit.common.security import (
     safe_format_error,
 )
 from fsspeckit.datasets.duckdb.connection import DuckDBConnection
+from fsspeckit.datasets.duckdb.helpers import _unregister_duckdb_table_safely
 
 logger = get_logger(__name__)
 
@@ -81,7 +82,7 @@ class DuckDBDatasetIO:
         path: str,
         columns: list[str] | None = None,
         filter: str | None = None,
-        use_threads: bool = True,
+        use_threads: bool = False,
     ) -> pa.Table:
         """Read parquet file(s) using DuckDB.
 
@@ -147,7 +148,7 @@ class DuckDBDatasetIO:
         path: str,
         compression: str | None = "snappy",
         row_group_size: int | None = None,
-        use_threads: bool = True,
+        use_threads: bool = False,
     ) -> None:
         """Write parquet file using DuckDB.
 
@@ -199,13 +200,7 @@ class DuckDBDatasetIO:
 
         finally:
             # Clean up temporary table
-            try:
-                conn.unregister("data_table")
-            except (
-                _DUCKDB_EXCEPTIONS.get("CatalogException"),
-                _DUCKDB_EXCEPTIONS.get("ConnectionException"),
-            ) as e:
-                logger.warning("Failed to unregister temporary table: %s", e)
+            _unregister_duckdb_table_safely(conn, "data_table")
 
     def write_parquet_dataset(
         self,
@@ -217,7 +212,7 @@ class DuckDBDatasetIO:
         compression: str | None = "snappy",
         max_rows_per_file: int | None = 5_000_000,
         row_group_size: int | None = 500_000,
-        use_threads: bool = True,
+        use_threads: bool = False,
     ) -> None:
         """Write a parquet dataset using DuckDB.
 
@@ -279,13 +274,7 @@ class DuckDBDatasetIO:
 
         finally:
             # Clean up temporary table
-            try:
-                conn.unregister("data_table")
-            except (
-                _DUCKDB_EXCEPTIONS.get("CatalogException"),
-                _DUCKDB_EXCEPTIONS.get("ConnectionException"),
-            ) as e:
-                logger.warning("Failed to unregister temporary table: %s", e)
+            _unregister_duckdb_table_safely(conn, "data_table")
 
     def _generate_unique_filename(self, template: str = "data-{i}.parquet") -> str:
         """Generate a unique filename template.
@@ -456,24 +445,10 @@ class DuckDBDatasetIO:
         finally:
             # Clean up registered tables
             for table_name in registered_tables:
-                try:
-                    conn.unregister(table_name)
-                except (
-                    _DUCKDB_EXCEPTIONS.get("CatalogException"),
-                    _DUCKDB_EXCEPTIONS.get("ConnectionException"),
-                ) as e:
-                    logger.warning("Failed to unregister table %s: %s", table_name, e)
+                _unregister_duckdb_table_safely(conn, table_name)
 
             if target_table_name:
-                try:
-                    conn.unregister(target_table_name)
-                except (
-                    _DUCKDB_EXCEPTIONS.get("CatalogException"),
-                    _DUCKDB_EXCEPTIONS.get("ConnectionException"),
-                ) as e:
-                    logger.warning(
-                        "Failed to unregister table %s: %s", target_table_name, e
-                    )
+                _unregister_duckdb_table_safely(conn, target_table_name)
 
     def _build_merge_query(
         self,
