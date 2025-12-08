@@ -40,9 +40,9 @@ from pathlib import Path
 from typing import Any
 
 from fsspec import AbstractFileSystem
+from fsspec import filesystem as fsspec_filesystem
 
 from fsspeckit.common.logging import get_logger
-from fsspeckit.core.filesystem import fsspec_filesystem
 
 logger = get_logger(__name__)
 

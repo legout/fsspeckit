@@ -3,6 +3,7 @@
 This package contains focused submodules for PyArrow functionality:
 - dataset: Dataset merge and maintenance operations
 - schema: Schema unification, type inference, and optimization
+- io: PyarrowDatasetIO class for dataset operations
 
 All public APIs are re-exported here for convenient access.
 """
@@ -22,6 +23,12 @@ from .dataset import (
     compact_parquet_dataset_pyarrow,
     merge_parquet_dataset_pyarrow,
     optimize_parquet_dataset_pyarrow,
+)
+
+# Re-export dataset I/O classes
+from .io import (
+    PyarrowDatasetIO,
+    PyarrowDatasetHandler,
 )
 
 # Re-export dataset write functions
@@ -53,4 +60,7 @@ __all__ = [
     "insert_dataset",
     "update_dataset",
     "upsert_dataset",
+    # Dataset I/O classes
+    "PyarrowDatasetIO",
+    "PyarrowDatasetHandler",
 ]
