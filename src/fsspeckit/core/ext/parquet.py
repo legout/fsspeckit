@@ -18,9 +18,9 @@ if TYPE_CHECKING:
 from fsspec import AbstractFileSystem
 
 from fsspeckit.common.misc import path_to_glob, run_parallel
-from fsspeckit.datasets.pyarrow import cast_schema
-from fsspeckit.datasets.pyarrow import opt_dtype as opt_dtype_pa
-from fsspeckit.datasets.pyarrow import unify_schemas as unify_schemas_pa
+from fsspeckit.common.schema import cast_schema
+from fsspeckit.common.schema import opt_dtype as opt_dtype_pa
+from fsspeckit.common.schema import unify_schemas as unify_schemas_pa
 from fsspeckit.common.logging import get_logger
 
 # Get module logger

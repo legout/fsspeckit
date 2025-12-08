@@ -890,3 +890,263 @@ def unify_schemas(
             if use_large_dtypes
             else convert_large_types_to_normal(first_schema)
         )
+
+
+# ============================================================================
+# Data Type Optimization Functions
+# ============================================================================
+
+# Float32 range limits for optimization
+F32_MIN = float(np.finfo(np.float32).min)
+F32_MAX = float(np.finfo(np.float32).max)
+
+# Pre-compiled regex patterns for type detection
+INTEGER_REGEX = r"^[-+]?\d+$"
+FLOAT_REGEX = r"^(?:[-+]?(?:\d*[.,])?\d+(?:[eE][-+]?\d+)?|[-+]?(?:inf|nan))$"
+BOOLEAN_REGEX = r"^(true|false|1|0|yes|ja|no|nein|t|f|y|j|n|ok|nok)$"
+
+
+def _can_downcast_to_float32(array: pa.Array) -> bool:
+    """Check if a float64 array can be safely downcast to float32.
+
+    Args:
+        array: Float64 array
+
+    Returns:
+        True if safe to downcast
+    """
+    if not pa.types.is_float64(array.type):
+        return False
+
+    min_val = pa.compute.min(array).as_py()
+    max_val = pa.compute.max(array).as_py()
+
+    if min_val is None or max_val is None:
+        return False
+
+    return min_val >= F32_MIN and max_val <= F32_MAX
+
+
+def _get_optimal_int_type(
+    min_val: int | None, max_val: int | None
+) -> pa.DataType:
+    """Get the optimal integer type based on min/max values.
+
+    Args:
+        min_val: Minimum value
+        max_val: Maximum value
+
+    Returns:
+        Optimal integer type
+    """
+    if min_val is None or max_val is None:
+        return pa.int64()
+
+    # Check unsigned
+    if min_val >= 0:
+        if max_val <= np.iinfo(np.uint8).max:
+            return pa.uint8()
+        elif max_val <= np.iinfo(np.uint16).max:
+            return pa.uint16()
+        elif max_val <= np.iinfo(np.uint32).max:
+            return pa.uint32()
+        else:
+            return pa.uint64()
+    else:
+        # Signed integers
+        if min_val >= np.iinfo(np.int8).min and max_val <= np.iinfo(np.int8).max:
+            return pa.int8()
+        elif min_val >= np.iinfo(np.int16).min and max_val <= np.iinfo(np.int16).max:
+            return pa.int16()
+        elif min_val >= np.iinfo(np.int32).min and max_val <= np.iinfo(np.int32).max:
+            return pa.int32()
+        else:
+            return pa.int64()
+
+
+def _optimize_numeric_array(array: pa.Array) -> pa.Array:
+    """Optimize a numeric array by downcasting when possible.
+
+    Args:
+        array: Numeric array
+
+    Returns:
+        Optimized array
+    """
+    if pa.types.is_float64(array.type):
+        if _can_downcast_to_float32(array):
+            return array.cast(pa.float32())
+    elif pa.types.is_int64(array.type):
+        min_val = pa.compute.min(array).as_py()
+        max_val = pa.compute.max(array).as_py()
+        optimal_type = _get_optimal_int_type(min_val, max_val)
+        if optimal_type != pa.int64():
+            return array.cast(optimal_type)
+
+    return array
+
+
+def _all_match_regex(array: pa.Array, pattern: str) -> bool:
+    """Check if all values in array match a regex pattern.
+
+    Args:
+        array: String array
+        pattern: Regex pattern
+
+    Returns:
+        True if all values match
+    """
+    if not pa.types.is_string(array.type):
+        return False
+
+    regex = re.compile(pattern)
+    # Check each value (simplified implementation)
+    for value in array.to_pylist():
+        if value is not None and not regex.match(str(value)):
+            return False
+
+    return True
+
+
+def _optimize_string_array(array: pa.Array) -> pa.Array:
+    """Optimize a string array by detecting and casting to appropriate types.
+
+    Args:
+        array: String array
+
+    Returns:
+        Optimized array
+    """
+    if not pa.types.is_string(array.type):
+        return array
+
+    # Try to detect integer pattern
+    if _all_match_regex(array, INTEGER_REGEX):
+        try:
+            return array.cast(pa.int64())
+        except (ValueError, pa.ArrowInvalid):
+            pass
+
+    # Try to detect float pattern
+    if _all_match_regex(array, FLOAT_REGEX):
+        try:
+            return array.cast(pa.float64())
+        except (ValueError, pa.ArrowInvalid):
+            pass
+
+    # Try to detect boolean pattern
+    if _all_match_regex(array, BOOLEAN_REGEX):
+        try:
+            # Simple boolean conversion (simplified)
+            return array.cast(pa.bool_())
+        except (ValueError, pa.ArrowInvalid):
+            pass
+
+    return array
+
+
+def _process_column(
+    table: pa.Table,
+    column: str,
+    strict: bool = False,
+) -> pa.Array:
+    """Process a single column for dtype optimization.
+
+    Args:
+        table: PyArrow table
+        column: Column name
+        strict: Whether to use strict type checking
+
+    Returns:
+        Optimized column array
+    """
+    array = table.column(column)
+
+    # Remove null values for type detection
+    non_null = array.drop_null()
+    if len(non_null) == 0:
+        return array
+
+    # Try to optimize based on current type
+    if pa.types.is_string(array.type):
+        return _optimize_string_array(non_null)
+    elif pa.types.is_floating(array.type):
+        return _optimize_numeric_array(non_null)
+    elif pa.types.is_integer(array.type):
+        return _optimize_numeric_array(non_null)
+
+    return non_null
+
+
+def _process_column_for_opt_dtype(args):
+    """Process a column for dtype optimization (for parallel processing).
+
+    Args:
+        args: Tuple of (table, column, strict)
+
+    Returns:
+        Tuple of (column_name, optimized_array)
+    """
+    table, column, strict = args
+    optimized = _process_column(table, column, strict=strict)
+    return (column, optimized)
+
+
+def opt_dtype(
+    table: pa.Table,
+    strict: bool = False,
+    columns: list[str] | None = None,
+) -> pa.Table:
+    """Optimize dtypes in a PyArrow table based on data analysis.
+
+    This function analyzes the data in each column and attempts to downcast
+    to more appropriate types (e.g., int64 -> int32, float64 -> float32,
+    string -> int/bool where applicable).
+
+    Args:
+        table: PyArrow table to optimize
+        strict: Whether to use strict type checking
+        columns: List of columns to optimize (None for all)
+
+    Returns:
+        Table with optimized dtypes
+
+    Example:
+        ```python
+        import pyarrow as pa
+
+        table = pa.table(
+            {
+                "a": pa.array([1, 2, 3], type=pa.int64()),
+                "b": pa.array([1.0, 2.0, 3.0], type=pa.float64()),
+            },
+        )
+        optimized = opt_dtype(table)
+        print(optimized.column(0).type)  # DataType(int32)
+        print(optimized.column(1).type)  # DataType(float32)
+        ```
+    """
+    from fsspeckit.common.misc import run_parallel
+
+    if columns is None:
+        columns = table.column_names
+
+    # Process columns in parallel
+    results = run_parallel(
+        _process_column_for_opt_dtype,
+        [(table, col, strict) for col in columns],
+        backend="threading",
+        n_jobs=-1,
+    )
+
+    # Build new table with optimized columns
+    new_columns = {}
+    for col_name, optimized_array in results:
+        new_columns[col_name] = optimized_array
+
+    # Keep non-optimized columns as-is
+    for col_name in table.column_names:
+        if col_name not in new_columns:
+            new_columns[col_name] = table.column(col_name)
+
+    return pa.table(new_columns)

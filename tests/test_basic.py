@@ -10,7 +10,7 @@ def test_imports():
     """Test that basic imports work."""
     from fsspeckit import filesystem, DirFileSystem, AbstractFileSystem
     from fsspeckit.storage_options import AwsStorageOptions, LocalStorageOptions
-    from fsspeckit.utils import setup_logging
+    from fsspeckit.common.logging import setup_logging
 
     assert filesystem is not None
     assert DirFileSystem is not None
@@ -46,7 +46,7 @@ def test_storage_options():
 
 def test_logging_setup():
     """Test logging setup."""
-    from fsspeckit.utils import setup_logging
+    from fsspeckit.common.logging import setup_logging
 
     # Should not raise any errors
     setup_logging(level="INFO", disable=False)

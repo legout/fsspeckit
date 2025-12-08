@@ -9,7 +9,7 @@ Main factory functions and high-level APIs are exposed here for convenience.
 """
 
 import warnings
-from typing import Any, Optional, Union
+from typing import Any, List, Optional, Union
 
 import fsspec
 from fsspec import AbstractFileSystem
@@ -41,7 +41,7 @@ from .cache import (
 from .gitlab import GitLabFileSystem
 
 # Import ext module for side effects (method registration)
-from . import ext  # noqa: F401
+from .. import ext  # noqa: F401
 
 
 # Custom DirFileSystem methods

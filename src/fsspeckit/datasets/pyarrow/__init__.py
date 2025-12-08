@@ -7,8 +7,8 @@ This package contains focused submodules for PyArrow functionality:
 All public APIs are re-exported here for convenient access.
 """
 
-# Re-export schema utilities
-from .schema import (
+# Re-export schema utilities from common.schema (canonical location)
+from fsspeckit.common.schema import (
     cast_schema,
     convert_large_types_to_normal,
     opt_dtype,

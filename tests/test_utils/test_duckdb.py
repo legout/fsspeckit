@@ -7,7 +7,7 @@ import pyarrow as pa
 import pytest
 
 from fsspeckit.storage_options import LocalStorageOptions
-from fsspeckit.utils import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBParquetHandler
 from fsspeckit import filesystem
 
 
