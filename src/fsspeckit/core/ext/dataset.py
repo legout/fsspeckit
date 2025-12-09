@@ -6,6 +6,9 @@ This module contains functions for creating PyArrow datasets with support for:
 - Format-specific optimizations
 - Predicate pushdown
 - Merge-aware writes
+
+The functions in this module implement the DatasetHandler protocol to provide
+a consistent interface across different backend implementations (DuckDB, PyArrow, etc.).
 """
 
 from __future__ import annotations
@@ -18,6 +21,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import pyarrow as pa
     import pyarrow.dataset as pds
+    from fsspeckit.datasets.interfaces import DatasetHandler
 
 from fsspec import AbstractFileSystem
 from fsspeckit.common.logging import get_logger

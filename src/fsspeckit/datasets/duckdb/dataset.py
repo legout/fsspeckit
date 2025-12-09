@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable, Literal
 if TYPE_CHECKING:
     import duckdb
     import pyarrow as pa
+    from fsspeckit.datasets.interfaces import DatasetHandler
     from fsspeckit.storage_options.base import BaseStorageOptions
 
 from fsspec import AbstractFileSystem
@@ -64,6 +65,9 @@ class DuckDBDatasetIO:
 
     This class provides methods for reading and writing parquet files and datasets
     using DuckDB's high-performance parquet engine.
+
+    Implements the DatasetHandler protocol to provide a consistent interface
+    across different backend implementations.
 
     Args:
         connection: DuckDB connection manager
