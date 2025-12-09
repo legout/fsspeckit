@@ -25,9 +25,40 @@ fsspeckit is a comprehensive Python toolkit that extends fsspec (filesystem spec
 - **Imports**: Grouped imports (stdlib, third-party, local) with isort formatting
 - **Line length**: 88 characters (Black standard)
 - **Linting**: ruff for linting and formatting, mypy for type checking
-- Use **PEP 604 unions**: `str | int` instead of `Union[str, int]` or `Optional[str]` (write `str | None`).
-- Use **built-in generics**: `list[int]`, `dict[str, Any]`, `tuple[int, ...]`, `set[str]` instead of `List`, `Dict`, `Tuple`, `Set`.
-- Prefer `collections.abc` for callables and iterables:  `from collections.abc import Callable, Iterable` and write `Callable[[int], str]`, not `typing.Callable`.
+
+### Typing Conventions
+fsspeckit uses modern Python typing conventions (PEP 604, PEP 585):
+
+- **PEP 604 unions**: Use `X | Y` instead of `Union[X, Y]`
+  - Optional types: Write `str | None` instead of `Optional[str]` or `Union[str, None]`
+  - Example: `def func(x: int | str) -> bool | None: ...`
+
+- **Built-in generics**: Use built-in collection types instead of typing classes
+  - `list[int]` instead of `List[int]`
+  - `dict[str, Any]` instead of `Dict[str, Any]`
+  - `tuple[int, ...]` instead of `Tuple[int, ...]`
+  - `set[str]` instead of `Set[str]`
+
+- **collections.abc**: Prefer `collections.abc` for callables and iterables
+  - `from collections.abc import Callable, Iterable`
+  - Write `Callable[[int], str]` instead of `typing.Callable[[int], str]`
+
+- **from __future__ import annotations**: All modules should include this to enable forward references and avoid runtime evaluation issues
+
+- **Optional dependencies**: Types from optional dependencies (polars, pandas, pyarrow, duckdb, sqlglot, orjson) must:
+  - Be imported only under `if TYPE_CHECKING:` for type checkers, OR
+  - Be obtained via helpers in `fsspeckit.common.optional` for runtime access
+  - Never be imported at module level outside TYPE_CHECKING blocks
+  - Example:
+    ```python
+    if TYPE_CHECKING:
+        import polars as pl
+
+    def func(df: pl.DataFrame) -> str:  # OK: type checker sees this
+        from fsspeckit.common.optional import _import_polars
+        pl = _import_polars()  # OK: runtime import
+        # ... use pl ...
+    ```
   
 ### Architecture Patterns
 - **Modular design**: Core functionality separated into `core/`, `storage_options/`, and `utils/`

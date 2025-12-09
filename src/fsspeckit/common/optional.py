@@ -6,7 +6,7 @@ requiring all optional dependencies to be installed.
 """
 
 import importlib.util
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import polars as pl
@@ -245,7 +245,7 @@ def _import_joblib() -> Any:
 
 
 def check_optional_dependency(
-    package_name: str, feature_name: Optional[str] = None
+    package_name: str, feature_name: str | None = None
 ) -> None:
     """Check if an optional dependency is available and raise helpful error if not.
 

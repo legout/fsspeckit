@@ -5,7 +5,7 @@ import os
 import posixpath
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable
 
 # from joblib import Parallel, delayed  # Will be imported lazily
 # from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn, track  # Will be imported lazily
@@ -406,8 +406,8 @@ else:
 
 
 def get_partitions_from_path(
-    path: str, partitioning: Union[str, list, None] = None
-) -> Dict[str, str]:
+    path: str, partitioning: str | list | None = None
+) -> dict[str, str]:
     """Extract dataset partitions from a file path.
 
     Parses file paths to extract partition information based on
@@ -472,7 +472,7 @@ def get_partitions_from_path(
         return {}
 
 
-def path_to_glob(path: str, format: Union[str, None] = None) -> str:
+def path_to_glob(path: str, format: str | None = None) -> str:
     """Convert a path to a glob pattern for file matching.
 
     Intelligently converts paths to glob patterns that match files of the specified

@@ -10,7 +10,6 @@ import os
 import posixpath
 import urllib
 from pathlib import Path
-from typing import Optional, Union
 
 
 def _ensure_string(path: str | Path | None) -> str:

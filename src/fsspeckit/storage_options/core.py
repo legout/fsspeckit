@@ -5,7 +5,7 @@ backends, including AWS S3, Google Cloud Storage, Azure Storage, GitHub,
 GitLab, and local filesystems.
 """
 
-from typing import Any, Union
+from typing import Any
 
 import msgspec
 import yaml
@@ -49,7 +49,7 @@ class LocalStorageOptions(BaseStorageOptions):
 
     protocol: str = "file"
     auto_mkdir: bool = False
-    mode: Union[int, None] = None
+    mode: int | None = None
 
     def to_fsspec_kwargs(self) -> dict:
         """Convert options to fsspec filesystem arguments.
@@ -267,7 +267,7 @@ def storage_options_from_uri(uri: str) -> BaseStorageOptions:
 
 
 def merge_storage_options(
-    *options: Union[BaseStorageOptions, dict, None], overwrite: bool = True
+    *options: BaseStorageOptions | dict | None, overwrite: bool = True
 ) -> BaseStorageOptions:
     """Merge multiple storage options into a single configuration.
 

@@ -27,11 +27,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 
 def get_partitions_from_path(
-    path: str, partitioning: Union[str, list[str], None] = None
+    path: str, partitioning: str | list[str] | None = None
 ) -> list[tuple]:
     """
     Extract dataset partitions from a file path.

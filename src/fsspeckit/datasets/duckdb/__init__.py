@@ -8,7 +8,7 @@ This package contains focused submodules for DuckDB functionality:
 All public APIs are re-exported here for convenient access.
 """
 
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal
 
 from fsspec import AbstractFileSystem
 from fsspeckit.storage_options.base import BaseStorageOptions
@@ -46,8 +46,8 @@ class DuckDBParquetHandler(DuckDBDatasetIO):
 
     def __init__(
         self,
-        storage_options: Optional[Union[BaseStorageOptions, dict]] = None,
-        filesystem: Optional[AbstractFileSystem] = None,
+        storage_options: BaseStorageOptions | dict | None = None,
+        filesystem: AbstractFileSystem | None = None,
     ):
         """Initialize DuckDB parquet handler.
 

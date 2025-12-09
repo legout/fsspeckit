@@ -1,4 +1,4 @@
-from typing import Union, Any
+from typing import Any
 
 import msgspec
 import yaml

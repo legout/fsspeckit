@@ -8,7 +8,7 @@ This module provides a filesystem interface for GitLab repositories including:
 """
 
 import urllib.parse
-from typing import Any, List, Optional, Union
+from typing import Any
 
 import requests
 from fsspec import AbstractFileSystem
@@ -60,10 +60,10 @@ class GitLabFileSystem(AbstractFileSystem):
     def __init__(
         self,
         base_url: str = "https://gitlab.com",
-        project_id: Optional[Union[str, int]] = None,
-        project_name: Optional[str] = None,
+        project_id: str | int | None = None,
+        project_name: str | None = None,
         ref: str = "main",
-        token: Optional[str] = None,
+        token: str | None = None,
         api_version: str = "v4",
         timeout: float = 30.0,
         **kwargs: Any,
@@ -166,7 +166,7 @@ class GitLabFileSystem(AbstractFileSystem):
 
     def ls(
         self, path: str = "", detail: bool = False, **kwargs: Any
-    ) -> Union[List[Any], Any]:
+    ) -> list[Any] | Any:
         """List files in repository with pagination support.
 
         Args:

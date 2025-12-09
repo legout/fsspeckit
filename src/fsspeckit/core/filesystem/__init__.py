@@ -9,7 +9,7 @@ Main factory functions and high-level APIs are exposed here for convenience.
 """
 
 import warnings
-from typing import Any, List, Optional, Union
+from typing import Any
 
 import fsspec
 from fsspec import AbstractFileSystem
@@ -47,7 +47,7 @@ from .. import ext  # noqa: F401
 # Custom DirFileSystem methods
 def dir_ls_p(
     self, path: str, detail: bool = False, **kwargs: Any
-) -> Union[List[Any], Any]:
+) -> list[Any] | Any:
     """List directory contents with path handling.
 
     Args:
@@ -64,7 +64,7 @@ def dir_ls_p(
 
 def mscf_ls_p(
     self, path: str, detail: bool = False, **kwargs: Any
-) -> Union[List[Any], Any]:
+) -> list[Any] | Any:
     """List directory for monitored cache filesystem.
 
     Args:
@@ -83,12 +83,12 @@ DirFileSystem.ls_p = dir_ls_p
 
 
 def _resolve_base_and_cache_paths(
-    protocol: Optional[str],
+    protocol: str | None,
     base_path_input: str,
-    base_fs: Optional[AbstractFileSystem],
+    base_fs: AbstractFileSystem | None,
     dirfs: bool,
     raw_input: str,
-) -> tuple[str, Optional[str], str]:
+) -> tuple[str, str | None, str]:
     """Resolve base path and cache path hint from inputs.
 
     Args:
@@ -174,9 +174,9 @@ def _resolve_base_and_cache_paths(
 
 def _build_filesystem_with_caching(
     fs: AbstractFileSystem,
-    cache_path_hint: Optional[str],
+    cache_path_hint: str | None,
     cached: bool,
-    cache_storage: Optional[str],
+    cache_storage: str | None,
     verbose: bool,
 ) -> AbstractFileSystem:
     """Wrap filesystem with caching if requested.
@@ -213,9 +213,9 @@ def _build_filesystem_with_caching(
 # Main factory function
 def filesystem(
     protocol_or_path: str | None = "",
-    storage_options: Optional[Union[BaseStorageOptions, dict]] = None,
+    storage_options: BaseStorageOptions | dict | None = None,
     cached: bool = False,
-    cache_storage: Optional[str] = None,
+    cache_storage: str | None = None,
     verbose: bool = False,
     dirfs: bool = True,
     base_fs: AbstractFileSystem = None,
@@ -374,7 +374,7 @@ def filesystem(
 
 def get_filesystem(
     protocol_or_path: str | None = "",
-    storage_options: Optional[Union[BaseStorageOptions, dict]] = None,
+    storage_options: BaseStorageOptions | dict | None = None,
     **kwargs: Any,
 ) -> AbstractFileSystem:
     """Get filesystem instance (simple version).

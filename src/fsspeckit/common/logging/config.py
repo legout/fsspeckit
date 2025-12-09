@@ -2,15 +2,14 @@
 
 import os
 import sys
-from typing import Optional
 
 from loguru import logger
 
 
 def setup_logging(
-    level: Optional[str] = None,
+    level: str | None = None,
     disable: bool = False,
-    format_string: Optional[str] = None,
+    format_string: str | None = None,
 ) -> None:
     """Configure the Loguru logger for fsspeckit.
 

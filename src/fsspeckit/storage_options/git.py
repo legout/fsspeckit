@@ -1,7 +1,6 @@
 """Git-based storage options for GitHub and GitLab."""
 
 import os
-from typing import Union
 
 from .base import BaseStorageOptions
 
@@ -51,11 +50,11 @@ class GitHubStorageOptions(BaseStorageOptions, frozen=False):
     """
 
     protocol: str = "github"
-    org: Union[str, None] = None
-    repo: Union[str, None] = None
-    ref: Union[str, None] = None
-    token: Union[str, None] = None
-    api_url: Union[str, None] = None
+    org: str | None = None
+    repo: str | None = None
+    ref: str | None = None
+    token: str | None = None
+    api_url: str | None = None
 
     @classmethod
     def from_env(cls) -> "GitHubStorageOptions":
@@ -185,10 +184,10 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
 
     protocol: str = "gitlab"
     base_url: str = "https://gitlab.com"
-    project_id: Union[str, int] | None = None
-    project_name: Union[str, None] = None
-    ref: Union[str, None] = None
-    token: Union[str, None] = None
+    project_id: str | int | None = None
+    project_name: str | None = None
+    ref: str | None = None
+    token: str | None = None
     api_version: str = "v4"
 
     def __post_init__(self) -> None:

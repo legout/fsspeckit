@@ -1,7 +1,7 @@
 import datetime as dt
 import re
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, Union
+from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 if TYPE_CHECKING:
@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     import pyarrow as pa
 
 
-def get_timestamp_column(df: Any) -> Union[str, list[str]]:
+def get_timestamp_column(df: Any) -> str | list[str]:
     """Get timestamp column names from a DataFrame or PyArrow Table.
 
     Automatically detects and normalizes different DataFrame types to work with
@@ -190,9 +190,9 @@ def get_timedelta_str(timedelta_string: str, to: str = "polars") -> str:
 @lru_cache(maxsize=128)
 def timestamp_from_string(
     timestamp_str: str,
-    tz: Union[str, None] = None,
+    tz: str | None = None,
     naive: bool = False,
-) -> Union[dt.datetime, dt.date, dt.time]:
+) -> dt.datetime | dt.date | dt.time:
     """
     Converts a timestamp string (ISO 8601 format) into a datetime, date, or time object
     using only standard Python libraries.
