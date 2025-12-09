@@ -157,6 +157,8 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
         ref (str): Git reference (branch, tag, or commit SHA)
         token (str): GitLab personal access token
         api_version (str): API version to use
+        timeout (float): Request timeout in seconds (must be positive, max 3600)
+        max_pages (int): Maximum number of pages to fetch (default 1000, max 10000)
 
     Example:
         ```python
@@ -189,17 +191,35 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
     ref: str | None = None
     token: str | None = None
     api_version: str = "v4"
+    timeout: float | None = None
+    max_pages: int | None = None
 
     def __post_init__(self) -> None:
         """Validate GitLab configuration after initialization.
 
-        Ensures either project_id or project_name is provided.
+        Ensures either project_id or project_name is provided and validates
+        timeout and max_pages parameters.
 
         Raises:
-            ValueError: If neither project_id nor project_name is provided
+            ValueError: If neither project_id nor project_name is provided,
+                       or if timeout/max_pages values are invalid
         """
         if self.project_id is None and self.project_name is None:
             raise ValueError("Either project_id or project_name must be provided")
+
+        # Validate timeout if provided
+        if self.timeout is not None:
+            if self.timeout <= 0:
+                raise ValueError("timeout must be a positive number")
+            if self.timeout > 3600:
+                raise ValueError("timeout must not exceed 3600 seconds")
+
+        # Validate max_pages if provided
+        if self.max_pages is not None:
+            if self.max_pages <= 0:
+                raise ValueError("max_pages must be a positive integer")
+            if self.max_pages > 10000:
+                raise ValueError("max_pages must not exceed 10000")
 
     @classmethod
     def from_env(cls) -> "GitLabStorageOptions":
@@ -212,6 +232,8 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
         - GITLAB_REF: Git reference
         - GITLAB_TOKEN: Personal access token
         - GITLAB_API_VERSION: API version
+        - GITLAB_TIMEOUT: Request timeout in seconds
+        - GITLAB_MAX_PAGES: Maximum number of pages to fetch
 
         Returns:
             GitLabStorageOptions: Configured storage options
@@ -232,6 +254,8 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
             ref=os.getenv("GITLAB_REF"),
             token=os.getenv("GITLAB_TOKEN"),
             api_version=os.getenv("GITLAB_API_VERSION", "v4"),
+            timeout=float(os.getenv("GITLAB_TIMEOUT")) if os.getenv("GITLAB_TIMEOUT") else None,
+            max_pages=int(os.getenv("GITLAB_MAX_PAGES")) if os.getenv("GITLAB_MAX_PAGES") else None,
         )
 
     def to_env(self) -> None:
@@ -257,6 +281,8 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
             "GITLAB_REF": self.ref,
             "GITLAB_TOKEN": self.token,
             "GITLAB_API_VERSION": self.api_version,
+            "GITLAB_TIMEOUT": str(self.timeout) if self.timeout is not None else None,
+            "GITLAB_MAX_PAGES": str(self.max_pages) if self.max_pages is not None else None,
         }
         env = {k: v for k, v in env.items() if v is not None}
         os.environ.update(env)
@@ -284,5 +310,7 @@ class GitLabStorageOptions(BaseStorageOptions, frozen=False):
             "ref": self.ref,
             "token": self.token,
             "api_version": self.api_version,
+            "timeout": self.timeout,
+            "max_pages": self.max_pages,
         }
         return {k: v for k, v in kwargs.items() if v is not None}

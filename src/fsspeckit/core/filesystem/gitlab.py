@@ -66,6 +66,7 @@ class GitLabFileSystem(AbstractFileSystem):
         token: str | None = None,
         api_version: str = "v4",
         timeout: float = 30.0,
+        max_pages: int = 1000,
         **kwargs: Any,
     ):
         """Initialize GitLab filesystem.
@@ -77,7 +78,8 @@ class GitLabFileSystem(AbstractFileSystem):
             ref: Git reference (branch, tag, or commit SHA)
             token: GitLab personal access token
             api_version: API version to use
-            timeout: Request timeout in seconds
+            timeout: Request timeout in seconds (must be positive, max 3600)
+            max_pages: Maximum number of pages to fetch (default 1000, max 10000)
             **kwargs: Additional arguments
         """
         super().__init__(**kwargs)
@@ -88,7 +90,19 @@ class GitLabFileSystem(AbstractFileSystem):
         self.ref = ref
         self.token = token
         self.api_version = api_version
+
+        # Input validation
+        if timeout <= 0:
+            raise ValueError("timeout must be a positive number")
+        if timeout > 3600:
+            raise ValueError("timeout must not exceed 3600 seconds")
         self.timeout = timeout
+
+        if max_pages <= 0:
+            raise ValueError("max_pages must be a positive integer")
+        if max_pages > 10000:
+            raise ValueError("max_pages must not exceed 10000")
+        self.max_pages = max_pages
 
         if not project_id and not project_name:
             raise ValueError("Either project_id or project_name must be provided")
@@ -97,6 +111,28 @@ class GitLabFileSystem(AbstractFileSystem):
         self._session = requests.Session()
         if self.token:
             self._session.headers["PRIVATE-TOKEN"] = self.token
+
+        # Track closed state for resource cleanup
+        self._closed = False
+
+    def close(self) -> None:
+        """Close the filesystem and cleanup resources.
+
+        This method closes the internal requests session to prevent resource leaks.
+        It is safe to call this method multiple times.
+        """
+        if not self._closed:
+            logger.debug("Closing GitLabFileSystem and cleaning up resources")
+            self._session.close()
+            self._closed = True
+
+    def __del__(self) -> None:
+        """Destructor to ensure cleanup when object is garbage collected."""
+        try:
+            self.close()
+        except Exception:
+            # Silently ignore errors in destructor
+            pass
 
     def _get_project_identifier(self) -> str:
         """Get URL-encoded project identifier for API calls.
@@ -180,8 +216,9 @@ class GitLabFileSystem(AbstractFileSystem):
         all_files = []
         page = 1
         per_page = 100
+        pages_fetched = 0
 
-        while True:
+        while pages_fetched < self.max_pages:
             params = {"ref": self.ref, "per_page": per_page, "page": page}
 
             if path:
@@ -196,6 +233,7 @@ class GitLabFileSystem(AbstractFileSystem):
                     break
 
                 all_files.extend(files)
+                pages_fetched += 1
 
                 # Check for pagination headers
                 next_page = response.headers.get("X-Next-Page")
@@ -203,7 +241,17 @@ class GitLabFileSystem(AbstractFileSystem):
                     # No more pages
                     break
 
-                page = int(next_page)
+                # Try to parse the next page number
+                try:
+                    page = int(next_page)
+                except (ValueError, TypeError):
+                    # Malformed pagination header
+                    logger.warning(
+                        "Malformed X-Next-Page header: '%s', stopping pagination at page %d",
+                        next_page,
+                        page,
+                    )
+                    break
 
             except requests.RequestException:
                 # If we have some files already, return what we have
@@ -217,6 +265,13 @@ class GitLabFileSystem(AbstractFileSystem):
                 else:
                     # Re-raise if no files collected yet
                     raise
+        else:
+            # Loop ended due to max_pages limit
+            logger.warning(
+                "Reached maximum pages limit (%d), returning %d files",
+                self.max_pages,
+                len(all_files),
+            )
 
         if detail:
             return all_files
