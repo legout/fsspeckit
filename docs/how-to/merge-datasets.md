@@ -15,8 +15,18 @@ This guide covers comprehensive dataset merging strategies using fsspeckit's mer
 **Behavior:** Only inserts records with keys that don't exist in the target dataset
 
 ```python
-# PyArrow
+# PyArrow Function-based
 fs.insert_dataset(new_events, "events/", key_columns="event_id")
+
+# PyArrow Class-based
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
+
+io = PyarrowDatasetIO()
+io.insert_dataset(new_events, "events/", key_columns="event_id")
+
+# Or with handler wrapper
+with PyarrowDatasetHandler() as handler:
+    handler.insert_dataset(new_events, "events/", key_columns="event_id")
 
 # DuckDB  
 handler.insert_dataset(new_events, "events/", key_columns=["event_id"])
@@ -31,8 +41,18 @@ handler.insert_dataset(new_events, "events/", key_columns=["event_id"])
 **Behavior:** Inserts new records and updates existing records based on key columns
 
 ```python
-# PyArrow
+# PyArrow Function-based
 fs.upsert_dataset(customer_updates, "customers/", key_columns="customer_id")
+
+# PyArrow Class-based
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
+
+io = PyarrowDatasetIO()
+io.upsert_dataset(customer_updates, "customers/", key_columns="customer_id")
+
+# Or with handler wrapper
+with PyarrowDatasetHandler() as handler:
+    handler.upsert_dataset(customer_updates, "customers/", key_columns="customer_id"])
 
 # DuckDB
 handler.upsert_dataset(customer_updates, "customers/", key_columns=["customer_id"])
@@ -112,18 +132,22 @@ handler.deduplicate_dataset(
 - Cloud storage operations (S3, GCS, Azure)
 - Schema flexibility and evolution
 - Cross-platform compatibility
+- Class-based API consistency with DuckDB
 
 **Performance Characteristics:**
 - Excellent for in-memory processing
 - Strong compression and format support
 - Good for streaming operations
 - Lower memory overhead for small-to-medium datasets
+- Full API parity with DuckDB handler
 
 **Use When:**
 - Dataset fits in memory
 - Need maximum format compatibility
 - Working with cloud storage
 - Schema evolution is important
+- Want class-based API with context manager support
+- Need advanced maintenance operations (compact, optimize)
 
 ### DuckDB Backend
 **Best For:**

@@ -211,6 +211,43 @@ fs.write_pyarrow_dataset(
 fs.upsert_dataset(data, "/path/to/dataset/", key_columns=["id"])
 ```
 
+### PyArrow Dataset Handler (Class-based)
+
+**Class-based interface** using PyArrow's native parquet engine with API symmetry to DuckDB.
+
+**Strengths:**
+- Class-based API consistent with DuckDB handler
+- Direct PyArrow integration with schema enforcement
+- All merge strategies (INSERT, UPSERT, UPDATE, FULL_MERGE, DEDUPLICATE)
+- Memory-efficient operations with in-memory merging
+- Context manager support for resource management
+
+**Backend-specific features:**
+- In-memory merge operations for all strategies
+- Advanced partitioning and compression support
+- File-level metadata optimization
+- Compatibility with PyArrow ecosystem
+
+**Example usage:**
+```python
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
+
+# Class-based approach
+io = PyarrowDatasetIO()
+io.write_parquet_dataset(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
+
+# Handler wrapper approach
+with PyarrowDatasetHandler() as handler:
+    handler.upsert_dataset(data, "/path/to/dataset/", key_columns=["id"])
+
+# Read operations
+table = io.read_parquet("/path/to/dataset/", columns=["id", "name"])
+
+# Maintenance operations
+stats = io.compact_parquet_dataset("/path/to/dataset/", target_mb_per_file=64)
+result = io.optimize_parquet_dataset("/path/to/dataset/", compression="zstd")
+```
+
 ## Convenience Methods
 
 Both backends provide convenience methods for common merge strategies:
@@ -246,8 +283,58 @@ Both backends provide convenience methods for common merge strategies:
 - Already using PyArrow in your workflow
 - Need schema enforcement and validation
 - Working with partitioned datasets
-- Prefer function-based, filesystem-integrated APIs
+- Prefer class-based APIs with DuckDB-like ergonomics
 - Need predicate pushdown and query optimization
+- Want memory-efficient operations with in-memory merging
+
+### Choosing Your PyArrow Approach
+
+**Use Function-based PyArrow when:**
+- You prefer filesystem-integrated APIs
+- Already using fsspec monkey-patched methods
+- Want minimal code changes from existing PyArrow workflows
+- Need simple, direct method calls on filesystem objects
+
+**Use Class-based PyArrow when:**
+- You want API consistency with DuckDB handler
+- Need context manager support for resource management
+- Prefer object-oriented patterns with method chaining
+- Want explicit separation between I/O and merge operations
+- Need advanced maintenance operations (compact, optimize)
+
+### Migration Between PyArrow Approaches
+
+**From Function-based to Class-based:**
+```python
+# Function-based approach
+from fsspec import LocalFileSystem
+fs = LocalFileSystem()
+fs.write_pyarrow_dataset(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
+
+# Equivalent class-based approach
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+io = PyarrowDatasetIO()
+io.write_parquet_dataset(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
+```
+
+**From Class-based to Function-based:**
+```python
+# Class-based approach
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+io = PyarrowDatasetIO()
+table = io.read_parquet("/path/to/dataset/")
+
+# Equivalent function-based approach
+from fsspec import LocalFileSystem
+fs = LocalFileSystem()
+table = fs.read_pyarrow_dataset("/path/to/dataset/")
+```
+
+**Key Differences:**
+- Function-based: Methods are attached to filesystem objects
+- Class-based: Methods are attached to dedicated handler objects
+- Both approaches support the same merge strategies and parameters
+- Choose based on your preferred coding style and project requirements
 
 ## Type Safety
 

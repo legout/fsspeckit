@@ -445,6 +445,64 @@ except ValueError as e:
         raise
 ```
 
+### PyArrow Class-Based Dataset Operations
+
+```python
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
+import pyarrow as pa
+
+# Class-based approach
+io = PyarrowDatasetIO()
+
+# Create initial dataset
+initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
+io.write_parquet_dataset(data=initial, path="dataset/")
+
+# UPSERT new and updated data
+upsert_data = pa.table({"id": [2, 3], "value": ["updated", "c"]})
+io.write_parquet_dataset(
+    data=upsert_data,
+    path="dataset/",
+    strategy="upsert",
+    key_columns="id"
+)
+
+# Handler wrapper approach with context manager
+with PyarrowDatasetHandler() as handler:
+    # Read with column selection
+    table = handler.read_parquet("dataset/", columns=["id", "value"])
+    
+    # Compact dataset
+    stats = handler.compact_parquet_dataset("dataset/", target_mb_per_file=64)
+    
+    # Optimize dataset
+    result = handler.optimize_parquet_dataset("dataset/", compression="zstd")
+```
+
+#### Comparison: Function-based vs Class-based PyArrow
+
+**Function-based approach:**
+```python
+from fsspec import LocalFileSystem
+fs = LocalFileSystem()
+fs.write_pyarrow_dataset(data, "dataset/", strategy="upsert", key_columns=["id"])
+```
+
+**Class-based approach:**
+```python
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+io = PyarrowDatasetIO()
+io.write_parquet_dataset(data, "dataset/", strategy="upsert", key_columns=["id"])
+```
+
+**When to use each:**
+- **Function-based**: Simple scripts, existing fsspec workflows, minimal setup
+- **Class-based**: Larger applications, need context management, want API consistency with DuckDB
+
+#### Backend Selection Guidance
+- **PyArrow**: Best for in-memory operations, schema flexibility, cloud storage
+- **DuckDB**: Best for large datasets, complex analytics, SQL integration
+
 ## DuckDB Dataset Operations
 
 ### Basic Dataset Operations

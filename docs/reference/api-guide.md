@@ -31,7 +31,7 @@ Structured configuration for cloud and Git providers.
 High-performance dataset operations with DuckDB and PyArrow.
 
 **Capability**: Process datasets  
-**Classes**: `DuckDBParquetHandler`  
+**Classes**: `DuckDBParquetHandler`, `PyarrowDatasetHandler`, `DuckDBDatasetIO`, `PyarrowDatasetIO`  
 **Functions**: `optimize_parquet_dataset_pyarrow`, `compact_parquet_dataset_pyarrow`  
 **API Reference**: [fsspeckit.datasets](../api/fsspeckit.datasets.md)  
 **How-to Guides**: [Read and Write Datasets](../how-to/read-and-write-datasets.md)
@@ -109,7 +109,8 @@ Configuration layer for cloud and Git providers.
 Data processing layer for large-scale operations.
 
 - **DuckDB Handler**: High-performance parquet operations with SQL integration
-- **PyArrow Helpers**: Dataset optimization, compaction, and merging
+- **PyArrow Handler**: Class-based and function-based PyArrow operations with full merge support
+- **Schema Management**: Type conversion and schema evolution
 - **Schema Management**: Type conversion and schema evolution
 
 ### SQL (`fsspeckit.sql`)
@@ -141,11 +142,22 @@ from fsspeckit.core.filesystem import filesystem
 options = storage_options_from_env("s3")
 fs = filesystem("s3", storage_options=options.to_dict())
 
-# 2. Process data
+# 2. Process data (DuckDB)
 from fsspeckit.datasets import DuckDBParquetHandler
 
 handler = DuckDBParquetHandler(storage_options=options.to_dict())
 result = handler.execute_sql("SELECT * FROM parquet_scan('data/') WHERE category = 'A'")
+
+# 2. Process data (PyArrow)
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
+
+# Class-based approach
+io = PyarrowDatasetIO()
+result = io.write_parquet_dataset(data, "dataset/", strategy="upsert", key_columns=["id"])
+
+# Handler wrapper approach
+with PyarrowDatasetHandler() as handler:
+    result = handler.upsert_dataset(data, "dataset/", key_columns=["id"])
 
 # 3. Optimize performance
 from fsspeckit.common.misc import run_parallel

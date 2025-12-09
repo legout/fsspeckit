@@ -125,7 +125,9 @@ for name, fs in [("S3", s3_fs), ("GCS", gcs_fs)]:
 
 ## Your First Dataset Operation
 
-Let's perform a basic dataset operation using the DuckDB Parquet Handler:
+Let's perform basic dataset operations using both DuckDB and PyArrow handlers:
+
+### DuckDB Approach
 
 ```python
 from fsspeckit.datasets import DuckDBParquetHandler
@@ -155,6 +157,36 @@ result = handler.execute_sql("""
 print(result)
 ```
 
+### PyArrow Approach
+
+```python
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
+import pyarrow as pa
+
+# Class-based approach
+io = PyarrowDatasetIO()
+
+# Handler wrapper approach with context manager
+with PyarrowDatasetHandler() as handler:
+    # Create sample data
+    data = pa.table({
+        "id": [1, 2, 3, 4],
+        "category": ["A", "B", "A", "B"],
+        "value": [10.5, 20.3, 15.7, 25.1]
+    })
+
+    # Write dataset with merge strategy
+    handler.write_parquet_dataset(data, "s3://bucket/my-dataset/", strategy="upsert", key_columns=["id"])
+
+    # Read dataset
+    table = handler.read_parquet("s3://bucket/my-dataset/", columns=["category", "value"])
+    print(f"Read {table.num_rows} rows with columns: {table.column_names}")
+
+# Direct class usage for maintenance operations
+stats = io.compact_parquet_dataset("s3://bucket/my-dataset/", target_mb_per_file=64)
+print(f"Compaction stats: {stats}")
+```
+
 ## Domain Package Structure
 
 `fsspeckit` is organized into domain-specific packages. Import from the appropriate package for your use case:
@@ -167,7 +199,9 @@ from fsspeckit.core.filesystem import filesystem
 from fsspeckit.storage_options import AwsStorageOptions, storage_options_from_env
 
 # Dataset operations
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets import DuckDBParquetHandler, PyarrowDatasetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
 
 # SQL filter translation
 from fsspeckit.sql.filters import sql2pyarrow_filter, sql2polars_filter
@@ -193,7 +227,7 @@ Congratulations! You've completed the basic fsspeckit tutorial. Here are some re
 ### Common Use Cases
 
 1. **Cloud Data Processing**: Use `storage_options_from_env()` for production deployments
-2. **Dataset Operations**: Use `DuckDBParquetHandler` for large-scale parquet operations
+2. **Dataset Operations**: Use `DuckDBParquetHandler` for SQL-based operations or `PyarrowDatasetHandler` for memory-efficient PyArrow operations
 3. **SQL Filtering**: Use `sql2pyarrow_filter()` and `sql2polars_filter()` for cross-framework compatibility
 4. **Safe Operations**: Use `DirFileSystem` for security-critical applications
 5. **Performance**: Use `run_parallel()` for concurrent file processing

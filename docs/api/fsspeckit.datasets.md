@@ -114,4 +114,176 @@ High-level interface for DuckDB dataset operations that re-exports convenience m
 | `update_dataset()` | Update-only convenience method |
 | `deduplicate_dataset()` | Deduplicate convenience method |
 
+## PyArrow Dataset Operations
+
+### `PyarrowDatasetIO.write_parquet_dataset()`
+
+Write a PyArrow table to a parquet dataset with optional merge strategies.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `data` | `pa.Table` or `list[pa.Table]` | PyArrow table or list of tables to write. |
+| `path` | `str` | Output directory path. |
+| `basename_template` | `str | None` | Template for file names (default: part-{i}.parquet). |
+| `schema` | `pa.Schema | None` | Optional schema to enforce. |
+| `partition_by` | `str` or `list[str]` | Column(s) to partition by. |
+| `compression` | `str | None` | Compression codec (default: snappy). |
+| `max_rows_per_file` | `int | None` | Maximum rows per file (default: 5,000,000). |
+| `row_group_size` | `int | None` | Rows per row group (default: 500,000). |
+| `strategy` | `str | None` | Optional merge strategy: 'insert', 'upsert', 'update', 'full_merge', 'deduplicate'. |
+| `key_columns` | `list[str] | str | None` | Key columns for merge operations (required for relational strategies). |
+
+| Returns | Type | Description |
+| :------ | :--- | :---------- |
+| `MergeStats | None` | MergeStats for merge operations, None for standard writes. |
+
+### `PyarrowDatasetIO.insert_dataset()`
+
+Insert-only dataset write using PyArrow.
+
+Convenience method that calls `write_parquet_dataset` with `strategy='insert'`.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `data` | `pa.Table` or `list[pa.Table]` | PyArrow table or list of tables to write. |
+| `path` | `str` | Output directory path. |
+| `key_columns` | `list[str] | str` | Key columns for merge (required). |
+| `**kwargs` | `Any` | Additional arguments passed to `write_parquet_dataset`. |
+
+### `PyarrowDatasetIO.upsert_dataset()`
+
+Insert-or-update dataset write using PyArrow.
+
+Convenience method that calls `write_parquet_dataset` with `strategy='upsert'`.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `data` | `pa.Table` or `list[pa.Table]` | PyArrow table or list of tables to write. |
+| `path` | `str` | Output directory path. |
+| `key_columns` | `list[str] | str` | Key columns for merge (required). |
+| `**kwargs` | `Any` | Additional arguments passed to `write_parquet_dataset`. |
+
+### `PyarrowDatasetIO.update_dataset()`
+
+Update-only dataset write using PyArrow.
+
+Convenience method that calls `write_parquet_dataset` with `strategy='update'`.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `data` | `pa.Table` or `list[pa.Table]` | PyArrow table or list of tables to write. |
+| `path` | `str` | Output directory path. |
+| `key_columns` | `list[str] | str` | Key columns for merge (required). |
+| `**kwargs` | `Any` | Additional arguments passed to `write_parquet_dataset`. |
+
+### `PyarrowDatasetIO.deduplicate_dataset()`
+
+Deduplicate dataset write using PyArrow.
+
+Convenience method that calls `write_parquet_dataset` with `strategy='deduplicate'`.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `data` | `pa.Table` or `list[pa.Table]` | PyArrow table or list of tables to write. |
+| `path` | `str` | Output directory path. |
+| `key_columns` | `list[str] | str | None` | Optional key columns for deduplication. |
+| `**kwargs` | `Any` | Additional arguments passed to `write_parquet_dataset`. |
+
+### `PyarrowDatasetIO.merge_parquet_dataset()`
+
+Merge multiple parquet datasets using PyArrow.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `sources` | `list[str]` | List of source dataset paths. |
+| `output_path` | `str` | Path for merged output. |
+| `target` | `str | None` | Target dataset path (for upsert/update strategies). |
+| `strategy` | `str | MergeStrategy` | Merge strategy to use (default: deduplicate). |
+| `key_columns` | `list[str] | str | None` | Key columns for merging. |
+| `compression` | `str | None` | Output compression codec. |
+| `verbose` | `bool` | Print progress information. |
+| `**kwargs` | `Any` | Additional arguments. |
+
+| Returns | Type | Description |
+| :------ | :--- | :---------- |
+| `MergeStats` | Merge statistics for the operation. |
+
+### `PyarrowDatasetIO.compact_parquet_dataset()`
+
+Compact a parquet dataset using PyArrow.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `path` | `str` | Dataset path. |
+| `target_mb_per_file` | `int | None` | Target size per file in MB. |
+| `target_rows_per_file` | `int | None` | Target rows per file. |
+| `partition_filter` | `list[str] | None` | Optional partition filters. |
+| `compression` | `str | None` | Compression codec. |
+| `dry_run` | `bool` | Whether to perform a dry run. |
+| `verbose` | `bool` | Print progress information. |
+
+| Returns | Type | Description |
+| :------ | :--- | :---------- |
+| `dict[str, Any]` | Compaction statistics. |
+
+### `PyarrowDatasetIO.optimize_parquet_dataset()`
+
+Optimize a parquet dataset.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `path` | `str` | Dataset path. |
+| `target_mb_per_file` | `int | None` | Target size per file in MB. |
+| `target_rows_per_file` | `int | None` | Target rows per file. |
+| `partition_filter` | `list[str] | None` | Optional partition filters. |
+| `compression` | `str | None` | Compression codec. |
+| `verbose` | `bool` | Print progress information. |
+
+| Returns | Type | Description |
+| :------ | :--- | :---------- |
+| `dict[str, Any]` | Optimization statistics. |
+
+### `PyarrowDatasetIO.read_parquet()`
+
+Read parquet file(s) using PyArrow.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `path` | `str` | Path to parquet file or directory. |
+| `columns` | `list[str] | None` | Optional list of columns to read. |
+| `filters` | `Any | None` | Optional row filter expression. |
+| `use_threads` | `bool` | Whether to use parallel reading (default: True). |
+
+| Returns | Type | Description |
+| :------ | :--- | :---------- |
+| `pa.Table` | PyArrow table containing the data. |
+
+### `PyarrowDatasetIO.write_parquet()`
+
+Write parquet file using PyArrow.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `data` | `pa.Table` or `list[pa.Table]` | PyArrow table or list of tables to write. |
+| `path` | `str` | Output file path. |
+| `compression` | `str | None` | Compression codec (default: snappy). |
+| `row_group_size` | `int | None` | Rows per row group. |
+
+### `PyarrowDatasetHandler`
+
+High-level interface for PyArrow dataset operations that inherits all methods from `PyarrowDatasetIO`.
+
+| Method | Description |
+| :------ | :---------- |
+| `write_parquet_dataset()` | Write data with optional merge strategies |
+| `insert_dataset()` | Insert-only convenience method |
+| `upsert_dataset()` | Insert-or-update convenience method |
+| `update_dataset()` | Update-only convenience method |
+| `deduplicate_dataset()` | Deduplicate convenience method |
+| `merge_parquet_dataset()` | Merge multiple datasets |
+| `compact_parquet_dataset()` | Compact small files |
+| `optimize_parquet_dataset()` | Optimize dataset performance |
+| `read_parquet()` | Read parquet files and datasets |
+| `write_parquet()` | Write single parquet files |
+
 ::: fsspeckit.datasets
