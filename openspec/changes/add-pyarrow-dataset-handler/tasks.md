@@ -14,5 +14,9 @@
 
 ## 3. Documentation
 
-- [ ] 3.1 Update docs to present `PyarrowDatasetHandler` alongside `DuckDBDatasetHandler`, with guidance on when to choose each.
-- [ ] 3.2 Add examples demonstrating equivalent workflows in both backends.
+- [x] 3.1 Update docs to present `PyarrowDatasetHandler` alongside `DuckDBDatasetHandler`, with guidance on when to choose each.
+  - Completed: `docs/how-to/read-and-write-datasets.md` includes PyArrow and DuckDB sections with Backend Selection Guidance
+  - Completed: `docs/how-to/merge-datasets.md` includes comprehensive Backend Selection Guidance section with detailed comparison
+- [x] 3.2 Add examples demonstrating equivalent workflows in both backends.
+  - Completed: Both docs show side-by-side examples for all merge strategies (INSERT, UPSERT, UPDATE, FULL_MERGE, DEDUPLICATE)
+  - Completed: Real-world examples demonstrating equivalent workflows in both PyArrow and DuckDB backends
