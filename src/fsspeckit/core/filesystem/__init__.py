@@ -45,9 +45,7 @@ from .. import ext  # noqa: F401
 
 
 # Custom DirFileSystem methods
-def dir_ls_p(
-    self, path: str, detail: bool = False, **kwargs: Any
-) -> list[Any] | Any:
+def dir_ls_p(self, path: str, detail: bool = False, **kwargs: Any) -> list[Any] | Any:
     """List directory contents with path handling.
 
     Args:
@@ -62,9 +60,7 @@ def dir_ls_p(
     return self.fs.ls(path, detail=detail, **kwargs)
 
 
-def mscf_ls_p(
-    self, path: str, detail: bool = False, **kwargs: Any
-) -> list[Any] | Any:
+def mscf_ls_p(self, path: str, detail: bool = False, **kwargs: Any) -> list[Any] | Any:
     """List directory for monitored cache filesystem.
 
     Args:
@@ -357,9 +353,6 @@ def filesystem(
         )
 
     # Handle other protocols
-    protocol_for_instance_cache = protocol
-    kwargs["protocol"] = protocol
-
     fs = fsspec.filesystem(
         protocol,
         **kwargs,
