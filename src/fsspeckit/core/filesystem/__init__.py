@@ -9,7 +9,7 @@ Main factory functions and high-level APIs are exposed here for convenience.
 """
 
 import warnings
-from typing import Any
+from typing import Any, Union
 
 import fsspec
 from fsspec import AbstractFileSystem
@@ -45,7 +45,7 @@ from .. import ext  # noqa: F401
 
 
 # Custom DirFileSystem methods
-def dir_ls_p(self, path: str, detail: bool = False, **kwargs: Any) -> list[Any] | Any:
+def dir_ls_p(self, path: str, detail: bool = False, **kwargs: Any) -> Union[list[Any], Any]:
     """List directory contents with path handling.
 
     Args:
@@ -60,7 +60,7 @@ def dir_ls_p(self, path: str, detail: bool = False, **kwargs: Any) -> list[Any] 
     return self.fs.ls(path, detail=detail, **kwargs)
 
 
-def mscf_ls_p(self, path: str, detail: bool = False, **kwargs: Any) -> list[Any] | Any:
+def mscf_ls_p(self, path: str, detail: bool = False, **kwargs: Any) -> Union[list[Any], Any]:
     """List directory for monitored cache filesystem.
 
     Args:
@@ -79,12 +79,12 @@ DirFileSystem.ls_p = dir_ls_p
 
 
 def _resolve_base_and_cache_paths(
-    protocol: str | None,
+    protocol: Union[str, None],
     base_path_input: str,
-    base_fs: AbstractFileSystem | None,
+    base_fs: Union[AbstractFileSystem, None],
     dirfs: bool,
     raw_input: str,
-) -> tuple[str, str | None, str]:
+) -> tuple[str, Union[str, None], str]:
     """Resolve base path and cache path hint from inputs.
 
     Args:
@@ -170,9 +170,9 @@ def _resolve_base_and_cache_paths(
 
 def _build_filesystem_with_caching(
     fs: AbstractFileSystem,
-    cache_path_hint: str | None,
+    cache_path_hint: Union[str, None],
     cached: bool,
-    cache_storage: str | None,
+    cache_storage: Union[str, None],
     verbose: bool,
 ) -> AbstractFileSystem:
     """Wrap filesystem with caching if requested.
@@ -206,17 +206,170 @@ def _build_filesystem_with_caching(
     return fs
 
 
+def _transform_ssl_for_cloud_protocol(
+    protocol: str,
+    allow_invalid_certificates: Union[bool, None],
+    allow_invalid_certs: Union[bool, None],
+    verify: Union[bool, None],
+    use_ssl: Union[bool, None],
+) -> dict[str, Any]:
+    """Transform SSL parameters to format expected by cloud filesystems.
+    
+    Args:
+        protocol: The filesystem protocol (e.g., 's3', 'gcs', 'azure')
+        allow_invalid_certificates: Skip SSL certificate validation
+        allow_invalid_certs: Deprecated alias for allow_invalid_certificates
+        verify: Whether to verify SSL certificates  
+        use_ssl: Whether to use SSL/HTTPS
+        
+    Returns:
+        Dictionary with transformed parameters suitable for cloud filesystems
+    """
+    # Only transform for cloud protocols
+    cloud_protocols = {'s3', 's3a', 's3n', 'gcs', 'azure', 'adl', 'abfs'}
+    if protocol.lower() not in cloud_protocols:
+        return {}
+    
+    # Handle deprecated allow_invalid_certs alias
+    if allow_invalid_certs is not None:
+        if allow_invalid_certificates is None:
+            allow_invalid_certificates = allow_invalid_certs
+        else:
+            import warnings
+            warnings.warn(
+                "Both allow_invalid_certificates and allow_invalid_certs specified. "
+                "Using allow_invalid_certificates (allow_invalid_certs is deprecated).",
+                DeprecationWarning,
+                stacklevel=4
+            )
+    
+    # Transform SSL parameters for cloud filesystems
+    # For cloud protocols, SSL parameters should go in client_kwargs
+    result = {}
+    
+    # Build client_kwargs with SSL parameters
+    client_kwargs = {}
+    
+    # Handle allow_invalid_certificates -> verify transformation
+    if allow_invalid_certificates is not None:
+        # For cloud protocols: allow_invalid_certificates=True means verify=False
+        client_kwargs['verify'] = not allow_invalid_certificates
+    
+    # Handle direct verify parameter (if provided, it takes precedence)
+    if verify is not None:
+        client_kwargs['verify'] = verify
+    
+    # Handle use_ssl parameter
+    if use_ssl is not None:
+        client_kwargs['use_ssl'] = use_ssl
+    
+    # Only include client_kwargs if it has content
+    if client_kwargs:
+        result['client_kwargs'] = client_kwargs
+    
+    return result
+
+
+def _build_fsspec_kwargs(
+    protocol: str,
+    storage_options: Union[BaseStorageOptions, dict]| None,
+    allow_invalid_certificates: Union[bool, None],
+    allow_invalid_certs: Union[bool, None],
+    verify: Union[bool, None],
+    use_ssl: Union[bool, None],
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Build kwargs for fsspec.filesystem by merging storage_options and direct parameters.
+    
+    Parameter precedence:
+    1. Direct SSL parameters (highest precedence)
+    2. Storage options kwargs  
+    3. Other kwargs (lowest precedence)
+    
+    Args:
+        storage_options: Storage configuration
+        allow_invalid_certificates: Skip SSL certificate validation
+        allow_invalid_certs: Deprecated alias for allow_invalid_certificates  
+        verify: Whether to verify SSL certificates
+        use_ssl: Whether to use SSL/HTTPS
+        **kwargs: Additional filesystem arguments
+        
+    Returns:
+        kwargs suitable for fsspec.filesystem
+    """
+    from fsspeckit.storage_options.base import BaseStorageOptions
+    
+    # Parameters that should not be taken from storage_options
+    # as they are handled directly by filesystem() function
+    RESERVED_PARAMS = {
+        'use_listings_cache',
+        'skip_instance_cache',
+    }
+    
+    # Start with base kwargs
+    fsspec_kwargs = dict(kwargs)
+    
+    # Handle deprecated allow_invalid_certs alias
+    if allow_invalid_certs is not None:
+        if allow_invalid_certificates is None:
+            allow_invalid_certificates = allow_invalid_certs
+        else:
+            import warnings
+            warnings.warn(
+                "Both allow_invalid_certificates and allow_invalid_certs specified. "
+                "Using allow_invalid_certificates (allow_invalid_certs is deprecated).",
+                DeprecationWarning,
+                stacklevel=3
+            )
+    
+    # Add SSL parameters as direct kwargs for cloud protocols
+    # Transform SSL parameters for cloud protocols
+    ssl_transform = _transform_ssl_for_cloud_protocol(
+        protocol,
+        allow_invalid_certificates,
+        allow_invalid_certs, 
+        verify,
+        use_ssl,
+    )
+    
+    # Add transformed SSL params to fsspec_kwargs (direct params take precedence)
+    for key, value in ssl_transform.items():
+        if value is not None:
+            fsspec_kwargs[key] = value
+    
+    # If storage_options provided, merge their kwargs
+    if storage_options is not None:
+        if isinstance(storage_options, dict):
+            storage_kwargs = storage_options.copy()
+        else:
+            # BaseStorageOptions has to_fsspec_kwargs method
+            storage_kwargs = storage_options.to_fsspec_kwargs()
+        
+        # Merge storage kwargs, excluding reserved params
+        # (direct params override storage options)
+        for key, value in storage_kwargs.items():
+            if key not in RESERVED_PARAMS and (key not in fsspec_kwargs or fsspec_kwargs[key] is None):
+                fsspec_kwargs[key] = value
+    
+    return fsspec_kwargs
+
+
 # Main factory function
 def filesystem(
-    protocol_or_path: str | None = "",
-    storage_options: BaseStorageOptions | dict | None = None,
+    protocol_or_path: Union[str, None]= "",
+    storage_options: Union[BaseStorageOptions, dict]| None = None,
     cached: bool = False,
-    cache_storage: str | None = None,
+    cache_storage: Union[str, None]= None,
     verbose: bool = False,
     dirfs: bool = True,
     base_fs: AbstractFileSystem = None,
-    use_listings_cache: bool = True,  # ← disable directory-listing cache
+    use_listings_cache: bool = True,
     skip_instance_cache: bool = False,
+    # SSL parameters
+    allow_invalid_certificates: Union[bool, None]= None,
+    allow_invalid_certs: Union[bool, None]= None,  # deprecated alias for allow_invalid_certificates
+    verify: Union[bool, None]= None,
+    use_ssl: Union[bool, None]= None,
     **kwargs: Any,
 ) -> AbstractFileSystem:
     """Get filesystem instance with enhanced configuration options.
@@ -234,6 +387,10 @@ def filesystem(
         base_fs: Base filesystem instance to use
         use_listings_cache: Whether to enable directory-listing cache
         skip_instance_cache: Whether to skip fsspec instance caching
+        allow_invalid_certificates: Skip SSL certificate validation (for cloud protocols)
+        allow_invalid_certs: Deprecated alias for allow_invalid_certificates
+        verify: Whether to verify SSL certificates (for cloud protocols)
+        use_ssl: Whether to use SSL/HTTPS (for cloud protocols)
         **kwargs: Additional filesystem arguments
 
     Returns:
@@ -270,8 +427,10 @@ def filesystem(
 
     raw_input = _ensure_string(protocol_or_path)
     protocol_from_kwargs = kwargs.pop("protocol", None)
+    
+    # Note: SSL parameters are now explicit parameters, not in kwargs
 
-    provided_protocol: str | None = None
+    provided_protocol: Union[str, None]= None
     base_path_input: str = ""
 
     if raw_input:
@@ -344,7 +503,7 @@ def filesystem(
         if dirfs:
             from pathlib import Path
 
-            dir_path: str | Path = resolved_base_path or Path.cwd()
+            dir_path: Union[str, Path]= resolved_base_path or Path.cwd()
             fs = DirFileSystem(path=dir_path, fs=fs)
             cache_path_hint = _ensure_string(dir_path)
 
@@ -353,9 +512,20 @@ def filesystem(
         )
 
     # Handle other protocols
+    # Build kwargs by merging storage_options and direct SSL parameters
+    fsspec_kwargs = _build_fsspec_kwargs(
+        protocol=protocol,
+        storage_options=storage_options,
+        allow_invalid_certificates=allow_invalid_certificates,
+        allow_invalid_certs=allow_invalid_certs,
+        verify=verify,
+        use_ssl=use_ssl,
+        **kwargs
+    )
+
     fs = fsspec.filesystem(
         protocol,
-        **kwargs,
+        **fsspec_kwargs,
         use_listings_cache=use_listings_cache,
         skip_instance_cache=skip_instance_cache,
     )
@@ -366,8 +536,8 @@ def filesystem(
 
 
 def get_filesystem(
-    protocol_or_path: str | None = "",
-    storage_options: BaseStorageOptions | dict | None = None,
+    protocol_or_path: Union[str, None]= "",
+    storage_options: Union[BaseStorageOptions, dict]| None = None,
     **kwargs: Any,
 ) -> AbstractFileSystem:
     """Get filesystem instance (simple version).
