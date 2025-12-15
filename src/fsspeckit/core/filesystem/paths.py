@@ -215,18 +215,15 @@ def _detect_local_vs_remote_path(path: str) -> tuple[str, bool]:
     Returns:
         Tuple of (normalized_path, is_local_filesystem)
     """
-    # Normalize the path
-    normalized = os.path.normpath(path)
+    raw = str(path)
 
-    # Check if it's a local filesystem path (not a URL)
-    # Local paths don't start with http/https and don't contain ://
-    is_local_filesystem = not (
-        normalized.startswith("http://")
-        or normalized.startswith("https://")
-        or "://" in normalized
-    )
+    # Detect URLs before normalizing; os.path.normpath can collapse "://"
+    # into ":/" which would cause URL-like paths to be misclassified as local.
+    if raw.startswith("http://") or raw.startswith("https://") or "://" in raw:
+        return (raw, False)
 
-    return (normalized, is_local_filesystem)
+    normalized = os.path.normpath(raw)
+    return (normalized, True)
 
 
 def _detect_file_vs_directory_path(path: str) -> tuple[str, bool]:
@@ -238,13 +235,12 @@ def _detect_file_vs_directory_path(path: str) -> tuple[str, bool]:
     Returns:
         Tuple of (normalized_path, is_file)
     """
-    # Normalize the path
-    normalized = os.path.normpath(path)
+    raw = str(path)
+    normalized = os.path.normpath(raw)
 
-    # Simple heuristic: if path doesn't end with / and exists as a file,
-    # treat it as a file. Otherwise treat as directory.
-    # This is a best-effort detection that may not be perfect for all cases.
-    is_file = not normalized.endswith("/")
+    # Preserve the caller's directory intent. Using normpath() first would remove
+    # trailing slashes and make directories indistinguishable from files.
+    is_file = not raw.endswith("/")
 
     return (normalized, is_file)
 

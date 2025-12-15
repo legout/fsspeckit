@@ -8,9 +8,9 @@ import pytest
 
 def test_imports():
     """Test that basic imports work."""
-    from fsspeckit import filesystem, DirFileSystem, AbstractFileSystem
-    from fsspeckit.storage_options import AwsStorageOptions, LocalStorageOptions
+    from fsspeckit import AbstractFileSystem, DirFileSystem, filesystem
     from fsspeckit.common.logging import setup_logging
+    from fsspeckit.storage_options import AwsStorageOptions, LocalStorageOptions
 
     assert filesystem is not None
     assert DirFileSystem is not None
@@ -32,7 +32,7 @@ def test_local_filesystem():
 
 def test_storage_options():
     """Test storage options creation."""
-    from fsspeckit.storage_options import LocalStorageOptions, AwsStorageOptions
+    from fsspeckit.storage_options import AwsStorageOptions, LocalStorageOptions
 
     # Local options
     local_opts = LocalStorageOptions()
@@ -231,7 +231,7 @@ def test_filesystem_dirfs_disallows_parent_escape(tmp_path):
 
 def test_filesystem_local_vs_url_path_resolution(tmp_path):
     """Test that local paths and URL-based protocols are handled correctly."""
-    from fsspeckit import filesystem, DirFileSystem
+    from fsspeckit import DirFileSystem, filesystem
 
     # Test local path detection
     root = tmp_path / "local" / "path"
@@ -247,28 +247,58 @@ def test_filesystem_local_vs_url_path_resolution(tmp_path):
     assert Path(fs_url.path).resolve() == root.resolve()
 
     # Test that URL paths are not treated as local filesystem paths
-    fs_s3 = filesystem("s3://bucket/path")
-    assert isinstance(fs_s3, DirFileSystem)
-    assert fs_s3.path == "bucket/path"
+    fs_remote = filesystem("memory://bucket/path")
+    assert isinstance(fs_remote, DirFileSystem)
+    assert fs_remote.path.lstrip("/") == "bucket/path"
 
 
-def test_filesystem_dirfs_wraps_cloud_paths():
-    """Cloud URIs with paths should be rooted via DirFileSystem when dirfs=True."""
+def test_filesystem_dirfs_wraps_remote_paths():
+    """Remote URIs with paths should be rooted via DirFileSystem when dirfs=True."""
     from fsspeckit import DirFileSystem, filesystem
 
-    fs = filesystem("s3://ewn/mms2/stage1", dirfs=True)
+    fs = filesystem("memory://ewn/mms2/stage1", dirfs=True)
     assert isinstance(fs, DirFileSystem)
-    assert fs.path == "ewn/mms2/stage1"
+    assert fs.path.lstrip("/") == "ewn/mms2/stage1"
 
-    raw_fs = filesystem("s3://ewn/mms2/stage1", dirfs=False)
+    raw_fs = filesystem("memory://ewn/mms2/stage1", dirfs=False)
     assert not isinstance(raw_fs, DirFileSystem)
+
+
+def test_filesystem_dirfs_ignores_protocol_only_or_root():
+    """Protocol-only and protocol-root inputs should not be wrapped by default."""
+    from fsspeckit import DirFileSystem, filesystem
+
+    fs_protocol = filesystem("memory", dirfs=True)
+    assert not isinstance(fs_protocol, DirFileSystem)
+
+    fs_root = filesystem("memory://", dirfs=True)
+    assert not isinstance(fs_root, DirFileSystem)
+
+
+def test_filesystem_dirfs_ls_defaults_to_names_only():
+    """DirFileSystem wrappers should default to `detail=False` for ls()."""
+    from fsspeckit import DirFileSystem, filesystem
+
+    fs = filesystem("memory://base", dirfs=True)
+    assert isinstance(fs, DirFileSystem)
+
+    fs.makedirs("subdir", exist_ok=True)
+    with fs.open("file.txt", "wb") as f:
+        f.write(b"x")
+
+    listing = fs.ls("")
+    assert all(isinstance(entry, str) for entry in listing)
+    assert set(listing) == {"file.txt", "subdir"}
+
+    detailed = fs.ls("", detail=True)
+    assert all(isinstance(entry, dict) for entry in detailed)
 
 
 def test_filesystem_path_helper_functions():
     """Test the new path helper functions for clarity."""
     from fsspeckit.core.filesystem_paths import (
-        _detect_local_vs_remote_path,
         _detect_file_vs_directory_path,
+        _detect_local_vs_remote_path,
     )
 
     # Test local vs remote detection
