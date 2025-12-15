@@ -10,9 +10,12 @@ from fsspeckit.datasets.pyarrow import (
     convert_large_types_to_normal,
     dominant_timezone_per_column,
     merge_parquet_dataset_pyarrow,
-    opt_dtype as opt_dtype_pa,
     standardize_schema_timezones,
     standardize_schema_timezones_by_majority,
+    unify_schemas,
+)
+from fsspeckit.datasets.pyarrow import (
+    opt_dtype as opt_dtype_pa,
 )
 
 __all__ = [
@@ -23,4 +26,5 @@ __all__ = [
     "opt_dtype_pa",
     "standardize_schema_timezones",
     "standardize_schema_timezones_by_majority",
+    "unify_schemas",
 ]
