@@ -530,6 +530,10 @@ def filesystem(
         skip_instance_cache=skip_instance_cache,
     )
 
+    if dirfs and resolved_base_path:
+        # When a URI contains a path, wrap the remote filesystem to enforce that root
+        fs = DirFileSystem(path=resolved_base_path, fs=fs)
+
     return _build_filesystem_with_caching(
         fs, cache_path_hint, cached, cache_storage, verbose
     )

@@ -248,9 +248,20 @@ def test_filesystem_local_vs_url_path_resolution(tmp_path):
 
     # Test that URL paths are not treated as local filesystem paths
     fs_s3 = filesystem("s3://bucket/path")
-    assert not isinstance(
-        fs_s3, DirFileSystem
-    )  # S3 filesystem doesn't use DirFileSystem wrapper
+    assert isinstance(fs_s3, DirFileSystem)
+    assert fs_s3.path == "bucket/path"
+
+
+def test_filesystem_dirfs_wraps_cloud_paths():
+    """Cloud URIs with paths should be rooted via DirFileSystem when dirfs=True."""
+    from fsspeckit import DirFileSystem, filesystem
+
+    fs = filesystem("s3://ewn/mms2/stage1", dirfs=True)
+    assert isinstance(fs, DirFileSystem)
+    assert fs.path == "ewn/mms2/stage1"
+
+    raw_fs = filesystem("s3://ewn/mms2/stage1", dirfs=False)
+    assert not isinstance(raw_fs, DirFileSystem)
 
 
 def test_filesystem_path_helper_functions():
