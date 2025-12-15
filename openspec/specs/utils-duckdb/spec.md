@@ -1013,3 +1013,133 @@ still attempting to clean up remaining resources.
   (operation, table/path) using the project logger
 - **AND** it SHALL re-raise the exception instead of silently swallowing it.
 
+### Requirement: DuckDB dataset writes support merge strategies
+
+`write_parquet_dataset` SHALL accept optional merge strategy arguments and apply them when provided.
+
+#### Scenario: Strategy-aware write
+- **WHEN** a caller passes `strategy` (one of `insert`, `upsert`, `update`, `full_merge`, `deduplicate`) and `key_columns` (when required)
+- **THEN** `write_parquet_dataset` SHALL apply the corresponding merge semantics instead of a plain write
+- **AND** behaviour without `strategy` remains unchanged.
+
+#### Scenario: Convenience helpers
+- **WHEN** a caller invokes `insert_dataset`, `upsert_dataset`, `update_dataset`, or `deduplicate_dataset` on DuckDB dataset helpers
+- **THEN** these helpers SHALL delegate to `write_parquet_dataset` with the appropriate `strategy`
+- **AND** SHALL validate that required `key_columns` are provided for key-based strategies.
+
+### Requirement: DuckDB helpers share cleanup behaviour
+
+DuckDB helper modules SHALL share a single canonical implementation for unregistering DuckDB tables safely.
+
+#### Scenario: DuckDB cleanup uses a central helper
+- **WHEN** cleanup code in DuckDB-related modules unregisters DuckDB tables
+- **THEN** it SHALL call a shared `_unregister_duckdb_table_safely` helper from a canonical DuckDB helpers module
+- **AND** no module SHALL maintain its own divergent copy of this logic.
+
+### Requirement: Parquet Dataset Deduplication Maintenance (DuckDB)
+The system SHALL provide `deduplicate_parquet_dataset` to deduplicate an existing parquet dataset directory.
+
+#### Scenario: Deduplicate by key columns
+- **GIVEN** a dataset contains duplicate keys under `key_columns=["id"]`
+- **WHEN** user calls `handler.deduplicate_parquet_dataset(path, key_columns=["id"])`
+- **THEN** the dataset SHALL be rewritten so that only one row per key remains
+- **AND** the resulting dataset SHALL remain readable by `read_parquet`
+
+#### Scenario: Deduplicate by exact row
+- **GIVEN** a dataset contains exact duplicate rows
+- **WHEN** user calls `handler.deduplicate_parquet_dataset(path, key_columns=None)`
+- **THEN** the dataset SHALL be rewritten so that exact duplicate rows are removed
+
+#### Scenario: Dry run returns plan only
+- **WHEN** user calls `handler.deduplicate_parquet_dataset(path, key_columns=["id"], dry_run=True)`
+- **THEN** the method SHALL NOT write or delete any files
+- **AND** SHALL return statistics including `before_file_count` and an estimated `after_file_count`
+
+### Requirement: Optimize Supports Optional Deduplication Step (DuckDB)
+The system SHALL allow callers to request deduplication during `optimize_parquet_dataset`.
+
+#### Scenario: Optimize performs deduplication when requested
+- **GIVEN** a dataset contains duplicate keys under `key_columns=["id"]`
+- **WHEN** user calls `handler.optimize_parquet_dataset(path, deduplicate_key_columns=["id"])`
+- **THEN** the optimized output SHALL not contain duplicate keys for `id`
+- **AND** optimization statistics SHALL indicate that deduplication was performed
+
+### Requirement: Incremental Merge Rewrite Mode (DuckDB)
+The system SHALL support an opt-in incremental rewrite mode for merge-aware dataset operations.
+
+#### Scenario: Incremental UPSERT rewrites only affected files
+- **GIVEN** a target dataset directory with many parquet files
+- **AND** the source contains updates for keys that may appear in only a subset of files
+- **AND** user calls `handler.write_parquet_dataset(source, path, strategy="upsert", key_columns=["id"], rewrite_mode="incremental")`
+- **THEN** the system SHALL preserve all parquet files that cannot contain any of the updated keys
+- **AND** SHALL rewrite only the affected parquet files into new parquet file(s)
+- **AND** SHALL write additional new parquet file(s) for newly inserted rows
+- **AND** the resulting dataset SHALL reflect correct UPSERT semantics when read
+
+#### Scenario: Incremental UPDATE never writes inserts
+- **GIVEN** a target dataset exists
+- **AND** user calls `handler.write_parquet_dataset(source, path, strategy="update", key_columns=["id"], rewrite_mode="incremental")`
+- **THEN** the system SHALL rewrite only files that might contain keys from the source
+- **AND** SHALL NOT write any rows for keys not present in the target (no inserts)
+
+### Requirement: Conservative Metadata Pruning (DuckDB)
+Incremental rewrite pruning SHALL be conservative to preserve correctness.
+
+#### Scenario: Unknown file membership treated as affected
+- **WHEN** parquet metadata cannot prove that a parquet file is free of any source keys
+- **THEN** the system SHALL treat that file as affected for incremental rewrite purposes
+- **AND** MAY rewrite more files than strictly necessary
+- **AND** SHALL NOT skip rewriting a file that contains keys needing updates
+
+### Requirement: Incremental Rewrite Not Supported for Full Sync Strategies (DuckDB)
+The system SHALL reject incremental rewrite mode for strategies that require full dataset rewrite.
+
+#### Scenario: Reject incremental full_merge
+- **WHEN** user calls `handler.write_parquet_dataset(source, path, strategy="full_merge", rewrite_mode="incremental")`
+- **THEN** the method SHALL raise `ValueError` indicating incremental rewrite is not supported for `full_merge`
+
+#### Scenario: Reject incremental deduplicate
+- **WHEN** user calls `handler.write_parquet_dataset(source, path, strategy="deduplicate", rewrite_mode="incremental")`
+- **THEN** the method SHALL raise `ValueError` indicating incremental rewrite is not supported for `deduplicate`
+
+### Requirement: `mode` is Ignored When `strategy` is Provided (DuckDB)
+The system SHALL treat `strategy` as the primary control for `write_parquet_dataset` behavior and SHALL ignore `mode` when `strategy` is not `None`.
+
+#### Scenario: `mode="append"` does not affect upsert
+- **WHEN** user calls `handler.write_parquet_dataset(table, path, strategy="upsert", key_columns=["id"], mode="append")`
+- **THEN** the method SHALL perform the UPSERT semantics
+- **AND** SHALL NOT raise an error due to the presence of `mode`
+
+#### Scenario: `mode="overwrite"` does not affect update
+- **WHEN** user calls `handler.write_parquet_dataset(table, path, strategy="update", key_columns=["id"], mode="overwrite")`
+- **THEN** the method SHALL perform the UPDATE semantics
+- **AND** SHALL NOT raise an error due to the presence of `mode`
+
+### Requirement: Dataset Write Default Mode - Append
+The system SHALL default `write_parquet_dataset(..., mode=...)` to `mode="append"` when `mode` is not provided.
+
+#### Scenario: Default append on repeated writes
+- **GIVEN** a dataset directory already contains parquet files
+- **WHEN** user calls `handler.write_parquet_dataset(table, path)` twice without specifying `mode`
+- **THEN** the second call SHALL write additional parquet file(s) with unique names
+- **AND** SHALL preserve the existing parquet files
+- **AND** reading the dataset SHALL return combined rows from all parquet files
+
+### Requirement: Mode and Strategy Compatibility (DuckDB)
+The system SHALL validate `mode` and reject incompatible combinations with merge `strategy`.
+
+#### Scenario: Reject append with rewrite strategies
+- **WHEN** user calls `handler.write_parquet_dataset(table, path, mode="append", strategy="upsert")`
+- **OR** uses `strategy="update"|"full_merge"|"deduplicate"`
+- **THEN** the method SHALL raise `ValueError` indicating that `mode="append"` is not supported for the chosen strategy
+
+### Requirement: Insert Strategy Supports Append-Only Writes (DuckDB)
+When `strategy="insert"` and `mode="append"`, the system SHALL avoid rewriting existing parquet files and SHALL write only newly insertable rows to new parquet file(s).
+
+#### Scenario: Insert + append writes only new keys
+- **GIVEN** a target dataset exists with key `id=1`
+- **AND** user provides a source table with keys `id=1` and `id=2`
+- **WHEN** user calls `handler.write_parquet_dataset(source, path, strategy="insert", key_columns=["id"], mode="append")`
+- **THEN** the system SHALL write parquet file(s) containing only rows for `id=2`
+- **AND** SHALL NOT delete or rewrite existing parquet files
+

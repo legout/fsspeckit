@@ -339,7 +339,11 @@ def write_pyarrow_dataset(
     )
 
     # For strategies that need a target dataset
-    if strategy_enum in [MergeStrategy.INSERT, MergeStrategy.UPDATE, MergeStrategy.UPSERT]:
+    if strategy_enum in [
+        MergeStrategy.INSERT,
+        MergeStrategy.UPDATE,
+        MergeStrategy.UPSERT,
+    ]:
         if not target_exists:
             # If target doesn't exist, INSERT and UPSERT become simple writes
             # UPDATE would fail but we already validated above
@@ -477,9 +481,7 @@ def _write_pyarrow_dataset_standard(
     write_options.update(kwargs)
 
     # Create file options for compression
-    file_options = pds.ParquetFileFormat().make_write_options(
-        compression=compression
-    )
+    file_options = pds.ParquetFileFormat().make_write_options(compression=compression)
 
     # Collect metadata
     metadata_collector = []
@@ -646,3 +648,91 @@ def deduplicate_dataset(
         **kwargs,
     )
 
+
+def deduplicate_parquet_dataset(
+    self: AbstractFileSystem,
+    path: str,
+    *,
+    key_columns: list[str] | str | None = None,
+    dedup_order_by: list[str] | str | None = None,
+    partition_filter: list[str] | None = None,
+    compression: str | None = None,
+    dry_run: bool = False,
+    verbose: bool = False,
+    **kwargs: Any,
+) -> dict[str, Any]:
+    """Deduplicate an existing parquet dataset using the most appropriate backend.
+
+    This method provides a unified interface for deduplicating existing parquet datasets
+    across different backends. It will automatically select the best backend available
+    (DuckDB if available, otherwise PyArrow).
+
+    Args:
+        path: Dataset path
+        key_columns: Optional key columns for deduplication.
+            If provided, keeps one row per key combination.
+            If None, removes exact duplicate rows across all columns.
+        dedup_order_by: Columns to order by for selecting which
+            record to keep when duplicates are found. Defaults to key_columns.
+        partition_filter: Optional partition filters to limit scope
+        compression: Output compression codec
+        dry_run: Whether to perform a dry run (return plan without execution)
+        verbose: Print progress information
+        **kwargs: Additional backend-specific arguments
+
+    Returns:
+        Dictionary containing deduplication statistics
+
+    Example:
+        ```python
+        from fsspec import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        # Key-based deduplication
+        stats = fs.deduplicate_parquet_dataset(
+            "/tmp/dataset/",
+            key_columns=["id", "timestamp"],
+            dedup_order_by=["-timestamp"],  # Keep most recent
+            verbose=True
+        )
+
+        # Exact duplicate removal
+        stats = fs.deduplicate_parquet_dataset("/tmp/dataset/")
+        ```
+    """
+    # Try DuckDB first if available, fall back to PyArrow
+    try:
+        from fsspeckit.datasets.duckdb.connection import create_duckdb_connection
+        from fsspeckit.datasets.duckdb.dataset import DuckDBDatasetIO
+
+        # Use DuckDB backend
+        conn = create_duckdb_connection()
+        io = DuckDBDatasetIO(conn)
+
+        return io.deduplicate_parquet_dataset(
+            path=path,
+            key_columns=key_columns,
+            dedup_order_by=dedup_order_by,
+            partition_filter=partition_filter,
+            compression=compression,
+            dry_run=dry_run,
+            verbose=verbose,
+        )
+
+    except ImportError:
+        # DuckDB not available, use PyArrow
+        from fsspeckit.datasets.pyarrow.dataset import (
+            deduplicate_parquet_dataset_pyarrow,
+        )
+
+        return deduplicate_parquet_dataset_pyarrow(
+            path=path,
+            key_columns=key_columns,
+            dedup_order_by=dedup_order_by,
+            partition_filter=partition_filter,
+            compression=compression,
+            dry_run=dry_run,
+            filesystem=self,
+            verbose=verbose,
+        )

@@ -366,6 +366,15 @@ Edge case behavior SHALL match shared canonical definitions.
 - AND apply sorting before deduplication
 - AND maintain consistent ordering with DuckDB backend
 
+### Requirement: Local Schema Utilities in PyArrow Package (REMOVED)
+
+Schema utility functions SHALL be implemented locally in `datasets.pyarrow.schema` for PyArrow-specific operations.
+
+#### Scenario: Local schema implementation
+- **WHEN** PyArrow helpers need schema operations
+- **THEN** they SHALL use local implementations in `datasets.pyarrow.schema`
+- **AND** these implementations SHALL be optimized for PyArrow usage patterns
+
 ### Requirement: PyArrow helpers reuse shared schema and partition logic
 
 PyArrow-based dataset helpers SHALL delegate schema compatibility and partition handling decisions to shared helper modules instead of maintaining separate implementations.
@@ -379,6 +388,110 @@ PyArrow-based dataset helpers SHALL delegate schema compatibility and partition 
 - **WHEN** PyArrow-based helpers need to reason about partitioned paths
 - **THEN** they SHALL use the canonical partition helper (e.g. `common.partitions`)
 - **AND** the semantics SHALL match the behaviour documented by that helper.
+
+### Requirement: Parquet Dataset Deduplication Maintenance (PyArrow)
+The system SHALL provide `deduplicate_parquet_dataset` to deduplicate an existing parquet dataset directory using PyArrow and fsspec.
+
+#### Scenario: Deduplicate by key columns
+- **GIVEN** a dataset contains duplicate keys under `key_columns=["id"]`
+- **WHEN** user calls `io.deduplicate_parquet_dataset(path, key_columns=["id"])`
+- **THEN** the dataset SHALL be rewritten so that only one row per key remains
+- **AND** the resulting dataset SHALL remain readable by `read_parquet`
+
+#### Scenario: Dry run returns plan only
+- **WHEN** user calls `io.deduplicate_parquet_dataset(path, key_columns=["id"], dry_run=True)`
+- **THEN** the method SHALL NOT write or delete any files
+- **AND** SHALL return statistics including `before_file_count` and an estimated `after_file_count`
+
+### Requirement: Optimize Supports Optional Deduplication Step (PyArrow)
+The system SHALL allow callers to request deduplication during `optimize_parquet_dataset`.
+
+#### Scenario: Optimize performs deduplication when requested
+- **GIVEN** a dataset contains duplicate keys under `key_columns=["id"]`
+- **WHEN** user calls `io.optimize_parquet_dataset(path, deduplicate_key_columns=["id"])`
+- **THEN** the optimized output SHALL not contain duplicate keys for `id`
+- **AND** optimization statistics SHALL indicate that deduplication was performed
+
+### Requirement: Incremental Merge Rewrite Mode (PyArrow)
+The system SHALL support an opt-in incremental rewrite mode for merge-aware dataset operations in the PyArrow handler.
+
+#### Scenario: Incremental UPSERT preserves unaffected parquet files
+- **GIVEN** a target dataset directory with many parquet files
+- **AND** user calls `io.write_parquet_dataset(source, path, strategy="upsert", key_columns=["id"], rewrite_mode="incremental")`
+- **THEN** the system SHALL preserve all parquet files that cannot contain any of the updated keys
+- **AND** SHALL rewrite only affected parquet files into new parquet file(s)
+- **AND** SHALL write additional new parquet file(s) for inserted rows
+
+### Requirement: Conservative Metadata Pruning (PyArrow)
+Incremental rewrite pruning SHALL be conservative to preserve correctness.
+
+#### Scenario: Unknown file membership treated as affected
+- **WHEN** parquet metadata cannot prove that a parquet file is free of any source keys
+- **THEN** the system SHALL treat that file as affected for incremental rewrite purposes
+
+### Requirement: Incremental Rewrite Not Supported for Full Sync Strategies (PyArrow)
+The system SHALL reject incremental rewrite mode for strategies that require full dataset rewrite.
+
+#### Scenario: Reject incremental full_merge
+- **WHEN** user calls `io.write_parquet_dataset(source, path, strategy="full_merge", rewrite_mode="incremental")`
+- **THEN** the method SHALL raise `ValueError` indicating incremental rewrite is not supported for `full_merge`
+
+### Requirement: `mode` is Ignored When `strategy` is Provided (PyArrow)
+The system SHALL treat `strategy` as the primary control for `write_parquet_dataset` behavior and SHALL ignore `mode` when `strategy` is not `None`.
+
+#### Scenario: `mode="append"` does not affect upsert
+- **WHEN** user calls `io.write_parquet_dataset(table, path, strategy="upsert", key_columns=["id"], mode="append")`
+- **THEN** the method SHALL perform the UPSERT semantics
+- **AND** SHALL NOT raise an error due to the presence of `mode`
+
+### Requirement: Parquet Dataset Writes Support Append and Overwrite (PyArrow)
+The system SHALL provide `write_parquet_dataset(..., mode=...)` for the PyArrow dataset handler with safe append and overwrite behaviors.
+
+#### Scenario: Default append creates additional files
+- **GIVEN** a dataset directory already contains parquet files
+- **WHEN** user calls `io.write_parquet_dataset(table, path)` twice without specifying `mode`
+- **THEN** the second call SHALL create additional parquet file(s) (no filename collisions)
+- **AND** existing parquet files SHALL be preserved
+- **AND** reading the dataset SHALL return combined rows
+
+#### Scenario: Overwrite deletes parquet files only
+- **GIVEN** a dataset directory contains parquet files and non-parquet files (e.g. `README.txt`)
+- **WHEN** user calls `io.write_parquet_dataset(table, path, mode="overwrite")`
+- **THEN** the method SHALL delete only existing parquet files under `path`
+- **AND** SHALL preserve non-parquet files
+- **AND** SHALL write the new dataset contents to fresh parquet file(s)
+
+### Requirement: Mode and Strategy Compatibility (PyArrow)
+The system SHALL validate `mode` and reject incompatible combinations with merge `strategy`.
+
+#### Scenario: Reject append with rewrite strategies
+- **WHEN** user calls `io.write_parquet_dataset(table, path, mode="append", strategy="upsert")`
+- **OR** uses `strategy="update"|"full_merge"|"deduplicate"`
+- **THEN** the method SHALL raise `ValueError` indicating that `mode="append"` is not supported for the chosen strategy
+
+#### Scenario: Insert + append writes only new keys
+- **GIVEN** a target dataset exists with key `id=1`
+- **AND** user provides a source table with keys `id=1` and `id=2`
+- **WHEN** user calls `io.write_parquet_dataset(source, path, strategy="insert", key_columns=["id"], mode="append")`
+- **THEN** the system SHALL write parquet file(s) containing only rows for `id=2`
+- **AND** SHALL NOT delete or rewrite existing parquet files
+
+## MODIFIED Requirements
+
+### Requirement: PyArrow helpers reuse shared schema and partition logic (MODIFIED)
+
+PyArrow-based dataset helpers SHALL delegate schema compatibility and partition handling decisions to shared helper modules instead of maintaining separate implementations.
+
+#### Scenario: Schema utilities moved to common (MODIFIED)
+- **WHEN** PyArrow-based helpers need schema operations (`cast_schema`, `opt_dtype`, `unify_schemas`, `convert_large_types_to_normal`)
+- **THEN** they SHALL import these functions from `fsspeckit.common.schema`
+- **AND** SHALL NOT maintain duplicate implementations in `datasets.pyarrow.schema`
+- **AND** SHALL re-export these functions from `datasets.pyarrow` for backwards compatibility
+
+#### Scenario: Core modules use common schema utilities (MODIFIED)
+- **WHEN** `core.ext.parquet` needs schema operations
+- **THEN** it SHALL import from `fsspeckit.common.schema` (not from `datasets`)
+- **AND** this maintains architectural rule that core depends on common but not on datasets
 
 ### Requirement: Parquet helpers return consistent PyArrow tables
 

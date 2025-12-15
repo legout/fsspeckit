@@ -11,6 +11,7 @@ from fsspeckit.core.maintenance import (
     collect_dataset_stats,
     plan_compaction_groups,
     plan_optimize_groups,
+    plan_deduplication_groups,
 )
 
 
@@ -48,7 +49,7 @@ class TestMaintenanceStats:
         )
         assert stats.before_file_count == 10
         assert stats.after_file_count == 5
-        assert stats.compressed_file_count == 5
+        assert stats.compacted_file_count == 5
         assert stats.dry_run is False  # Default value
 
     def test_maintenance_stats_validation(self):
@@ -110,7 +111,9 @@ class TestCompactionGroup:
 
     def test_compaction_group_validation(self):
         """Test CompactionGroup validation rejects empty files list."""
-        with pytest.raises(ValueError, match="CompactionGroup must contain at least one file"):
+        with pytest.raises(
+            ValueError, match="CompactionGroup must contain at least one file"
+        ):
             CompactionGroup(files=[])
 
     def test_compaction_group_file_paths(self):
@@ -171,7 +174,9 @@ class TestPlanCompactionGroups:
         files = [FileInfo("test.parquet", 100, 10)]
 
         with pytest.raises(ValueError, match="Must provide at least one of"):
-            plan_compaction_groups(files, target_mb_per_file=None, target_rows_per_file=None)
+            plan_compaction_groups(
+                files, target_mb_per_file=None, target_rows_per_file=None
+            )
 
     def test_plan_compaction_groups_invalid_thresholds(self):
         """Test that invalid thresholds raise ValueError."""
@@ -235,9 +240,7 @@ class TestPlanOptimizeGroups:
         zorder_columns = ["col1"]
 
         result = plan_optimize_groups(
-            files,
-            zorder_columns=zorder_columns,
-            target_mb_per_file=1
+            files, zorder_columns=zorder_columns, target_mb_per_file=1
         )
 
         assert "groups" in result
@@ -269,18 +272,14 @@ class TestPlanOptimizeGroups:
 
         # Test with valid column
         result = plan_optimize_groups(
-            files,
-            zorder_columns=["col1"],
-            sample_schema=mock_schema
+            files, zorder_columns=["col1"], sample_schema=mock_schema
         )
         assert "groups" in result
 
         # Test with missing column
         with pytest.raises(ValueError, match="Missing z-order columns"):
             plan_optimize_groups(
-                files,
-                zorder_columns=["missing_col"],
-                sample_schema=mock_schema
+                files, zorder_columns=["missing_col"], sample_schema=mock_schema
             )
 
     def test_plan_optimize_groups_dict_input(self):
@@ -292,9 +291,7 @@ class TestPlanOptimizeGroups:
         mock_schema.column_names = ["col1"]
 
         result = plan_optimize_groups(
-            files_dict,
-            zorder_columns=["col1"],
-            sample_schema=mock_schema
+            files_dict, zorder_columns=["col1"], sample_schema=mock_schema
         )
 
         assert "groups" in result
@@ -303,8 +300,10 @@ class TestPlanOptimizeGroups:
     def test_plan_optimize_groups_single_files(self):
         """Test that single files are included in optimization groups (unlike compaction)."""
         files = [
-            FileInfo("single.parquet", 1000, 100),  # Large file, but should be optimized
-            FileInfo("single2.parquet", 800, 80),   # Another single file
+            FileInfo(
+                "single.parquet", 1000, 100
+            ),  # Large file, but should be optimized
+            FileInfo("single2.parquet", 800, 80),  # Another single file
         ]
         mock_schema = Mock()
         mock_schema.column_names = ["col1"]
@@ -313,7 +312,7 @@ class TestPlanOptimizeGroups:
             files,
             zorder_columns=["col1"],
             sample_schema=mock_schema,
-            target_mb_per_file=2  # 2MB threshold
+            target_mb_per_file=2,  # 2MB threshold
         )
 
         # Optimization should include single files (unlike compaction)
@@ -337,7 +336,7 @@ def mock_filesystem():
 class TestCollectDatasetStats:
     """Test collect_dataset_stats function."""
 
-    @patch('fsspeckit.core.maintenance.pq.ParquetFile')
+    @patch("fsspeckit.core.maintenance.pq.ParquetFile")
     def test_collect_dataset_stats_basic(self, mock_parquet_file, mock_filesystem):
         """Test basic dataset stats collection."""
         # Mock parquet file metadata
@@ -345,7 +344,9 @@ class TestCollectDatasetStats:
         mock_metadata.num_rows = 100
         mock_parquet_file.return_value.metadata = mock_metadata
 
-        with patch('fsspeckit.core.maintenance.fsspec_filesystem', return_value=mock_filesystem):
+        with patch(
+            "fsspeckit.core.maintenance.fsspec_filesystem", return_value=mock_filesystem
+        ):
             result = collect_dataset_stats("test_path", mock_filesystem)
 
         assert "files" in result
@@ -355,7 +356,7 @@ class TestCollectDatasetStats:
         assert result["total_rows"] == 100
         assert len(result["files"]) == 1
 
-    @patch('fsspeckit.core.maintenance.fsspec_filesystem')
+    @patch("fsspeckit.core.maintenance.fsspec_filesystem")
     def test_collect_dataset_stats_path_not_found(self, mock_fsspec):
         """Test that non-existent path raises FileNotFoundError."""
         mock_fs = Mock()
@@ -365,9 +366,9 @@ class TestCollectDatasetStats:
         with pytest.raises(FileNotFoundError, match="Dataset path.*does not exist"):
             collect_dataset_stats("nonexistent_path")
 
-    @patch('fsspeckit.core.maintenance.fsspec_filesystem')
-    @patch('fsspeckit.core.maintenance.pq.ParquetFile')
-    @patch('fsspeckit.core.maintenance.pq.read_table')
+    @patch("fsspeckit.core.maintenance.fsspec_filesystem")
+    @patch("fsspeckit.core.maintenance.pq.ParquetFile")
+    @patch("fsspeckit.core.maintenance.pq.read_table")
     def test_collect_dataset_stats_fallback_to_read_table(
         self, mock_read_table, mock_parquet_file, mock_fsspec
     ):
@@ -393,7 +394,7 @@ class TestCollectDatasetStats:
 
         assert result["total_rows"] == 100
 
-    @patch('fsspeckit.core.maintenance.fsspec_filesystem')
+    @patch("fsspeckit.core.maintenance.fsspec_filesystem")
     def test_collect_dataset_stats_partition_filter(self, mock_fsspec):
         """Test partition filtering functionality."""
         mock_fs = Mock()
@@ -401,7 +402,7 @@ class TestCollectDatasetStats:
         mock_fs.ls.return_value = [
             "date=2025-01-01/file1.parquet",
             "date=2025-01-02/file2.parquet",
-            "other/file3.parquet"
+            "other/file3.parquet",
         ]
         mock_fs.info.return_value = {"size": 1000}
         mock_fs.open.return_value.__enter__ = Mock()
@@ -409,21 +410,130 @@ class TestCollectDatasetStats:
         mock_fs.isdir.return_value = False
         mock_fsspec.return_value = mock_fs
 
-        with patch('fsspeckit.core.maintenance.pq.ParquetFile') as mock_pq:
+        with patch("fsspeckit.core.maintenance.pq.ParquetFile") as mock_pq:
             mock_metadata = Mock()
             mock_metadata.num_rows = 100
             mock_pq.return_value.metadata = mock_metadata
 
             # Test partition filter
             result = collect_dataset_stats(
-                "test_path",
-                mock_fs,
-                partition_filter=["date=2025-01-01"]
+                "test_path", mock_fs, partition_filter=["date=2025-01-01"]
             )
 
             # Should only include files matching partition filter
             assert len(result["files"]) == 1
-            assert "date=2025-01-01/file1.parquet" in [f["path"] for f in result["files"]]
+            assert "date=2025-01-01/file1.parquet" in [
+                f["path"] for f in result["files"]
+            ]
+
+
+class TestPlanDeduplicationGroups:
+    """Test the plan_deduplication_groups function."""
+
+    def test_plan_deduplication_groups_basic(self):
+        """Test basic deduplication planning."""
+        file_infos = [
+            FileInfo("file1.parquet", 1024, 100),
+            FileInfo("file2.parquet", 2048, 200),
+            FileInfo("file3.parquet", 512, 50),
+        ]
+
+        result = plan_deduplication_groups(
+            file_infos=file_infos,
+            target_mb_per_file=1,
+        )
+
+        # Should create groups and statistics
+        assert "groups" in result
+        assert "planned_stats" in result
+        assert "planned_groups" in result
+
+        planned_stats = result["planned_stats"]
+        assert planned_stats.before_file_count == 3
+        assert planned_stats.key_columns is None
+        assert planned_stats.dry_run is True
+
+    def test_plan_deduplication_groups_with_keys(self):
+        """Test deduplication planning with key columns."""
+        file_infos = [
+            FileInfo("file1.parquet", 1024, 100),
+            FileInfo("file2.parquet", 2048, 200),
+        ]
+
+        result = plan_deduplication_groups(
+            file_infos=file_infos,
+            key_columns=["id", "timestamp"],
+            dedup_order_by=["-timestamp"],
+            target_mb_per_file=1,
+        )
+
+        planned_stats = result["planned_stats"]
+        assert planned_stats.key_columns == ["id", "timestamp"]
+        assert planned_stats.dedup_order_by == ["-timestamp"]
+
+    def test_plan_deduplication_groups_validation(self):
+        """Test input validation for deduplication planning."""
+        file_infos = [
+            FileInfo("file1.parquet", 1024, 100),
+        ]
+
+        # Empty key_columns should raise ValueError
+        with pytest.raises(
+            ValueError, match="key_columns cannot be empty when provided"
+        ):
+            plan_deduplication_groups(
+                file_infos=file_infos,
+                key_columns=[],  # Empty list
+            )
+
+        # Invalid target_mb_per_file should raise ValueError
+        with pytest.raises(ValueError, match="target_mb_per_file must be > 0"):
+            plan_deduplication_groups(
+                file_infos=file_infos,
+                target_mb_per_file=0,
+            )
+
+    def test_plan_deduplication_groups_dict_input(self):
+        """Test deduplication planning with dict input format."""
+        file_infos = [
+            {"path": "file1.parquet", "size_bytes": 1024, "num_rows": 100},
+            {"path": "file2.parquet", "size_bytes": 2048, "num_rows": 200},
+        ]
+
+        result = plan_deduplication_groups(
+            file_infos=file_infos,
+            key_columns=["id"],
+        )
+
+        # Should work with dict format
+        assert "groups" in result
+        assert len(result["groups"]) > 0
+
+    def test_plan_deduplication_groups_large_files(self):
+        """Test deduplication planning with large files that should be skipped."""
+        file_infos = [
+            FileInfo("small1.parquet", 1024, 100),  # Small - should be included
+            FileInfo(
+                "large.parquet", 10 * 1024 * 1024, 1000
+            ),  # Large - should be skipped
+            FileInfo("small2.parquet", 512, 50),  # Small - should be included
+        ]
+
+        result = plan_deduplication_groups(
+            file_infos=file_infos,
+            target_mb_per_file=1,  # 1MB threshold
+        )
+
+        groups = result["groups"]
+        untouched_files = result["untouched_files"]
+
+        # Large file should be untouched
+        assert len(untouched_files) == 1
+        assert untouched_files[0].path == "large.parquet"
+
+        # Small files should be in groups
+        total_files_in_groups = sum(len(group.files) for group in groups)
+        assert total_files_in_groups == 2
 
 
 if __name__ == "__main__":

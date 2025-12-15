@@ -77,52 +77,37 @@ All ImportError messages for missing optional dependencies SHALL follow a consis
 
 ### Requirement: Core filesystem extensions honour lazy imports
 
-The system SHALL use the shared optional-dependency layer for all core filesystem extensions that rely on optional libraries (e.g., `pyarrow`, `orjson`), ensuring:
+The system SHALL use the shared optional-dependency layer for all core filesystem extensions that rely on optional
+libraries (e.g., `pyarrow`, `orjson`, Polars, Pandas), ensuring:
 
 - No hard failure at module-import time when optional dependencies are missing.
 - Clear, guided error messages when optional functionality is invoked without the required extra installed.
 
-#### Scenario: Parquet helpers use lazy PyArrow imports
-- **WHEN** a caller invokes a Parquet helper attached to `AbstractFileSystem`
-- **AND** `pyarrow` is installed
-- **THEN** the helper SHALL import `pyarrow` via the shared optional-dependency mechanism
-- **AND** SHALL successfully return a `pyarrow.Table` object.
+#### Scenario: Universal I/O helpers import dependencies lazily
+- **WHEN** a caller invokes `read_files`, `write_file`, or `write_files` on a filesystem for a given format
+- **AND** the required optional library for that format is installed
+- **THEN** the helper SHALL obtain the library via `fsspeckit.common.optional` helpers
+- **AND** SHALL not import those libraries at module-import time.
 
-#### Scenario: Parquet helpers error cleanly without PyArrow
-- **WHEN** a caller invokes a Parquet helper attached to `AbstractFileSystem`
-- **AND** `pyarrow` is not installed
-- **THEN** the helper SHALL raise an `ImportError`
-- **AND** the error message SHALL include guidance about the required extra (for example, `pip install fsspeckit[datasets]`).
-
-#### Scenario: JSON writer uses lazy `orjson` imports
-- **WHEN** a caller invokes `write_json` on a filesystem
-- **AND** `orjson` is installed
-- **THEN** the helper SHALL import `orjson` via the shared optional-dependency mechanism
-- **AND** SHALL successfully serialise the data.
-
-#### Scenario: JSON writer errors cleanly without `orjson`
-- **WHEN** a caller invokes `write_json` on a filesystem
-- **AND** `orjson` is not installed
-- **THEN** the helper SHALL raise an `ImportError`
-- **AND** the error message SHALL include guidance about the required extra.
+#### Scenario: Universal I/O helpers error cleanly without optional libraries
+- **WHEN** a caller invokes `read_files`, `write_file`, or `write_files` for a format that requires an optional library
+- **AND** that library is not installed
+- **THEN** the helper SHALL raise an `ImportError` whose message includes the appropriate extras group (for example, `pip install fsspeckit[datasets]`)
+- **AND** importing `fsspeckit.core.ext_io` SHALL still succeed without that library present.
 
 ### Requirement: Core helpers treat joblib as optional
 
-The system SHALL treat joblib as an optional dependency that is only required for parallel execution paths, not for importing core modules.
+The system SHALL treat joblib as an optional dependency that is only required for parallel execution paths, not for
+importing core modules.
 
-#### Scenario: Import core modules without joblib
-- **WHEN** a user imports core utilities (e.g., `fsspeckit.common.misc`, `fsspeckit.core.ext`) in an environment without joblib installed
-- **THEN** the import SHALL succeed
-- **AND** functions that require joblib for parallel execution SHALL raise a clear `ImportError` only when parallel execution is requested.
+#### Scenario: Serial execution does not require joblib
+- **WHEN** a caller uses CSV or Parquet helpers with `use_threads=False`
+- **THEN** those helpers SHALL execute without requiring joblib to be installed
+- **AND** importing the relevant modules SHALL succeed even if joblib is absent.
 
-#### Scenario: `run_parallel` uses lazy joblib import
-- **WHEN** a caller uses `run_parallel` to execute work in parallel
-- **AND** joblib is installed
-- **THEN** `run_parallel` SHALL import joblib lazily and execute tasks in parallel
-- **AND** behaviour SHALL remain compatible with existing tests and documented semantics.
-
-- **WHEN** joblib is not installed
-- **AND** a caller requests parallel execution
-- **THEN** `run_parallel` SHALL raise an `ImportError`
-- **AND** the error message SHALL indicate how to install the appropriate extra.
+#### Scenario: Parallel execution errors clearly when joblib is missing
+- **WHEN** a caller requests parallel execution (for example, by setting `use_threads=True` on CSV/Parquet helpers or using `run_parallel`)
+- **AND** joblib is not installed
+- **THEN** the helper SHALL raise an `ImportError` that explains joblib is required for parallel execution
+- **AND** the error message SHALL mention the appropriate extras group to install.
 

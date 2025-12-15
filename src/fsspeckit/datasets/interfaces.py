@@ -41,6 +41,8 @@ class DatasetHandler(Protocol):
         row_group_size: int | None = None,
         strategy: MergeStrategy | None = None,
         key_columns: list[str] | str | None = None,
+        mode: Literal["append", "overwrite"] | None = "append",
+        rewrite_mode: Literal["full", "incremental"] | None = "full",
         **kwargs: Any,
     ) -> Any:
         """Write a parquet dataset with optional merge strategies.
@@ -61,10 +63,22 @@ class DatasetHandler(Protocol):
                 - 'full_merge': Full replacement with source
                 - 'deduplicate': Remove duplicates
             key_columns: Key columns for merge operations (required for relational strategies)
+            mode: Write mode:
+                - 'append': Add new files without deleting existing ones (default, safer)
+                - 'overwrite': Replace existing parquet files with new ones
+            rewrite_mode: Rewrite mode for merge strategies:
+                - 'full': Rewrite entire dataset (default, backward compatible)
+                - 'incremental': Only rewrite files affected by merge (requires strategy in {'upsert', 'update'})
             **kwargs: Additional backend-specific arguments
 
         Returns:
             Backend-specific result (e.g., MergeStats for merge operations)
+
+        Note:
+            mode='append' is incompatible with rewrite strategies (upsert, update, full_merge, deduplicate).
+            Use mode='append' with strategy='insert' for optimal append-only behavior.
+            rewrite_mode='incremental' is only supported for 'upsert' and 'update' strategies.
+            rewrite_mode='incremental' is not supported for 'full_merge' and 'deduplicate' strategies.
         """
         ...
 
@@ -78,6 +92,7 @@ class DatasetHandler(Protocol):
         key_columns: list[str] | str | None = None,
         compression: str | None = None,
         verbose: bool = False,
+        rewrite_mode: Literal["full", "incremental"] | None = "full",
         **kwargs: Any,
     ) -> Any:
         """Merge multiple parquet datasets.
@@ -90,10 +105,17 @@ class DatasetHandler(Protocol):
             key_columns: Key columns for merging
             compression: Output compression codec
             verbose: Print progress information
+            rewrite_mode: Rewrite mode for merge strategies:
+                - 'full': Rewrite entire dataset (default, backward compatible)
+                - 'incremental': Only rewrite files affected by merge (requires strategy in {'upsert', 'update'})
             **kwargs: Additional backend-specific arguments
 
         Returns:
             Backend-specific result containing merge statistics
+
+        Note:
+            rewrite_mode='incremental' is only supported for 'upsert' and 'update' strategies.
+            rewrite_mode='incremental' is not supported for 'full_merge' and 'deduplicate' strategies.
         """
         ...
 
@@ -149,6 +171,45 @@ class DatasetHandler(Protocol):
             **kwargs: Additional backend-specific arguments
 
         Returns:
-            Dictionary containing optimization statistics and metadata
+            Dictionary containing optimization statistics
+        """
+        ...
+
+    def deduplicate_parquet_dataset(
+        self,
+        path: str,
+        *,
+        key_columns: list[str] | str | None = None,
+        dedup_order_by: list[str] | str | None = None,
+        partition_filter: list[str] | None = None,
+        compression: str | None = None,
+        dry_run: bool = False,
+        verbose: bool = False,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Deduplicate an existing parquet dataset.
+
+        This method removes duplicate rows from an existing parquet dataset,
+        supporting both key-based deduplication and exact duplicate removal.
+        Can be run independently of ingestion workflows.
+
+        Args:
+            path: Dataset path
+            key_columns: Optional key columns for deduplication.
+                If provided, keeps one row per key combination.
+                If None, removes exact duplicate rows across all columns.
+            dedup_order_by: Columns to order by for selecting which
+                record to keep when duplicates are found. Defaults to key_columns.
+            partition_filter: Optional partition filters to limit scope
+            compression: Output compression codec
+            dry_run: Whether to perform a dry run (return plan without execution)
+            verbose: Print progress information
+
+        Returns:
+            Dictionary containing deduplication statistics
+
+        Raises:
+            ValueError: If key_columns is empty when provided
+            FileNotFoundError: If dataset path doesn't exist
         """
         ...

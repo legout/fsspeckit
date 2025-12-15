@@ -238,3 +238,135 @@ Core modules SHALL rely on the logging utilities provided by `fsspeckit.common.l
 - **THEN** the error details SHALL be recorded using a logger obtained via `get_logger`
 - **AND** `print(...)` SHALL NOT be used to signal errors or warnings in these paths.
 
+### Requirement: DuckDB dataset writes expose merge-aware UX
+
+The DuckDB dataset write API SHALL offer merge-aware entry points so that common strategies do not require separate staging steps.
+
+#### Scenario: One-step merge via write helper
+- **WHEN** a caller writes in-memory data to a parquet dataset using the DuckDB path
+- **AND** specifies a merge strategy and key columns where applicable
+- **THEN** the library SHALL perform the merge in a single call
+- **AND** SHALL expose shortcut methods whose names mirror the supported strategies for parity with the PyArrow path.
+
+### Requirement: PyArrow dataset handler parity with DuckDB
+
+The project SHALL provide a class-based PyArrow dataset handler that aligns with the DuckDB handler for a consistent user experience.
+
+#### Scenario: Class-based PyArrow dataset API
+- **WHEN** a user prefers a class-based API for PyArrow parquet datasets
+- **THEN** they SHALL instantiate `PyarrowDatasetIO` or `PyarrowDatasetHandler` to access read/write/merge/maintenance helpers
+- **AND** method names SHALL mirror the DuckDB handler where supported.
+
+#### Scenario: Lazy optional dependency imports for PyArrow handler
+- **WHEN** importing the PyArrow handler without PyArrow installed
+- **THEN** the import SHALL succeed
+- **AND** an `ImportError` SHALL only be raised when PyArrow-dependent methods are invoked, with guidance on the required extras.
+
+### Requirement: PyArrow dataset writes expose merge-aware UX
+
+The PyArrow dataset write API SHALL offer merge-aware entry points so that common strategies do not require separate staging steps.
+
+#### Scenario: One-step merge via write helper
+- **WHEN** a caller writes in-memory data to a parquet dataset using the PyArrow path
+- **AND** specifies a merge strategy and key columns where applicable
+- **THEN** the library SHALL perform the merge in a single call
+- **AND** SHALL expose shortcut methods whose names mirror the supported strategies for parity with DuckDB.
+
+### Requirement: Core filesystem path handling is explicit and deterministic
+
+Core filesystem factories SHALL handle local vs remote paths explicitly and derive base directories and cache hints in a
+deterministic, easy-to-reason-about way.
+
+#### Scenario: Local paths are normalised consistently
+- **WHEN** a caller passes a local file or directory path to `fsspeckit.core.filesystem.filesystem()`
+- **THEN** the factory SHALL normalise the path using the dedicated helpers in `fsspeckit.core.filesystem_paths`
+- **AND** the resulting `DirFileSystem` or base filesystem SHALL have a clear and predictable root.
+
+#### Scenario: Cache path hints are derived from normalised roots
+- **WHEN** a caller enables caching on a filesystem created from a local path
+- **THEN** the cache storage hint SHALL be derived from the normalised dataset root or base directory
+- **AND** SHALL NOT depend on ambiguous “file vs directory” heuristics.
+
+### Requirement: Git-based filesystems handle deep paths and large trees
+
+Git-based filesystem implementations SHALL correctly handle URL encoding, pagination, and timeouts when accessing remote
+repositories.
+
+#### Scenario: GitLab filesystem encodes paths and paginates listings
+- **WHEN** a caller uses `GitLabFileSystem.ls()` on a repository with nested paths or more than one page of results
+- **THEN** the filesystem SHALL URL-encode project identifiers and paths as needed
+- **AND** SHALL follow GitLab pagination headers to return a complete listing for the requested path
+- **AND** SHALL use bounded HTTP requests with a sensible timeout.
+
+### Requirement: Modern typing conventions across modules
+
+The project SHALL use modern Python typing conventions consistently across all modules.
+
+#### Scenario: PEP 604 unions are used instead of typing.Union
+- **WHEN** reviewing type annotations in core, common, datasets, storage_options, sql, and utils modules
+- **THEN** union types are expressed using `X | Y` and `X | None`
+- **AND** `typing.Union` and `typing.Optional` are not used in new or updated code.
+
+#### Scenario: Built-in generics replace typing.List and typing.Dict
+- **WHEN** reviewing collection type annotations
+- **THEN** list and dict types use `list[T]` and `dict[K, V]`
+- **AND** `typing.List` and `typing.Dict` are not used in new or updated code.
+
+#### Scenario: Optional dependency types respect lazy-import rules
+- **WHEN** optional-dependency types such as Polars, Pandas, PyArrow, DuckDB, sqlglot, or orjson are used in annotations
+- **THEN** those types are imported only under `if TYPE_CHECKING:` or referenced via shared helpers in `fsspeckit.common.optional`
+- **AND** importing modules does not require those optional packages at runtime.
+
+### Requirement: Package-based layout for core domains
+
+Core domains SHALL use package-based layouts rather than flat, underscored modules to reflect their structure.
+
+#### Scenario: Core ext helpers live under `core/ext/`
+- **WHEN** inspecting the `fsspeckit.core` package
+- **THEN** ext helpers SHALL reside under `fsspeckit.core.ext` as a package
+- **AND** modules such as CSV, JSON, Parquet, dataset, and IO helpers SHALL be implemented as `ext/csv.py`, `ext/json.py`, `ext/parquet.py`, `ext/dataset.py`, `ext/io.py`, and so on.
+
+#### Scenario: Filesystem helpers live under `core/filesystem/`
+- **WHEN** inspecting filesystem-related helpers
+- **THEN** path and cache helpers SHALL reside under `fsspeckit.core.filesystem` as a package (e.g. `filesystem/paths.py`, `filesystem/cache.py`)
+- **AND** high-level filesystem factories SHALL be exposed from the package’s `__init__.py`.
+
+#### Scenario: Dataset backends use backend-specific packages
+- **WHEN** inspecting dataset helpers
+- **THEN** DuckDB helpers SHALL reside under `fsspeckit.datasets.duckdb` as a package
+- **AND** PyArrow helpers SHALL reside under `fsspeckit.datasets.pyarrow` as a package.
+
+#### Scenario: Logging helpers live under `common/logging/`
+- **WHEN** inspecting logging utilities
+- **THEN** core logging APIs and configuration SHALL reside under `fsspeckit.common.logging` as a package
+- **AND** configuration helpers SHALL be in a dedicated submodule (e.g. `common/logging/config.py`).
+
+### Requirement: Backwards-compatible shim modules
+
+Legacy flat modules SHALL remain as backwards-compatible shims for at least one stable release, with a documented deprecation path.
+
+#### Scenario: Legacy imports continue to work
+- **WHEN** existing code imports from modules such as `ext_csv`, `filesystem_paths`, `duckdb_dataset`, `pyarrow_dataset`, or `logging_config`
+- **THEN** those imports SHALL continue to succeed
+- **AND** the modules SHALL re-export the same public names from the new package-based implementations.
+
+#### Scenario: Deprecation is communicated clearly
+- **WHEN** a legacy shim module is imported
+- **THEN** it MAY emit a `DeprecationWarning` that explains the new import path
+- **AND** the documentation SHALL describe the migration path away from shim modules.
+
+### Requirement: Shared dataset handler surface
+
+Dataset handlers across backends SHALL share a clearly documented core surface (method names and key parameters) to
+provide a consistent user experience.
+
+#### Scenario: Common method naming across handlers
+- **WHEN** comparing DuckDB and PyArrow dataset handlers
+- **THEN** core operations (read, write, merge, compact/optimize where supported) SHALL use consistent method names and parameter conventions
+- **AND** any backend-specific differences SHALL be explicitly documented.
+
+#### Scenario: Optional protocol for tooling
+- **WHEN** static analysis or editor tooling is used
+- **THEN** a minimal protocol or type annotation MAY be provided to describe the shared handler surface
+- **AND** handlers SHALL satisfy this protocol for the overlapping capabilities.
+

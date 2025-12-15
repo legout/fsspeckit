@@ -64,6 +64,7 @@ class FileInfo:
         This class is used throughout the maintenance planning pipeline
         for consistent file metadata representation.
     """
+
     path: str
     size_bytes: int
     num_rows: int
@@ -99,6 +100,7 @@ class MaintenanceStats:
         All numeric fields are validated to be non-negative. The to_dict() method
         provides backward compatibility with existing code expecting dictionary format.
     """
+
     before_file_count: int
     after_file_count: int
     before_total_bytes: int
@@ -111,6 +113,9 @@ class MaintenanceStats:
     # Optional fields for specific operations
     zorder_columns: list[str] | None = None
     planned_groups: list[list[str]] | None = None
+    key_columns: list[str] | None = None
+    dedup_order_by: list[str] | None = None
+    deduplicated_rows: int | None = None
 
     def __post_init__(self) -> None:
         if self.before_file_count < 0:
@@ -166,6 +171,7 @@ class CompactionGroup:
         This structure enables per-group streaming processing without
         materializing entire datasets.
     """
+
     files: list[FileInfo]
     total_size_bytes: int = field(init=False)
     total_rows: int = field(init=False)
@@ -242,7 +248,9 @@ def collect_dataset_stats(
                     if fs.isdir(entry):
                         stack.append(entry)
                 except (OSError, PermissionError) as e:
-                    logger.warning("Failed to check if entry '%s' is a directory: %s", entry, e)
+                    logger.warning(
+                        "Failed to check if entry '%s' is a directory: %s", entry, e
+                    )
                     continue
 
     if partition_filter:
@@ -280,7 +288,11 @@ def collect_dataset_stats(
                 num_rows = pf.metadata.num_rows
         except (OSError, PermissionError, RuntimeError, ValueError) as e:
             # As a fallback, attempt a minimal table read to estimate rows.
-            logger.debug("Failed to read parquet metadata from '%s', trying fallback: %s", filename, e)
+            logger.debug(
+                "Failed to read parquet metadata from '%s', trying fallback: %s",
+                filename,
+                e,
+            )
             try:
                 with fs.open(filename, "rb") as fh:
                     table = pq.read_table(fh)
@@ -333,7 +345,10 @@ def plan_compaction_groups(
 
     # Convert to FileInfo objects if needed
     if file_infos and isinstance(file_infos[0], dict):
-        files = [FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"]) for fi in file_infos]
+        files = [
+            FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"])  # type: ignore[union-attr]
+            for fi in file_infos  # type: ignore[union-attr]
+        ]
     else:
         files = file_infos  # type: ignore
 
@@ -344,12 +359,12 @@ def plan_compaction_groups(
     # Separate candidate files (eligible for compaction) from large files.
     candidates: list[FileInfo] = []
     large_files: list[FileInfo] = []
-    for file_info in files:
-        size_bytes = file_info.size_bytes
+    for file_info in files:  # type: ignore[union-attr]
+        size_bytes = file_info.size_bytes  # type: ignore[union-attr]
         if size_threshold_bytes is None or size_bytes < size_threshold_bytes:
-            candidates.append(file_info)
+            candidates.append(file_info)  # type: ignore[union-attr]
         else:
-            large_files.append(file_info)
+            large_files.append(file_info)  # type: ignore[union-attr]
 
     # Build groups based on thresholds.
     groups: list[list[FileInfo]] = []
@@ -393,11 +408,12 @@ def plan_compaction_groups(
 
     # Calculate statistics
     before_file_count = len(files)
-    before_total_bytes = sum(f.size_bytes for f in files)
+    before_total_bytes = sum(f.size_bytes for f in files)  # type: ignore[union-attr]
 
     compacted_file_count = sum(len(group.files) for group in finalized_groups)
-    untouched_files = large_files + [
-        file_info for file_info in candidates
+    untouched_files = large_files + [  # type: ignore[operator]
+        file_info
+        for file_info in candidates
         if not any(file_info in group.files for group in finalized_groups)
     ]
 
@@ -405,7 +421,7 @@ def plan_compaction_groups(
 
     # Estimate after_total_bytes (assume minimal compression change for planning)
     compacted_bytes = sum(group.total_size_bytes for group in finalized_groups)
-    untouched_bytes = sum(f.size_bytes for f in untouched_files)
+    untouched_bytes = sum(f.size_bytes for f in untouched_files)  # type: ignore[union-attr]
     after_total_bytes = untouched_bytes + compacted_bytes  # Rough estimate
 
     rewritten_bytes = compacted_bytes
@@ -485,7 +501,10 @@ def plan_optimize_groups(
 
     # Convert to FileInfo objects if needed
     if file_infos and isinstance(file_infos[0], dict):
-        files = [FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"]) for fi in file_infos]
+        files = [
+            FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"])  # type: ignore[union-attr]
+            for fi in file_infos  # type: ignore[union-attr]
+        ]
     else:
         files = file_infos  # type: ignore
 
@@ -498,12 +517,12 @@ def plan_optimize_groups(
     # Separate candidate files from large files
     candidates: list[FileInfo] = []
     large_files: list[FileInfo] = []
-    for file_info in files:
-        size_bytes = file_info.size_bytes
+    for file_info in files:  # type: ignore[union-attr]
+        size_bytes = file_info.size_bytes  # type: ignore[union-attr]
         if size_threshold_bytes is None or size_bytes < size_threshold_bytes:
-            candidates.append(file_info)
+            candidates.append(file_info)  # type: ignore[union-attr]
         else:
-            large_files.append(file_info)
+            large_files.append(file_info)  # type: ignore[union-attr]
 
     # Group files for optimization - similar to compaction but more aggressive
     # since optimization typically rewrites all eligible files
@@ -550,7 +569,7 @@ def plan_optimize_groups(
 
     # Calculate statistics
     before_file_count = len(files)
-    before_total_bytes = sum(f.size_bytes for f in files)
+    before_total_bytes = sum(f.size_bytes for f in files)  # type: ignore[union-attr]
 
     optimized_file_count = sum(len(group.files) for group in finalized_groups)
     untouched_files = large_files  # Only large files are left untouched in optimization
@@ -559,7 +578,7 @@ def plan_optimize_groups(
 
     # Estimate after_total_bytes (optimization may improve compression)
     optimized_bytes = sum(group.total_size_bytes for group in finalized_groups)
-    untouched_bytes = sum(f.size_bytes for f in untouched_files)
+    untouched_bytes = sum(f.size_bytes for f in untouched_files)  # type: ignore[union-attr]
     after_total_bytes = untouched_bytes + optimized_bytes  # Rough estimate
 
     rewritten_bytes = optimized_bytes
@@ -577,6 +596,155 @@ def plan_optimize_groups(
         compression_codec=None,  # Will be set by backend
         dry_run=True,
         zorder_columns=zorder_columns,
+        planned_groups=planned_groups,
+    )
+
+    return {
+        "groups": finalized_groups,
+        "untouched_files": untouched_files,
+        "planned_stats": planned_stats,
+        "planned_groups": planned_groups,
+    }
+
+
+def plan_deduplication_groups(
+    file_infos: list[dict[str, Any]] | list[FileInfo],
+    key_columns: list[str] | None = None,
+    dedup_order_by: list[str] | None = None,
+    target_mb_per_file: int | None = None,
+    target_rows_per_file: int | None = None,
+) -> dict[str, Any]:
+    """
+    Plan deduplication groups for existing parquet datasets.
+
+    This function groups files for deduplication operations, supporting both
+    key-based deduplication and exact duplicate removal. It integrates with
+    the existing compaction planning to produce optimized file layouts.
+
+    Args:
+        file_infos: List of file information dictionaries or FileInfo objects
+        key_columns: Optional key columns for deduplication (None for exact duplicates)
+        dedup_order_by: Columns to order by for preferred record selection
+        target_mb_per_file: Target size per output file
+        target_rows_per_file: Target rows per output file
+
+    Returns:
+        Dictionary with:
+        - groups: List of CompactionGroup objects to be processed
+        - untouched_files: List of FileInfo objects not requiring processing
+        - planned_stats: MaintenanceStats object for the planned operation
+        - planned_groups: List of file paths per group (for backward compatibility)
+
+    Raises:
+        ValueError: If thresholds are invalid or key_columns is empty when provided
+    """
+    # Validate inputs
+    if target_mb_per_file is not None and target_mb_per_file <= 0:
+        raise ValueError("target_mb_per_file must be > 0")
+    if target_rows_per_file is not None and target_rows_per_file <= 0:
+        raise ValueError("target_rows_per_file must be > 0")
+    if key_columns is not None and not key_columns:
+        raise ValueError("key_columns cannot be empty when provided")
+
+    # Convert to FileInfo objects if needed
+    if file_infos and isinstance(file_infos[0], dict):
+        files = [
+            FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"])  # type: ignore[union-attr]
+            for fi in file_infos  # type: ignore[union-attr]
+        ]
+    else:
+        files = file_infos  # type: ignore
+
+    size_threshold_bytes = (
+        target_mb_per_file * 1024 * 1024 if target_mb_per_file is not None else None
+    )
+
+    # For deduplication, we typically want to process all files since the goal
+    # is to remove duplicates across the entire dataset
+    # Only exclude files that are already large enough to be left alone
+    candidates: list[FileInfo] = []
+    large_files: list[FileInfo] = []
+    for file_info in files:  # type: ignore[union-attr]
+        size_bytes = file_info.size_bytes  # type: ignore[union-attr]
+        if size_threshold_bytes is None or size_bytes < size_threshold_bytes:
+            candidates.append(file_info)  # type: ignore[union-attr]
+        else:
+            large_files.append(file_info)  # type: ignore[union-attr]
+
+    # Group files for deduplication - similar to optimization but more aggressive
+    # since deduplication typically processes all files
+    groups: list[list[FileInfo]] = []
+    current_group: list[FileInfo] = []
+    current_size = 0
+    current_rows = 0
+
+    def flush_group() -> None:
+        nonlocal current_group, current_size, current_rows
+        if current_group:
+            groups.append(current_group)
+            current_group = []
+            current_size = 0
+            current_rows = 0
+
+    # Sort files for more consistent deduplication
+    for file_info in sorted(candidates, key=lambda x: x.size_bytes):
+        size_bytes = file_info.size_bytes
+        num_rows = file_info.num_rows
+        would_exceed_size = (
+            size_threshold_bytes is not None
+            and current_size + size_bytes > size_threshold_bytes
+            and current_group
+        )
+        would_exceed_rows = (
+            target_rows_per_file is not None
+            and current_rows + num_rows > target_rows_per_file
+            and current_group
+        )
+        if would_exceed_size or would_exceed_rows:
+            flush_group()
+        current_group.append(file_info)
+        current_size += size_bytes
+        current_rows += num_rows
+    flush_group()
+
+    # Include all groups for deduplication (unlike compaction which skips singletons)
+    # because we need to deduplicate even single files to handle duplicates within them
+    finalized_groups: list[CompactionGroup] = []
+    for group in groups:
+        if len(group) > 0:  # Include all groups
+            finalized_groups.append(CompactionGroup(files=group))
+
+    # Calculate statistics
+    before_file_count = len(files)
+    before_total_bytes = sum(f.size_bytes for f in files)  # type: ignore[union-attr]
+
+    deduplicated_file_count = sum(len(group.files) for group in finalized_groups)
+    untouched_files = large_files  # Only large files are left untouched
+
+    after_file_count = len(untouched_files) + len(finalized_groups)
+
+    # Estimate after_total_bytes (deduplication may reduce data size)
+    deduplicated_bytes = sum(group.total_size_bytes for group in finalized_groups)
+    untouched_bytes = sum(f.size_bytes for f in untouched_files)  # type: ignore[union-attr]
+    after_total_bytes = untouched_bytes + deduplicated_bytes  # Rough estimate
+
+    rewritten_bytes = deduplicated_bytes
+
+    # Create compatibility structures
+    planned_groups = [group.file_paths() for group in finalized_groups]
+
+    planned_stats = MaintenanceStats(
+        before_file_count=before_file_count,
+        after_file_count=after_file_count,
+        before_total_bytes=before_total_bytes,
+        after_total_bytes=after_total_bytes,
+        compacted_file_count=deduplicated_file_count,
+        rewritten_bytes=rewritten_bytes,
+        compression_codec=None,  # Will be set by backend
+        dry_run=True,
+        key_columns=key_columns,
+        dedup_order_by=dedup_order_by,
+        deduplicated_rows=None,  # Will be calculated during execution
         planned_groups=planned_groups,
     )
 

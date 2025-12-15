@@ -399,3 +399,107 @@ The core documentation guides (Quickstart, API guide, Advanced Usage, Utils refe
 - **THEN** the function signatures and examples match the current implementations in `src/fsspeckit/common/misc.py`
 - **AND** any documented optional dependency requirements (for example needing `joblib` via the appropriate extra) are accurate.
 
+### Requirement: Provide comprehensive merge strategy guidance
+
+Users SHALL have access to comprehensive documentation explaining when and how to use each merge strategy.
+
+#### Scenario: Strategy selection guidance
+- **WHEN** a user needs to perform merge operations
+- **THEN** documentation SHALL provide clear guidance on selecting appropriate merge strategy
+- **AND** SHALL include real-world use cases for each strategy
+- **AND** SHALL explain the behavior of each strategy with existing and new data
+
+#### Scenario: Practical examples for all strategies
+- **WHEN** a user wants to implement merge operations
+- **THEN** documentation SHALL include working examples for all merge strategies
+- **AND** SHALL show before/after data states
+- **AND** SHALL demonstrate common patterns like composite keys and custom ordering
+
+### Requirement: Ensure discoverability of merge functionality
+
+Merge-aware write functionality SHALL be easily discoverable through documentation structure.
+
+#### Scenario: Documentation navigation
+- **WHEN** a user browses dataset documentation
+- **THEN** merge-aware write functionality SHALL be prominently featured
+- **AND** SHALL be accessible from multiple entry points (API docs, how-to guides, examples)
+- **AND** SHALL be cross-referenced with related functionality
+
+### Requirement: Provide comprehensive DuckDB merge strategy guidance
+
+Users SHALL have access to comprehensive documentation explaining when and how to use each DuckDB merge strategy.
+
+#### Scenario: DuckDB strategy selection guidance
+- **WHEN** a user needs to perform merge operations with DuckDB
+- **THEN** documentation SHALL provide clear guidance on selecting appropriate merge strategy
+- **AND** SHALL include real-world use cases for each strategy
+- **AND** SHALL explain DuckDB-specific behavior of each strategy with existing and new data
+
+#### Scenario: DuckDB vs PyArrow backend selection
+- **WHEN** a user chooses between DuckDB and PyArrow for merge operations
+- **THEN** documentation SHALL provide guidance on backend selection
+- **AND** SHALL include performance characteristics
+- **AND** SHALL document feature differences
+- **AND** SHALL recommend use cases for each backend
+
+### Requirement: Ensure DuckDB merge functionality discoverability
+
+DuckDB merge-aware write functionality SHALL be easily discoverable through documentation structure.
+
+#### Scenario: DuckDB merge documentation navigation
+- **WHEN** a user browses dataset documentation
+- **THEN** DuckDB merge-aware write functionality SHALL be prominently featured
+- **AND** SHALL be accessible from multiple entry points (API docs, how-to guides, examples)
+- **AND** SHALL be cross-referenced with PyArrow merge functionality
+- **AND** existing comprehensive examples SHALL be integrated into documentation flow
+
+### Requirement: PyArrow Dataset Handler Class Documentation
+
+The documentation SHALL include comprehensive coverage of PyArrow class-based dataset handlers (`PyarrowDatasetIO`, `PyarrowDatasetHandler`) with same level of detail as DuckDB handler documentation.
+
+#### Scenario: API reference includes PyArrow classes
+- **WHEN** a user reads `docs/api/fsspeckit.datasets.md`
+- **THEN** they SHALL find complete documentation for `PyarrowDatasetIO` and `PyarrowDatasetHandler` classes
+- **AND** all methods SHALL have parameter tables, return types, and examples
+- **AND** documentation format SHALL match DuckDB class documentation structure.
+
+#### Scenario: Dataset handlers guide shows both PyArrow approaches
+- **WHEN** a user reads `docs/dataset-handlers.md`
+- **THEN** they SHALL see both function-based and class-based PyArrow approaches documented
+- **AND** class-based approach SHALL include strengths, features, and usage examples
+- **AND** backend comparison table SHALL include PyArrow class-based approach.
+
+#### Scenario: Getting started tutorial includes PyArrow examples
+- **WHEN** a user follows `docs/tutorials/getting-started.md`
+- **THEN** the "Your First Dataset Operation" section SHALL include PyArrow examples alongside DuckDB
+- **AND** domain package structure examples SHALL include PyArrow handler imports
+- **AND** common use cases SHALL show PyArrow handler usage.
+
+#### Scenario: API guide capability overview includes PyArrow classes
+- **WHEN** a user reads `docs/reference/api-guide.md`
+- **THEN** the "Dataset Operations" capability SHALL list `PyarrowDatasetIO` and `PyarrowDatasetHandler`
+- **AND** domain package organization SHALL describe PyArrow class-based functionality
+- **AND** usage patterns SHALL include PyArrow handler examples.
+
+#### Scenario: How-to guides demonstrate class-based PyArrow usage
+- **WHEN** a user reads `docs/how-to/read-and-write-datasets.md` or `docs/how-to/merge-datasets.md`
+- **THEN** they SHALL find examples using `PyarrowDatasetIO` and `PyarrowDatasetHandler`
+- **AND** backend selection guidance SHALL include class-based PyArrow approach
+- **AND** import statements SHALL show new PyArrow class imports.
+
+### Requirement: PyArrow Approach Guidance Documentation
+
+The documentation SHALL provide clear guidance on when to use function-based vs class-based PyArrow approaches with migration paths between them.
+
+#### Scenario: Approach comparison and selection guidance
+- **WHEN** a user evaluates PyArrow options in `docs/dataset-handlers.md`
+- **THEN** they SHALL find clear comparison between function-based and class-based approaches
+- **AND** use case recommendations SHALL be provided for each approach
+- **AND** migration guidance SHALL be available for switching between approaches.
+
+#### Scenario: Consistent cross-references between approaches
+- **WHEN** a user reads PyArrow documentation
+- **THEN** function-based and class-based approaches SHALL cross-reference each other
+- **AND** examples SHALL show equivalent operations in both approaches
+- **AND** import statements SHALL be clearly differentiated.
+

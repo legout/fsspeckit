@@ -21,6 +21,9 @@ from typing import TYPE_CHECKING, Any, Literal
 if TYPE_CHECKING:
     import pyarrow as pa
 
+# Type for rewrite modes
+RewriteMode = Literal["full", "incremental"]
+
 
 class MergeStrategy(Enum):
     """Supported merge strategies with consistent semantics across backends."""
@@ -41,6 +44,29 @@ class MergeStrategy(Enum):
     """Remove duplicates from source, then upsert."""
 
 
+def validate_rewrite_mode_compatibility(
+    strategy: MergeStrategy,
+    rewrite_mode: RewriteMode,
+) -> None:
+    """
+    Validate that rewrite_mode is compatible with the chosen strategy.
+
+    Args:
+        strategy: Merge strategy to validate.
+        rewrite_mode: Rewrite mode to validate.
+
+    Raises:
+        ValueError: If rewrite_mode is incompatible with strategy.
+    """
+    if rewrite_mode == "incremental":
+        # Incremental rewrite is only supported for upsert and update strategies
+        if strategy not in [MergeStrategy.UPSERT, MergeStrategy.UPDATE]:
+            raise ValueError(
+                f"rewrite_mode='incremental' is not supported for strategy='{strategy.value}'. "
+                f"Incremental rewrite is only supported for 'upsert' and 'update' strategies."
+            )
+
+
 @dataclass
 class MergePlan:
     """Plan for executing a merge operation."""
@@ -49,6 +75,7 @@ class MergePlan:
     key_columns: list[str]
     source_count: int
     target_exists: bool
+    rewrite_mode: RewriteMode = "full"
     dedup_order_by: list[str] | None = None
 
     # Validation results
@@ -68,6 +95,9 @@ class MergePlan:
         if self.strategy == MergeStrategy.DEDUPLICATE and not self.dedup_order_by:
             # Default to key columns for dedup ordering if not specified
             self.dedup_order_by = list(self.key_columns)
+
+        # Validate rewrite_mode compatibility
+        validate_rewrite_mode_compatibility(self.strategy, self.rewrite_mode)
 
 
 @dataclass
