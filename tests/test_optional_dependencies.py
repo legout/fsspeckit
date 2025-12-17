@@ -218,6 +218,8 @@ class TestErrorMessages:
         """Test that check_optional_dependency provides correct extras guidance."""
         from fsspeckit.common.optional import check_optional_dependency
 
+        from unittest.mock import patch
+        
         # Test specific packages and their expected extras
         test_cases = [
             ("polars", "datasets"),
@@ -226,20 +228,22 @@ class TestErrorMessages:
             ("sqlglot", "sql"),
             ("orjson", "sql"),
             ("joblib", "datasets"),
-            ("unknown_package", "full"),  # fallback case
+            ("fsspeckit_definitely_non_existent_package_12345", "full"),  # fallback case
         ]
 
-        for package_name, expected_extra in test_cases:
-            with pytest.raises(ImportError) as exc_info:
-                check_optional_dependency(package_name)
+        # Mock find_spec to return None, forcing check_optional_dependency to raise ImportError
+        with patch("importlib.util.find_spec", return_value=None):
+            for package_name, expected_extra in test_cases:
+                with pytest.raises(ImportError) as exc_info:
+                    check_optional_dependency(package_name)
 
-            error_message = str(exc_info.value)
-            assert (
-                f"Install with: pip install fsspeckit[{expected_extra}]"
-                in error_message
-            ), (
-                f"Expected extras '{expected_extra}' not found in error message for {package_name}: {error_message}"
-            )
+                error_message = str(exc_info.value)
+                assert (
+                    f"Install with: pip install fsspeckit[{expected_extra}]"
+                    in error_message
+                ), (
+                    f"Expected extras '{expected_extra}' not found in error message for {package_name}: {error_message}"
+                )
 
 
 class TestModuleImportsWithoutDependencies:

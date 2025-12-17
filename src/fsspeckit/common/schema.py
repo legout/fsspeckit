@@ -182,8 +182,19 @@ def dominant_timezone_per_column(
         # Find all with top_count
         top_tzs = [tz for tz, cnt in most_common if cnt == top_count]
         # If tie and one is not None, prefer not-None
-        if len(top_tzs) > 1 and any(tz is not None for tz in top_tzs):
-            tz = next(tz for tz in top_tzs if tz is not None)
+        if len(top_tzs) > 1:
+            # Sort top_tzs to ensure deterministic behavior (e.g. UTC vs America/New_York)
+            # Filter None first
+            non_none = [tz for tz in top_tzs if tz is not None]
+            if non_none:
+                non_none.sort()
+                # If UTC is present, prefer it
+                if "UTC" in non_none:
+                    tz = "UTC"
+                else:
+                    tz = non_none[0]
+            else:
+                tz = None
         else:
             tz = most_common[0][0]
         dominant[name] = (units[name], tz)
@@ -278,13 +289,31 @@ def cast_schema(table: pa.Table, schema: pa.Schema) -> pa.Table:
     Returns:
         pa.Table: A new PyArrow table with the specified schema.
     """
+    # Append missing columns as nulls
     table_columns = set(table.schema.names)
     for field in schema:
         if field.name not in table_columns:
             table = table.append_column(
                 field.name, pa.nulls(table.num_rows, type=field.type)
             )
-    return table.cast(schema)
+
+    # Identify extra columns in table that are not in schema
+    extra_fields = []
+    schema_names = set(schema.names)
+    for field in table.schema:
+        if field.name not in schema_names:
+            extra_fields.append(field)
+            
+    # Create target schema: requested schema + extra columns
+    if extra_fields:
+        target_schema = pa.schema(list(schema) + extra_fields, metadata=schema.metadata)
+    else:
+        target_schema = schema
+
+    # Reorder table columns to match target schema
+    table = table.select(target_schema.names)
+    
+    return table.cast(target_schema)
 
 
 def remove_empty_columns(table: pa.Table) -> pa.Table:
@@ -367,6 +396,18 @@ def _is_type_compatible(type1: pa.DataType, type2: pa.DataType) -> bool:
 
     # Timestamp types (different precisions can be unified)
     if pa.types.is_timestamp(type1) and pa.types.is_timestamp(type2):
+        return True
+
+    # String vs Large String - compatible
+    if (pa.types.is_string(type1) or pa.types.is_large_string(type1)) and (
+        pa.types.is_string(type2) or pa.types.is_large_string(type2)
+    ):
+        return True
+
+    # Binary vs Large Binary - compatible
+    if (pa.types.is_binary(type1) or pa.types.is_large_binary(type1)) and (
+        pa.types.is_binary(type2) or pa.types.is_large_binary(type2)
+    ):
         return True
 
     # String vs binary types - these are incompatible
@@ -575,7 +616,7 @@ def _find_conflicting_fields(schemas):
     return conflicts
 
 
-def _normalize_schema_types(schemas, conflicts):
+def _normalize_schema_types(schemas, conflicts, handle_incompatible=True):
     """Normalize schema types based on intelligent promotion rules."""
     # First, analyze all conflicts to determine target types
     promotions = {}
@@ -617,7 +658,10 @@ def _normalize_schema_types(schemas, conflicts):
                     target_type = None
                 else:
                     # Types are incompatible - default to string for safety
-                    target_type = pa.string()
+                    if handle_incompatible:
+                        target_type = pa.string()
+                    else:
+                        target_type = None
 
         conflict_info["target_type"] = target_type
         if target_type is not None:
@@ -688,7 +732,15 @@ def _remove_conflicting_fields(schemas: list[pa.Schema]) -> pa.Schema:
 
     # Find conflicts
     conflicts = _find_conflicting_fields(schemas)
-    conflicting_field_names = set(conflicts.keys())
+    
+    # Determine compatibility
+    _normalize_schema_types(schemas, conflicts, handle_incompatible=False)
+    
+    # Identify incompatible fields
+    conflicting_field_names = {
+        name for name, info in conflicts.items()
+        if not info["compatible"]
+    }
 
     # Keep only non-conflicting fields from the first schema
     fields = []
@@ -762,7 +814,7 @@ def unify_schemas(
         standardize_timezones (bool): If True, standardize all timestamp columns to most frequent timezone.
         verbose (bool): If True, print conflict resolution details for debugging.
         remove_conflicting_columns (bool): If True, allows removal of columns with type conflicts as a fallback
-            strategy instead of converting them. Defaults to False.
+            strategy instead of converting them (e.g. to string). Defaults to False.
 
     Returns:
         pa.Schema: A unified PyArrow schema.
@@ -775,10 +827,14 @@ def unify_schemas(
 
     # Early exit for single schema
     unique_schemas = _unique_schemas(schemas)
+    # Keep a copy of original unique schemas for timezone detection if needed
+    original_unique_schemas = unique_schemas
+    
     if len(unique_schemas) == 1:
         result_schema = unique_schemas[0]
         if standardize_timezones:
-            result_schema = standardize_schema_timezones([result_schema], timezone)[0]
+            target_tz = timezone if timezone is not None else "auto"
+            result_schema = standardize_schema_timezones([result_schema], target_tz)[0]
         return (
             result_schema
             if use_large_dtypes
@@ -791,8 +847,31 @@ def unify_schemas(
         _log_conflict_summary(conflicts, verbose)
 
     if conflicts:
+        # Pre-process incompatible columns if removal is requested
+        if remove_conflicting_columns:
+             # Determine compatibility status first
+             _normalize_schema_types(unique_schemas, conflicts, handle_incompatible=False)
+             
+             incompatible_fields = {
+                 name for name, info in conflicts.items() 
+                 if not info["compatible"]
+             }
+             
+             if incompatible_fields:
+                 # Remove conflicting columns from all schemas
+                 unique_schemas = [
+                     pa.schema([f for f in s if f.name not in incompatible_fields], metadata=s.metadata)
+                     for s in unique_schemas
+                 ]
+                 # Re-evaluate conflicts? No, we removed them.
+                 # Update conflicts dict?
+                 for field in incompatible_fields:
+                     del conflicts[field]
+
         # Normalize schemas using intelligent promotion rules
-        unique_schemas = _normalize_schema_types(unique_schemas, conflicts)
+        unique_schemas = _normalize_schema_types(
+            unique_schemas, conflicts, handle_incompatible=not remove_conflicting_columns
+        )
 
     # Step 2: Attempt unification with conflict-resolved schemas
     try:
@@ -800,7 +879,27 @@ def unify_schemas(
 
         # Step 3: Apply timezone standardization to the unified result
         if standardize_timezones:
-            unified_schema = standardize_schema_timezones([unified_schema], timezone)[0]
+            target_tz = timezone if timezone is not None else "auto"
+            
+            if target_tz == "auto":
+                # Calculate majority from ORIGINAL input schemas, not the unified result
+                # (since normalization might have shifted them)
+                dom = dominant_timezone_per_column(original_unique_schemas)
+                
+                # Apply derived timezones to unified schema
+                fields = []
+                for field in unified_schema:
+                    if pa.types.is_timestamp(field.type) and field.name in dom:
+                        unit, tz = dom[field.name]
+                        # Use unit from unified field to preserve precision promotion
+                        current_unit = field.type.unit
+                        fields.append(field.with_type(pa.timestamp(current_unit, tz)))
+                    else:
+                        fields.append(field)
+                unified_schema = pa.schema(fields, unified_schema.metadata)
+            else:
+                # Explicit timezone
+                unified_schema = standardize_schema_timezones([unified_schema], target_tz)[0]
 
         return (
             unified_schema

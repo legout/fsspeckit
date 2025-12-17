@@ -98,7 +98,7 @@ class TestConvertLargeTypesToNormal:
 
         result = convert_large_types_to_normal(schema)
 
-        assert result.field("large_str").metadata == metadata
+        assert result.field("large_str").metadata == {b"key": b"value"}
 
 
 class TestDominantTimezonePerColumn:

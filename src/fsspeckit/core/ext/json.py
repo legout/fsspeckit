@@ -89,20 +89,20 @@ def _read_json_file(
                 data = [orjson.loads(line) for line in f.readlines()]
             else:
                 data = orjson.loads(f.read())
-        logger.debug("Successfully read JSON: {path}", extra=context)
+        logger.debug("Successfully read JSON: {path}", **context)
         if include_file_path:
             return {path: data}
         return data
     except FileNotFoundError as e:
         logger.error(
-            "File not found during {operation}: {path}", extra=context
+            "File not found during {operation}: {path}", **context
         )
         raise FileNotFoundError(
             f"File not found during {operation}: {path}"
         ) from e
     except PermissionError as e:
         logger.error(
-            "Permission denied during {operation}: {path}", extra=context
+            "Permission denied during {operation}: {path}", **context
         )
         raise PermissionError(
             f"Permission denied during {operation}: {path}"
@@ -110,7 +110,7 @@ def _read_json_file(
     except OSError as e:
         logger.error(
             "System error during {operation}: {path} - {error}",
-            extra={**context, "error": str(e)}
+            **{**context, "error": str(e)}
         )
         raise OSError(
             f"System error during {operation}: {path} - {e}"
@@ -118,13 +118,13 @@ def _read_json_file(
     except ValueError as e:
         logger.error(
             "Invalid JSON in {path}: {error}",
-            extra={**context, "error": str(e)}
+            **{**context, "error": str(e)}
         )
         raise ValueError(f"Invalid JSON in {path}: {e}") from e
     except Exception as e:
         logger.error(
             "Unexpected error during {operation}: {path} - {error}",
-            extra={**context, "error": str(e)},
+            **{**context, "error": str(e)},
             exc_info=True
         )
         raise
@@ -546,6 +546,8 @@ def write_json(
         >>> table = pa.table({"a": [1, 2], "b": ["x", "y"]})
         >>> fs.write_json(table, "data.json")
     """
+    path = str(path)
+
     from fsspeckit.common.optional import _import_pyarrow
     from fsspeckit.datasets.pyarrow import cast_schema, convert_large_types_to_normal
 
@@ -556,12 +558,19 @@ def write_json(
     # Get orjson via lazy import
     orjson = _import_orjson()
 
+    # Try to import pandas safely
+    try:
+        from fsspeckit.common.optional import _import_pandas
+        pd = _import_pandas()
+    except ImportError:
+        pd = None
+
     if isinstance(data, pl.DataFrame):
         data = data.to_arrow()
         data = cast_schema(data, convert_large_types_to_normal(data.schema)).to_pydict()
-    elif isinstance(data, pd.DataFrame):
-        data = pa.Table.from_pandas(data, preserve_index=False).to_pydict()
-    elif isinstance(data, pa.Table):
+    elif pd is not None and isinstance(data, pd.DataFrame):
+        data = pa_mod.Table.from_pandas(data, preserve_index=False).to_pydict()
+    elif isinstance(data, pa_mod.Table):
         data = data.to_pydict()
     if append:
         with self.open(path, "ab") as f:

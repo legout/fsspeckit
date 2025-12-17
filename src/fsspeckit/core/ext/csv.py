@@ -84,7 +84,7 @@ def _read_csv_file(
     try:
         with self.open(path) as f:
             df = pl.read_csv(f, **kwargs)
-        logger.debug("Successfully read CSV: {path}", extra=context)
+        logger.debug("Successfully read CSV: {path}", **context)
 
         if include_file_path:
             df = df.with_columns(pl.lit(path).alias("file_path"))
@@ -93,26 +93,26 @@ def _read_csv_file(
         return df
 
     except FileNotFoundError as e:
-        logger.error("File not found during {operation}: {path}", extra=context)
+        logger.error("File not found during {operation}: {path}", **context)
         raise FileNotFoundError(f"File not found during {operation}: {path}") from e
     except PermissionError as e:
-        logger.error("Permission denied during {operation}: {path}", extra=context)
+        logger.error("Permission denied during {operation}: {path}", **context)
         raise PermissionError(f"Permission denied during {operation}: {path}") from e
     except OSError as e:
         logger.error(
             "System error during {operation}: {path} - {error}",
-            extra={**context, "error": str(e)},
+            **{**context, "error": str(e)},
         )
         raise OSError(f"System error during {operation}: {path} - {e}") from e
     except ValueError as e:
         logger.error(
-            "Invalid CSV format in {path}: {error}", extra={**context, "error": str(e)}
+            "Invalid CSV format in {path}: {error}", **{**context, "error": str(e)}
         )
         raise ValueError(f"Invalid CSV format in {path}: {e}") from e
     except Exception as e:
         logger.error(
             "Unexpected error during {operation}: {path} - {error}",
-            extra={**context, "error": str(e)},
+            **{**context, "error": str(e)},
             exc_info=True,
         )
         raise
@@ -520,32 +520,32 @@ def write_csv(
             # Fallback: try to convert to DataFrame
             pl.DataFrame(data).write_csv(path, **kwargs)
 
-        logger.debug("Successfully wrote CSV: {path}", extra=context)
+        logger.debug("Successfully wrote CSV: {path}", **context)
 
     except FileNotFoundError as e:
-        logger.error("Directory not found during {operation}: {path}", extra=context)
+        logger.error("Directory not found during {operation}: {path}", **context)
         raise FileNotFoundError(
             f"Directory not found during {operation}: {path}"
         ) from e
     except PermissionError as e:
-        logger.error("Permission denied during {operation}: {path}", extra=context)
+        logger.error("Permission denied during {operation}: {path}", **context)
         raise PermissionError(f"Permission denied during {operation}: {path}") from e
     except OSError as e:
         logger.error(
             "System error during {operation}: {path} - {error}",
-            extra={**context, "error": str(e)},
+            **{**context, "error": str(e)},
         )
         raise OSError(f"System error during {operation}: {path} - {e}") from e
     except ValueError as e:
         logger.error(
             "Invalid data format for CSV write in {path}: {error}",
-            extra={**context, "error": str(e)},
+            **{**context, "error": str(e)},
         )
         raise ValueError(f"Invalid data format for CSV write in {path}: {e}") from e
     except Exception as e:
         logger.error(
             "Unexpected error during {operation}: {path} - {error}",
-            extra={**context, "error": str(e)},
+            **{**context, "error": str(e)},
             exc_info=True,
         )
         raise

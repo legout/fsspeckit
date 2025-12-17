@@ -38,7 +38,51 @@ class MockFileSystem:
             def readlines(self):
                 return self.content.split("\n")
 
-        return MockFile(self.files[path])
+            def write(self, data):
+                # For string, just replace content. For bytes, decode? 
+                # Simplistic mock:
+                if isinstance(data, bytes):
+                    self.content = data.decode('utf-8')
+                else:
+                    self.content = data
+                # Update the filesystem dict as well?
+                # The parent 'open' doesn't update 'files'. 
+                # But 'files_written' should be updated.
+                # However, MockFile doesn't have reference to FS.
+                # We can't update FS from here easily without refactoring.
+                # But test_write_json_behavior checks fs.files_written?
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                pass
+
+            def seek(self, offset, whence=0):
+                if whence == 0:
+                    self.position = offset
+                elif whence == 1:
+                    self.position += offset
+                elif whence == 2:
+                    self.position = len(self.content) + offset
+                return self.position
+
+            def tell(self):
+                return self.position
+        
+        # We need to handle writing differently because we need to update fs.files_written
+        mock_file = MockFile(self.files.get(path, ""))
+        
+        # Monkey patch write to update parent
+        original_write = mock_file.write
+        def side_effect_write(data):
+            self.files_written.append(path)
+            self.files[path] = data
+            return original_write(data)
+        mock_file.write = side_effect_write
+
+        return mock_file
 
 
 class TestThreadingBehavior:
@@ -47,7 +91,8 @@ class TestThreadingBehavior:
     def test_json_use_threads_behavior(self, tmp_path):
         """Test that use_threads parameter works correctly in JSON reader."""
         # Import the functions directly from the module
-        from fsspeckit.core.ext import _read_csv, _read_json
+        from fsspeckit.core.ext.csv import _read_csv
+        from fsspeckit.core.ext.json import _read_json
 
         # Create test JSON files
         test_data = [
@@ -67,34 +112,30 @@ class TestThreadingBehavior:
         fs.files = {f: json.dumps(data) for f, data in zip(files, test_data)}
 
         # Test with threading enabled
-        data_threaded = _read_json(files, fs=fs, use_threads=True, as_dataframe=False)
+        data_threaded = _read_json(fs, files, use_threads=True, as_dataframe=False)
 
         # Test with threading disabled
         data_sequential = _read_json(
-            files, fs=fs, use_threads=False, as_dataframe=False
+            fs, files, use_threads=False, as_dataframe=False
         )
-        fs.files = {f: csv_content for f, data in zip(files, test_data)}
-
-        # Test with threading enabled
-        dfs_threaded = _read_csv(files, use_threads=True, concat=False)
-
-        # Test with threading disabled
-        dfs_sequential = _read_csv(files, use_threads=False, concat=False)
 
         # Both should produce the same DataFrames
-        assert len(dfs_threaded) == len(dfs_sequential) == len(test_data)
+        assert len(data_threaded) == len(data_sequential) == len(test_data)
         for i in range(len(test_data)):
-            # Compare DataFrame content (convert to dict for comparison)
-            dict_threaded = dfs_threaded[i].to_dict()
-            dict_sequential = dfs_sequential[i].to_dict()
-            assert dict_threaded == dict_sequential
+            # Compare dict content directly
+            # data_threaded is list of dicts or DataFrames depending on implementation of _read_json
+            # The test calls it with as_dataframe=False, so expected list of dicts/list of lists?
+            # _read_json returns dict or list of dicts.
+            # Compare directly
+            assert data_threaded[i] == data_sequential[i]
 
     def test_csv_use_threads_behavior(self, tmp_path):
         """Test that use_threads parameter works correctly in CSV reader."""
         import csv
 
         # Import the functions directly from the module
-        from fsspeckit.core.ext import _read_csv, _read_json
+        from fsspeckit.core.ext.csv import _read_csv
+        from fsspeckit.core.ext.json import _read_json
 
         # Create test CSV files
         test_data = [
@@ -113,26 +154,24 @@ class TestThreadingBehavior:
             files.append(str(file_path))
 
         fs = MockFileSystem()
-        csv_content = "\n".join(
-            [
-                ",".join(["id", "value"]) + "\n" + ",".join([str(d["id"]), d["value"]])
-                for d in test_data
-            ]
-        )
-        fs.files = {f: csv_content for f, data in zip(files, test_data)}
+        # Fix: Each file should contain its own CSV content, not all concatenated content.
+        fs.files = {
+            f: ",".join(["id", "value"]) + "\n" + ",".join([str(d["id"]), d["value"]])
+            for f, d in zip(files, test_data)
+        }
 
         # Test with threading enabled
-        dfs_threaded = _read_csv(files, use_threads=True, concat=False)
+        dfs_threaded = _read_csv(fs, files, use_threads=True, concat=False)
 
         # Test with threading disabled
-        dfs_sequential = _read_csv(files, use_threads=False, concat=False)
+        dfs_sequential = _read_csv(fs, files, use_threads=False, concat=False)
 
         # Both should produce the same DataFrames
         assert len(dfs_threaded) == len(dfs_sequential) == len(test_data)
         for i in range(len(test_data)):
             # Compare DataFrame content (convert to dict for comparison)
-            dict_threaded = dfs_threaded[i].to_dict()
-            dict_sequential = dfs_sequential[i].to_dict()
+            dict_threaded = dfs_threaded[i].to_dict(as_series=False)
+            dict_sequential = dfs_sequential[i].to_dict(as_series=False)
             assert dict_threaded == dict_sequential
 
 
@@ -144,10 +183,10 @@ class TestJoblibAvailability:
         import inspect
 
         # Import all the helper functions
-        from fsspeckit.core.ext import csv as csv_module
-        from fsspeckit.core.ext import io as io_module
-        from fsspeckit.core.ext import json as json_module
-        from fsspeckit.core.ext import parquet as parquet_module
+        import fsspeckit.core.ext.csv as csv_module
+        import fsspeckit.core.ext.io as io_module
+        import fsspeckit.core.ext.json as json_module
+        import fsspeckit.core.ext.parquet as parquet_module
 
         # List of functions to check
         helper_functions = [

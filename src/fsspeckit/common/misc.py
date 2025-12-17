@@ -7,8 +7,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Callable
 
-# from joblib import Parallel, delayed  # Will be imported lazily
-# from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn, track  # Will be imported lazily
+
 
 from fsspec import AbstractFileSystem
 from fsspec.implementations.dirfs import DirFileSystem
@@ -20,143 +19,7 @@ from fsspeckit.common.logging import get_logger
 logger = get_logger(__name__)
 
 
-# def run_parallel(
-#     func: Callable,
-#     *args,
-#     n_jobs: int = -1,
-#     backend: str = "threading",
-#     verbose: bool = True,
-#     **kwargs,
-# ) -> list[Any]:
-#     """Run a function for a list of parameters in parallel.
-
-#     Provides parallel execution with progress tracking and flexible
-#     argument handling.
-
-#     Args:
-#         func: Function to run in parallel.
-#         *args: Positional arguments. Can be single values or iterables.
-#         n_jobs: Number of joblib workers. Defaults to -1 (all cores).
-#         backend: Joblib backend. Options: 'loky', 'threading',
-#                 'multiprocessing', 'sequential'. Defaults to 'threading'.
-#         verbose: Show progress bar. Defaults to True.
-#         **kwargs: Keyword arguments. Can be single values or iterables.
-
-#     Returns:
-#         List of function outputs in the same order as inputs.
-
-#     Raises:
-#         ValueError: If no iterable arguments provided or length mismatch.
-
-#     Examples:
-#         >>> # Single iterable argument
-#         >>> run_parallel(str.upper, ["hello", "world"])
-#         ['HELLO', 'WORLD']
-
-#         >>> # Multiple iterables in args and kwargs
-#         >>> def add(x, y, offset=0):
-#         ...     return x + y + offset
-#         >>> run_parallel(add, [1, 2, 3], y=[4, 5, 6], offset=10)
-#         [15, 17, 19]
-
-#         >>> # Fixed and iterable arguments
-#         >>> run_parallel(pow, [2, 3, 4], exp=2)
-#         [4, 9, 16]
-#     """
-#     parallel_kwargs = {"n_jobs": n_jobs, "backend": backend, "verbose": 0}
-
-#     iterables = []
-#     fixed_args = []
-#     iterable_kwargs = {}
-#     fixed_kwargs = {}
-
-#     first_iterable_len = None
-
-#     # Process positional arguments
-#     for arg in args:
-#         if isinstance(arg, (list, tuple)) and not isinstance(arg[0], (list, tuple)):
-#             iterables.append(arg)
-#             if first_iterable_len is None:
-#                 first_iterable_len = len(arg)
-#             elif len(arg) != first_iterable_len:
-#                 raise ValueError(
-#                     f"Iterable length mismatch: argument has length {len(arg)}, expected {first_iterable_len}"
-#                 )
-#         else:
-#             fixed_args.append(arg)
-
-#     # Process keyword arguments
-#     for key, value in kwargs.items():
-#         if isinstance(value, (list, tuple)) and not isinstance(value[0], (list, tuple)):
-#             if first_iterable_len is None:
-#                 first_iterable_len = len(value)
-#             elif len(value) != first_iterable_len:
-#                 raise ValueError(
-#                     f"Iterable length mismatch: {key} has length {len(value)}, expected {first_iterable_len}"
-#                 )
-#             iterable_kwargs[key] = value
-#         else:
-#             fixed_kwargs[key] = value
-
-#     if first_iterable_len is None:
-#         raise ValueError("At least one iterable argument is required")
-
-#     # Combine all iterables and create parameter combinations
-#     all_iterables = iterables + list(iterable_kwargs.values())
-#     param_combinations = list(zip(*all_iterables))
-
-#     # Execute without progress bar
-#     if not verbose:
-#         return Parallel(**parallel_kwargs)(
-#             delayed(func)(
-#                 *(list(param_tuple[: len(iterables)]) + fixed_args),
-#                 **{
-#                     k: v
-#                     for k, v in zip(
-#                         iterable_kwargs.keys(), param_tuple[len(iterables) :]
-#                     )
-#                 },
-#                 **fixed_kwargs,
-#             )
-#             for param_tuple in param_combinations
-#         )
-
-#     # Execute with progress bar
-#     else:
-#         results = [None] * len(param_combinations)
-#         with Progress(
-#             TextColumn("[progress.description]{task.description}"),
-#             BarColumn(),
-#             "[progress.percentage]{task.percentage:>3.0f}%",
-#             TimeElapsedColumn(),
-#             transient=True,
-#         ) as progress:
-#             task = progress.add_task(
-#                 "Running in parallel...", total=len(param_combinations)
-#             )
-
-#             def wrapper(idx, param_tuple):
-#                 res = func(
-#                     *(list(param_tuple[: len(iterables)]) + fixed_args),
-#                     **{
-#                         k: v
-#                         for k, v in zip(
-#                             iterable_kwargs.keys(), param_tuple[len(iterables) :]
-#                         )
-#                     },
-#                     **fixed_kwargs,
-#                 )
-#                 progress.update(task, advance=1)
-#                 return idx, res
-
-#             for idx, result in Parallel(**parallel_kwargs)(
-#                 delayed(wrapper)(i, param_tuple)
-#                 for i, param_tuple in enumerate(param_combinations)
-#             ):
-#                 results[idx] = result
-#         return results
 if importlib.util.find_spec("joblib"):
-    # from joblib import Parallel, delayed  # Will be imported lazily
     from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 
     def _prepare_parallel_args(
@@ -301,6 +164,7 @@ if importlib.util.find_spec("joblib"):
         Returns:
             list: Results from parallel execution
         """
+        from joblib import Parallel, delayed
         return Parallel(**parallel_kwargs)(
             delayed(func)(
                 *(list(param_tuple[: len(iterables)]) + fixed_args),
