@@ -21,9 +21,11 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import pyarrow as pa
     import pyarrow.dataset as pds
+
     from fsspeckit.datasets.interfaces import DatasetHandler
 
 from fsspec import AbstractFileSystem
+
 from fsspeckit.common.logging import get_logger
 
 logger = get_logger(__name__)
@@ -260,8 +262,11 @@ def write_pyarrow_dataset(
         )
         ```
     """
+    raise NotImplementedError(
+        "write_pyarrow_dataset has been removed. Use PyarrowDatasetIO.write_dataset "
+        "or PyarrowDatasetIO.merge instead."
+    )
     from fsspeckit.common.types import to_pyarrow_table
-    from fsspeckit.datasets.pyarrow import merge_parquet_dataset_pyarrow
 
     # Import merge strategy validation
     from fsspeckit.core.merge import (
@@ -269,6 +274,7 @@ def write_pyarrow_dataset(
         validate_merge_inputs,
         validate_strategy_compatibility,
     )
+    from fsspeckit.datasets.pyarrow import merge_parquet_dataset_pyarrow
 
     # Convert data to PyArrow table
     table = to_pyarrow_table(data, concat=concat, unique=unique)
@@ -450,8 +456,9 @@ def _write_pyarrow_dataset_standard(
     Returns:
         List of file metadata
     """
-    from fsspeckit.common.optional import _import_pyarrow_parquet
     import pyarrow.dataset as pds
+
+    from fsspeckit.common.optional import _import_pyarrow_parquet
 
     pq = _import_pyarrow_parquet()
 
@@ -523,6 +530,9 @@ def insert_dataset(
     Raises:
         ValueError: If key_columns is not provided
     """
+    raise NotImplementedError(
+        "insert_dataset has been removed. Use PyarrowDatasetIO.merge(strategy='insert') instead."
+    )
     from fsspeckit.core.merge import normalize_key_columns
 
     if not key_columns:
@@ -562,6 +572,9 @@ def upsert_dataset(
     Raises:
         ValueError: If key_columns is not provided
     """
+    raise NotImplementedError(
+        "upsert_dataset has been removed. Use PyarrowDatasetIO.merge(strategy='upsert') instead."
+    )
     from fsspeckit.core.merge import normalize_key_columns
 
     if not key_columns:
@@ -601,6 +614,9 @@ def update_dataset(
     Raises:
         ValueError: If key_columns is not provided
     """
+    raise NotImplementedError(
+        "update_dataset has been removed. Use PyarrowDatasetIO.merge(strategy='update') instead."
+    )
     from fsspeckit.core.merge import normalize_key_columns
 
     if not key_columns:
@@ -639,6 +655,9 @@ def deduplicate_dataset(
     Returns:
         List of Parquet file metadata or None
     """
+    raise NotImplementedError(
+        "deduplicate_dataset has been removed. Use a dedicated dataset maintenance API instead."
+    )
     return self.write_pyarrow_dataset(
         data=data,
         path=path,

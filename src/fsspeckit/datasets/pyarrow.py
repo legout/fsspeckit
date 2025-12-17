@@ -16,7 +16,7 @@ import warnings
 warnings.warn(
     "Importing from fsspeckit.datasets.pyarrow is deprecated. "
     "Import from fsspeckit.datasets.pyarrow directly instead, e.g., "
-    "from fsspeckit.datasets.pyarrow import merge_parquet_dataset_pyarrow",
+    "from fsspeckit.datasets.pyarrow import PyarrowDatasetIO",
     DeprecationWarning,
     stacklevel=2,
 )

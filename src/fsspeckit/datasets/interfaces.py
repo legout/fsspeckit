@@ -2,17 +2,24 @@
 
 This module defines the common surface that dataset handlers should implement
 to provide a consistent API across different backends (e.g., DuckDB, PyArrow).
+
+This project intentionally favors explicit, minimal write/merge APIs:
+- `write_dataset(..., mode="append"|"overwrite")`
+- `merge(..., strategy="insert"|"update"|"upsert")`
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 
 if TYPE_CHECKING:
     import pyarrow as pa
 
-# Type variable for merge strategies
-MergeStrategy = Literal["upsert", "insert", "update", "full_merge", "deduplicate"]
+    from fsspeckit.core.incremental import MergeResult
+    from fsspeckit.datasets.write_result import WriteDatasetResult
+
+WriteMode = Literal["append", "overwrite"]
+MergeStrategy = Literal["insert", "update", "upsert"]
 
 
 class DatasetHandler(Protocol):
@@ -28,94 +35,63 @@ class DatasetHandler(Protocol):
         signatures.
     """
 
-    def write_parquet_dataset(
+    def write_dataset(
         self,
         data: pa.Table | list[pa.Table],
         path: str,
         *,
-        basename_template: str | None = None,
-        schema: pa.Schema | None = None,
-        partition_by: str | list[str] | None = None,
+        mode: WriteMode = "append",
         compression: str | None = "snappy",
         max_rows_per_file: int | None = None,
         row_group_size: int | None = None,
-        strategy: MergeStrategy | None = None,
-        key_columns: list[str] | str | None = None,
-        mode: Literal["append", "overwrite"] | None = "append",
-        rewrite_mode: Literal["full", "incremental"] | None = "full",
         **kwargs: Any,
-    ) -> Any:
-        """Write a parquet dataset with optional merge strategies.
+    ) -> WriteDatasetResult:
+        """Write a parquet dataset and return per-file metadata.
 
         Args:
             data: PyArrow table or list of tables to write
             path: Output directory path
-            basename_template: Template for file names
-            schema: Optional schema to enforce
-            partition_by: Column(s) to partition by
+            mode: Write mode ('append' or 'overwrite')
             compression: Compression codec
             max_rows_per_file: Maximum rows per file
             row_group_size: Rows per row group
-            strategy: Optional merge strategy:
-                - 'insert': Only insert new records
-                - 'upsert': Insert or update existing records
-                - 'update': Only update existing records
-                - 'full_merge': Full replacement with source
-                - 'deduplicate': Remove duplicates
-            key_columns: Key columns for merge operations (required for relational strategies)
-            mode: Write mode:
-                - 'append': Add new files without deleting existing ones (default, safer)
-                - 'overwrite': Replace existing parquet files with new ones
-            rewrite_mode: Rewrite mode for merge strategies:
-                - 'full': Rewrite entire dataset (default, backward compatible)
-                - 'incremental': Only rewrite files affected by merge (requires strategy in {'upsert', 'update'})
             **kwargs: Additional backend-specific arguments
 
         Returns:
-            Backend-specific result (e.g., MergeStats for merge operations)
-
-        Note:
-            mode='append' is incompatible with rewrite strategies (upsert, update, full_merge, deduplicate).
-            Use mode='append' with strategy='insert' for optimal append-only behavior.
-            rewrite_mode='incremental' is only supported for 'upsert' and 'update' strategies.
-            rewrite_mode='incremental' is not supported for 'full_merge' and 'deduplicate' strategies.
+            WriteDatasetResult
         """
         ...
 
-    def merge_parquet_dataset(
+    def merge(
         self,
-        sources: list[str],
-        output_path: str,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        strategy: MergeStrategy,
+        key_columns: list[str] | str,
         *,
-        target: str | None = None,
-        strategy: MergeStrategy = "deduplicate",
-        key_columns: list[str] | str | None = None,
-        compression: str | None = None,
-        verbose: bool = False,
-        rewrite_mode: Literal["full", "incremental"] | None = "full",
+        partition_columns: list[str] | str | None = None,
+        schema: pa.Schema | None = None,
+        compression: str | None = "snappy",
+        max_rows_per_file: int | None = None,
+        row_group_size: int | None = None,
         **kwargs: Any,
-    ) -> Any:
-        """Merge multiple parquet datasets.
+    ) -> MergeResult:
+        """Merge data into an existing parquet dataset incrementally.
 
         Args:
-            sources: List of source dataset paths
-            output_path: Path for merged output
-            target: Target dataset path (for upsert/update strategies)
-            strategy: Merge strategy to use
-            key_columns: Key columns for merging
-            compression: Output compression codec
-            verbose: Print progress information
-            rewrite_mode: Rewrite mode for merge strategies:
-                - 'full': Rewrite entire dataset (default, backward compatible)
-                - 'incremental': Only rewrite files affected by merge (requires strategy in {'upsert', 'update'})
+            data: Source data to merge.
+            path: Dataset directory.
+            strategy: Merge strategy ('insert', 'update', 'upsert').
+            key_columns: Key columns for matching.
+            partition_columns: Columns that must not change for existing keys.
+            schema: Optional schema to enforce for newly written files.
+            compression: Output compression codec.
+            max_rows_per_file: Max rows per newly written file.
+            row_group_size: Parquet row group size for newly written files.
             **kwargs: Additional backend-specific arguments
 
         Returns:
-            Backend-specific result containing merge statistics
-
-        Note:
-            rewrite_mode='incremental' is only supported for 'upsert' and 'update' strategies.
-            rewrite_mode='incremental' is not supported for 'full_merge' and 'deduplicate' strategies.
+            MergeResult
         """
         ...
 
@@ -172,44 +148,5 @@ class DatasetHandler(Protocol):
 
         Returns:
             Dictionary containing optimization statistics
-        """
-        ...
-
-    def deduplicate_parquet_dataset(
-        self,
-        path: str,
-        *,
-        key_columns: list[str] | str | None = None,
-        dedup_order_by: list[str] | str | None = None,
-        partition_filter: list[str] | None = None,
-        compression: str | None = None,
-        dry_run: bool = False,
-        verbose: bool = False,
-        **kwargs: Any,
-    ) -> dict[str, Any]:
-        """Deduplicate an existing parquet dataset.
-
-        This method removes duplicate rows from an existing parquet dataset,
-        supporting both key-based deduplication and exact duplicate removal.
-        Can be run independently of ingestion workflows.
-
-        Args:
-            path: Dataset path
-            key_columns: Optional key columns for deduplication.
-                If provided, keeps one row per key combination.
-                If None, removes exact duplicate rows across all columns.
-            dedup_order_by: Columns to order by for selecting which
-                record to keep when duplicates are found. Defaults to key_columns.
-            partition_filter: Optional partition filters to limit scope
-            compression: Output compression codec
-            dry_run: Whether to perform a dry run (return plan without execution)
-            verbose: Print progress information
-
-        Returns:
-            Dictionary containing deduplication statistics
-
-        Raises:
-            ValueError: If key_columns is empty when provided
-            FileNotFoundError: If dataset path doesn't exist
         """
         ...

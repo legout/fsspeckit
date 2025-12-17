@@ -1,25 +1,25 @@
 """Tests for pyarrow utility functions."""
 
-import pytest
+from datetime import datetime
+
+import polars as pl
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
-import polars as pl
-from datetime import datetime
+import pytest
 
 from fsspeckit.datasets.pyarrow import (
-    opt_dtype,
-    unify_schemas,
     cast_schema,
-    convert_large_types_to_normal,
-    standardize_schema_timezones,
-    standardize_schema_timezones_by_majority,
-    dominant_timezone_per_column,
     collect_dataset_stats_pyarrow,
     compact_parquet_dataset_pyarrow,
+    convert_large_types_to_normal,
+    dominant_timezone_per_column,
+    opt_dtype,
     optimize_parquet_dataset_pyarrow,
-    merge_parquet_dataset_pyarrow,
+    standardize_schema_timezones,
+    standardize_schema_timezones_by_majority,
+    unify_schemas,
 )
 
 
@@ -371,8 +371,8 @@ class TestParquetDatasetMaintenance:
         pq.write_table(table, path / "part-0.parquet")
 
         from fsspeckit.datasets.pyarrow import (
-            optimize_parquet_dataset_pyarrow,
             collect_dataset_stats_pyarrow,
+            optimize_parquet_dataset_pyarrow,
         )
 
         result = optimize_parquet_dataset_pyarrow(
@@ -503,30 +503,6 @@ class TestParquetDatasetMaintenance:
                 )
             )
             assert pairs == sorted(pairs)
-
-    def test_merge_parquet_dataset_pyarrow_simple(self, tmp_path):
-        """merge_parquet_dataset_pyarrow should upsert rows with minimal input."""
-        path = tmp_path / "merge-target"
-        path.mkdir()
-        pq.write_table(
-            pa.table({"id": [1], "value": ["base"]}), path / "part-0.parquet"
-        )
-        source = pa.table({"id": [1, 2], "value": ["new", "insert"]})
-
-        stats = merge_parquet_dataset_pyarrow(
-            source,
-            str(path),
-            key_columns="id",
-            strategy="upsert",
-        )
-
-        assert stats["inserted"] == 1
-        assert stats["updated"] == 1
-        table = ds.dataset(str(path)).to_table()
-        values = dict(
-            zip(table.column("id").to_pylist(), table.column("value").to_pylist())
-        )
-        assert values == {1: "new", 2: "insert"}
 
     def test_dominant_timezone_per_column(self):
         """Test dominant timezone detection."""

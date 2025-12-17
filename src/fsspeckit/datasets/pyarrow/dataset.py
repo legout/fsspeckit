@@ -8,17 +8,16 @@ This module contains functions for dataset-level operations including:
 """
 
 import concurrent.futures
+import random
+import re
 from collections import defaultdict
 from pathlib import Path
-import random
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal
 
 import numpy as np
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
-import re
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal
 
 if TYPE_CHECKING:
     import polars as pl
@@ -27,8 +26,8 @@ from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
 from pyarrow.fs import FSSpecHandler, PyFileSystem
 
+from fsspeckit.common.logging import get_logger
 from fsspeckit.core.merge import (
-    MergeStrategy as CoreMergeStrategy,
     MergeStats,
     calculate_merge_stats,
     check_null_keys,
@@ -36,7 +35,9 @@ from fsspeckit.core.merge import (
     validate_merge_inputs,
     validate_strategy_compatibility,
 )
-from fsspeckit.common.logging import get_logger
+from fsspeckit.core.merge import (
+    MergeStrategy as CoreMergeStrategy,
+)
 
 logger = get_logger(__name__)
 
@@ -150,7 +151,12 @@ def compact_parquet_dataset_pyarrow(
         shared ``fsspeckit.core.maintenance`` module, ensuring consistent behavior
         across DuckDB and PyArrow backends.
     """
-    from fsspeckit.core.maintenance import plan_compaction_groups, MaintenanceStats
+    import uuid
+
+    from fsspeckit.core.maintenance import MaintenanceStats, plan_compaction_groups
+
+    if filesystem is None:
+        filesystem = fsspec_filesystem("file")
 
     # Get dataset stats using shared logic
     stats = collect_dataset_stats_pyarrow(
@@ -186,8 +192,8 @@ def compact_parquet_dataset_pyarrow(
     for group in groups:
         # Read all files in this group
         tables = []
-        for file_info in group["files"]:
-            file_path = file_info["path"]
+        for file_info in group.files:
+            file_path = file_info.path
             table = pq.read_table(
                 file_path,
                 filesystem=filesystem,
@@ -201,7 +207,7 @@ def compact_parquet_dataset_pyarrow(
             combined = tables[0]
 
         # Write to output file
-        output_path = group["output_path"]
+        output_path = f"{path.rstrip('/')}/compacted-{uuid.uuid4().hex[:16]}.parquet"
         pq.write_table(
             combined,
             output_path,
@@ -211,9 +217,8 @@ def compact_parquet_dataset_pyarrow(
 
     # Remove original files
     for group in groups:
-        for file_info in group["files"]:
-            file_path = file_info["path"]
-            filesystem.rm(file_path)
+        for file_info in group.files:
+            filesystem.rm(file_info.path)
 
     return planned_stats.to_dict()
 
@@ -780,6 +785,9 @@ def merge_parquet_dataset_pyarrow(
         print(f"Merged {stats.total_rows} rows")
         ```
     """
+    raise NotImplementedError(
+        "merge_parquet_dataset_pyarrow has been removed. Use PyarrowDatasetIO.merge instead."
+    )
     # Validate strategy compatibility
     validate_strategy_compatibility(strategy, key_columns, target)
 

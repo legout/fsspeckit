@@ -20,22 +20,16 @@ from fsspeckit.common.schema import (
     unify_schemas,
 )
 
-# Re-export dataset write functions
+# Re-export dataset creation helpers (filesystem-level).
 from fsspeckit.core.ext.dataset import (
-    deduplicate_dataset,
-    insert_dataset,
     pyarrow_dataset,
     pyarrow_parquet_dataset,
-    update_dataset,
-    upsert_dataset,
-    write_pyarrow_dataset,
 )
 
 # Re-export dataset operations
 from .dataset import (
     collect_dataset_stats_pyarrow,
     compact_parquet_dataset_pyarrow,
-    merge_parquet_dataset_pyarrow,
     optimize_parquet_dataset_pyarrow,
 )
 
@@ -52,7 +46,6 @@ __all__ = [
     "compact_parquet_dataset_pyarrow",
     "convert_large_types_to_normal",
     "dominant_timezone_per_column",
-    "merge_parquet_dataset_pyarrow",
     "opt_dtype",
     "optimize_parquet_dataset_pyarrow",
     "pyarrow_dataset",
@@ -61,11 +54,6 @@ __all__ = [
     "standardize_schema_timezones",
     "standardize_schema_timezones_by_majority",
     "unify_schemas",
-    "write_pyarrow_dataset",
-    "deduplicate_dataset",
-    "insert_dataset",
-    "update_dataset",
-    "upsert_dataset",
     # Dataset I/O classes
     "PyarrowDatasetIO",
     "PyarrowDatasetHandler",

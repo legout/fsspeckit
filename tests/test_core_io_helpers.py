@@ -1,11 +1,11 @@
 """Test threading behavior in JSON and CSV readers."""
 
-import tempfile
 import json
+import tempfile
 from unittest.mock import patch
 
-import pytest
 import pyarrow as pa
+import pytest
 
 # Import to trigger registration
 import fsspeckit.core.ext  # noqa: F401
@@ -47,7 +47,7 @@ class TestThreadingBehavior:
     def test_json_use_threads_behavior(self, tmp_path):
         """Test that use_threads parameter works correctly in JSON reader."""
         # Import the functions directly from the module
-        from fsspeckit.core.ext import _read_json, _read_csv
+        from fsspeckit.core.ext import _read_csv, _read_json
 
         # Create test JSON files
         test_data = [
@@ -94,7 +94,7 @@ class TestThreadingBehavior:
         import csv
 
         # Import the functions directly from the module
-        from fsspeckit.core.ext import _read_json, _read_csv
+        from fsspeckit.core.ext import _read_csv, _read_json
 
         # Create test CSV files
         test_data = [
@@ -145,9 +145,9 @@ class TestJoblibAvailability:
 
         # Import all the helper functions
         from fsspeckit.core.ext import csv as csv_module
-        from fsspeckit.core.ext import parquet as parquet_module
-        from fsspeckit.core.ext import json as json_module
         from fsspeckit.core.ext import io as io_module
+        from fsspeckit.core.ext import json as json_module
+        from fsspeckit.core.ext import parquet as parquet_module
 
         # List of functions to check
         helper_functions = [
@@ -167,10 +167,14 @@ class TestJoblibAvailability:
         # Check that each function has use_threads parameter with default False
         for func in helper_functions:
             sig = inspect.signature(func)
-            assert "use_threads" in sig.parameters, f"{func.__name__} missing use_threads parameter"
+            assert "use_threads" in sig.parameters, (
+                f"{func.__name__} missing use_threads parameter"
+            )
 
             param = sig.parameters["use_threads"]
-            assert param.default is False, f"{func.__name__} use_threads default should be False, got {param.default}"
+            assert param.default is False, (
+                f"{func.__name__} use_threads default should be False, got {param.default}"
+            )
 
     def test_joblib_lazy_import_behavior(self, monkeypatch):
         """Test that joblib is only imported when needed."""
@@ -202,6 +206,7 @@ class TestJoblibAvailability:
 
         # Simulate joblib not being available
         import fsspeckit.common.optional as optional_mod
+
         original_joblib_available = optional_mod._JOBLIB_AVAILABLE
         optional_mod._JOBLIB_AVAILABLE = False
 
@@ -226,22 +231,21 @@ class TestJoblibAvailability:
 
 
 class TestWritePyArrowDataset:
-    """Test write_pyarrow_dataset with various strategies."""
+    """Test PyArrow dataset I/O helper workflows."""
 
     def test_write_standard_dataset(self, tmp_path):
         """Test standard dataset write without merge strategy."""
         from fsspec.implementations.local import LocalFileSystem
 
+        from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+
         fs = LocalFileSystem()
+        io = PyarrowDatasetIO(filesystem=fs)
 
         table = pa.table({"id": [1, 2, 3], "value": ["a", "b", "c"]})
         dataset_path = str(tmp_path / "dataset")
 
-        # Write without merge strategy
-        result = fs.write_pyarrow_dataset(
-            data=table,
-            path=dataset_path,
-        )
+        io.write_dataset(data=table, path=dataset_path, mode="append")
 
         # Verify dataset was created
         assert fs.exists(dataset_path)
@@ -256,29 +260,28 @@ class TestWritePyArrowDataset:
         """Test upsert merge strategy."""
         from fsspec.implementations.local import LocalFileSystem
 
+        from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+
         fs = LocalFileSystem()
+        io = PyarrowDatasetIO(filesystem=fs)
 
         # Create initial dataset
         initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
         dataset_path = str(tmp_path / "dataset")
-        fs.write_pyarrow_dataset(
-            data=initial,
-            path=dataset_path,
-        )
+        io.write_dataset(data=initial, path=dataset_path, mode="overwrite")
 
         # Upsert with new and updated data
         upsert_data = pa.table({"id": [2, 3], "value": ["updated", "c"]})
-        fs.write_pyarrow_dataset(
-            data=upsert_data,
-            path=dataset_path,
-            strategy="upsert",
-            key_columns="id",
+        io.merge(
+            data=upsert_data, path=dataset_path, strategy="upsert", key_columns="id"
         )
 
         # Verify results
         result = _read_dataset_table(dataset_path)
         assert result.num_rows == 3
-        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
+        values = dict(
+            zip(result.column("id").to_pylist(), result.column("value").to_pylist())
+        )
         assert values[1] == "a"  # Unchanged
         assert values[2] == "updated"  # Updated
         assert values[3] == "c"  # Inserted
@@ -287,29 +290,28 @@ class TestWritePyArrowDataset:
         """Test insert-only merge strategy."""
         from fsspec.implementations.local import LocalFileSystem
 
+        from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+
         fs = LocalFileSystem()
+        io = PyarrowDatasetIO(filesystem=fs)
 
         # Create initial dataset
         initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
         dataset_path = str(tmp_path / "dataset")
-        fs.write_pyarrow_dataset(
-            data=initial,
-            path=dataset_path,
-        )
+        io.write_dataset(data=initial, path=dataset_path, mode="overwrite")
 
         # Insert with new and existing data
         insert_data = pa.table({"id": [2, 3], "value": ["dupe", "c"]})
-        fs.write_pyarrow_dataset(
-            data=insert_data,
-            path=dataset_path,
-            strategy="insert",
-            key_columns="id",
+        io.merge(
+            data=insert_data, path=dataset_path, strategy="insert", key_columns="id"
         )
 
         # Verify only new rows were inserted
         result = _read_dataset_table(dataset_path)
         assert result.num_rows == 3
-        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
+        values = dict(
+            zip(result.column("id").to_pylist(), result.column("value").to_pylist())
+        )
         assert values[1] == "a"  # Unchanged
         assert values[2] == "b"  # Unchanged (was "dupe" in source)
         assert values[3] == "c"  # Inserted
@@ -318,257 +320,84 @@ class TestWritePyArrowDataset:
         """Test update-only merge strategy."""
         from fsspec.implementations.local import LocalFileSystem
 
+        from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+
         fs = LocalFileSystem()
+        io = PyarrowDatasetIO(filesystem=fs)
 
         # Create initial dataset
         initial = pa.table({"id": [1, 2, 3], "value": ["a", "b", "c"]})
         dataset_path = str(tmp_path / "dataset")
-        fs.write_pyarrow_dataset(
-            data=initial,
-            path=dataset_path,
-        )
+        io.write_dataset(data=initial, path=dataset_path, mode="overwrite")
 
         # Update existing and try to insert new
         update_data = pa.table({"id": [2, 4], "value": ["updated", "new"]})
-        fs.write_pyarrow_dataset(
-            data=update_data,
-            path=dataset_path,
-            strategy="update",
-            key_columns="id",
+        io.merge(
+            data=update_data, path=dataset_path, strategy="update", key_columns="id"
         )
 
         # Verify only existing rows were updated
         result = _read_dataset_table(dataset_path)
         assert result.num_rows == 3
-        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
+        values = dict(
+            zip(result.column("id").to_pylist(), result.column("value").to_pylist())
+        )
         assert values[1] == "a"  # Unchanged
         assert values[2] == "updated"  # Updated
         assert values[3] == "c"  # Unchanged (new row was ignored)
 
     def test_write_with_deduplicate_strategy(self, tmp_path):
-        """Test deduplicate merge strategy."""
+        """Test deduplicate merge strategy is not supported by merge()."""
         from fsspec.implementations.local import LocalFileSystem
 
+        from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+
         fs = LocalFileSystem()
+        io = PyarrowDatasetIO(filesystem=fs)
 
         # Create initial dataset
         initial = pa.table({"id": [1], "value": ["original"], "ts": [1]})
         dataset_path = str(tmp_path / "dataset")
-        fs.write_pyarrow_dataset(
-            data=initial,
-            path=dataset_path,
-        )
+        io.write_dataset(data=initial, path=dataset_path, mode="overwrite")
 
         # Deduplicate with multiple rows
-        dedup_data = pa.table({
-            "id": [1, 1, 2],
-            "value": ["old", "new", "c"],
-            "ts": [1, 2, 1],
-        })
-        fs.write_pyarrow_dataset(
-            data=dedup_data,
-            path=dataset_path,
-            strategy="deduplicate",
-            key_columns="id",
-            dedup_order_by="ts",
+        dedup_data = pa.table(
+            {
+                "id": [1, 1, 2],
+                "value": ["old", "new", "c"],
+                "ts": [1, 2, 1],
+            }
         )
-
-        # Verify deduplication kept the right row
-        result = _read_dataset_table(dataset_path)
-        assert result.num_rows == 2
-        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
-        assert values[1] == "new"  # Latest timestamp
-        assert values[2] == "c"  # Inserted
+        with pytest.raises(ValueError, match="strategy must be one of"):
+            io.merge(  # type: ignore[arg-type]
+                data=dedup_data,
+                path=dataset_path,
+                strategy="deduplicate",
+                key_columns="id",
+            )
 
     def test_write_with_full_merge_strategy(self, tmp_path):
-        """Test full_merge strategy."""
+        """Test full_merge strategy is not supported by merge()."""
         from fsspec.implementations.local import LocalFileSystem
 
+        from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+
         fs = LocalFileSystem()
+        io = PyarrowDatasetIO(filesystem=fs)
 
         # Create initial dataset
         initial = pa.table({"id": [1, 2, 3], "value": ["a", "b", "c"]})
         dataset_path = str(tmp_path / "dataset")
-        fs.write_pyarrow_dataset(
-            data=initial,
-            path=dataset_path,
-        )
+        io.write_dataset(data=initial, path=dataset_path, mode="overwrite")
 
         # Full merge with subset
         merge_data = pa.table({"id": [2, 4], "value": ["updated", "d"]})
-        fs.write_pyarrow_dataset(
-            data=merge_data,
-            path=dataset_path,
-            strategy="full_merge",
-            key_columns="id",
-        )
-
-        # Verify full replacement
-        result = _read_dataset_table(dataset_path)
-        assert result.num_rows == 2
-        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
-        assert values[2] == "updated"
-        assert values[4] == "d"
-
-
-class TestConvenienceHelpers:
-    """Test convenience helper methods."""
-
-    def test_insert_dataset(self, tmp_path):
-        """Test insert_dataset convenience helper."""
-        from fsspec.implementations.local import LocalFileSystem
-
-        fs = LocalFileSystem()
-
-        # Create initial dataset
-        initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
-        dataset_path = str(tmp_path / "dataset")
-        fs.write_pyarrow_dataset(data=initial, path=dataset_path)
-
-        # Use convenience helper
-        new_data = pa.table({"id": [2, 3], "value": ["dupe", "c"]})
-        fs.insert_dataset(
-            data=new_data,
-            path=dataset_path,
-            key_columns="id",
-        )
-
-        # Verify
-        result = _read_dataset_table(dataset_path)
-        assert result.num_rows == 3
-        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
-        assert values[2] == "b"  # Unchanged
-        assert values[3] == "c"  # Inserted
-
-    def test_upsert_dataset(self, tmp_path):
-        """Test upsert_dataset convenience helper."""
-        from fsspec.implementations.local import LocalFileSystem
-
-        fs = LocalFileSystem()
-
-        # Create initial dataset
-        initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
-        dataset_path = str(tmp_path / "dataset")
-        fs.write_pyarrow_dataset(data=initial, path=dataset_path)
-
-        # Use convenience helper
-        upsert_data = pa.table({"id": [2, 3], "value": ["updated", "c"]})
-        fs.upsert_dataset(
-            data=upsert_data,
-            path=dataset_path,
-            key_columns="id",
-        )
-
-        # Verify
-        result = _read_dataset_table(dataset_path)
-        assert result.num_rows == 3
-        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
-        assert values[2] == "updated"
-        assert values[3] == "c"
-
-    def test_update_dataset(self, tmp_path):
-        """Test update_dataset convenience helper."""
-        from fsspec.implementations.local import LocalFileSystem
-
-        fs = LocalFileSystem()
-
-        # Create initial dataset
-        initial = pa.table({"id": [1, 2, 3], "value": ["a", "b", "c"]})
-        dataset_path = str(tmp_path / "dataset")
-        fs.write_pyarrow_dataset(data=initial, path=dataset_path)
-
-        # Use convenience helper
-        update_data = pa.table({"id": [2, 4], "value": ["updated", "new"]})
-        fs.update_dataset(
-            data=update_data,
-            path=dataset_path,
-            key_columns="id",
-        )
-
-        # Verify
-        result = _read_dataset_table(dataset_path)
-        assert result.num_rows == 3
-        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
-        assert values[2] == "updated"
-        assert values[3] == "c"  # Unchanged
-
-    def test_deduplicate_dataset(self, tmp_path):
-        """Test deduplicate_dataset convenience helper."""
-        from fsspec.implementations.local import LocalFileSystem
-
-        fs = LocalFileSystem()
-
-        # Create initial dataset
-        initial = pa.table({"id": [1], "value": ["original"], "ts": [1]})
-        dataset_path = str(tmp_path / "dataset")
-        fs.write_pyarrow_dataset(data=initial, path=dataset_path)
-
-        # Use convenience helper
-        dedup_data = pa.table({
-            "id": [1, 1, 2],
-            "value": ["old", "new", "c"],
-            "ts": [1, 2, 1],
-        })
-        fs.deduplicate_dataset(
-            data=dedup_data,
-            path=dataset_path,
-            key_columns="id",
-            dedup_order_by="ts",
-        )
-
-        # Verify
-        result = _read_dataset_table(dataset_path)
-        assert result.num_rows == 2
-        values = dict(zip(result.column("id").to_pylist(), result.column("value").to_pylist()))
-        assert values[1] == "new"
-        assert values[2] == "c"
-
-    def test_insert_dataset_requires_key_columns(self, tmp_path):
-        """Test that insert_dataset requires key_columns."""
-        from fsspec.implementations.local import LocalFileSystem
-
-        fs = LocalFileSystem()
-
-        dataset_path = str(tmp_path / "dataset")
-        data = pa.table({"id": [1, 2], "value": ["a", "b"]})
-
-        # Should raise ValueError
-        with pytest.raises(ValueError, match="key_columns is required"):
-            fs.insert_dataset(
-                data=data,
+        with pytest.raises(ValueError, match="strategy must be one of"):
+            io.merge(  # type: ignore[arg-type]
+                data=merge_data,
                 path=dataset_path,
-            )
-
-    def test_upsert_dataset_requires_key_columns(self, tmp_path):
-        """Test that upsert_dataset requires key_columns."""
-        from fsspec.implementations.local import LocalFileSystem
-
-        fs = LocalFileSystem()
-
-        dataset_path = str(tmp_path / "dataset")
-        data = pa.table({"id": [1, 2], "value": ["a", "b"]})
-
-        # Should raise ValueError
-        with pytest.raises(ValueError, match="key_columns is required"):
-            fs.upsert_dataset(
-                data=data,
-                path=dataset_path,
-            )
-
-    def test_update_dataset_requires_key_columns(self, tmp_path):
-        """Test that update_dataset requires key_columns."""
-        from fsspec.implementations.local import LocalFileSystem
-
-        fs = LocalFileSystem()
-
-        dataset_path = str(tmp_path / "dataset")
-        data = pa.table({"id": [1, 2], "value": ["a", "b"]})
-
-        # Should raise ValueError
-        with pytest.raises(ValueError, match="key_columns is required"):
-            fs.update_dataset(
-                data=data,
-                path=dataset_path,
+                strategy="full_merge",
+                key_columns="id",
             )
 
 
@@ -578,4 +407,3 @@ def _read_dataset_table(path: str) -> pa.Table:
 
     dataset = ds.dataset(path)
     return dataset.to_table()
-

@@ -6,9 +6,8 @@ from pathlib import Path
 import pyarrow as pa
 import pytest
 
-from fsspeckit.datasets.pyarrow import PyarrowDatasetHandler, PyarrowDatasetIO
-from fsspeckit.common.optional import _PYARROW_AVAILABLE
 from fsspeckit import filesystem
+from fsspeckit.datasets.pyarrow import PyarrowDatasetHandler, PyarrowDatasetIO
 
 
 @pytest.fixture
@@ -84,10 +83,10 @@ class TestPyarrowDatasetIOReadWrite:
         dataset_dir = temp_dir / "dataset"
 
         io = PyarrowDatasetIO()
-        io.write_parquet_dataset(sample_table, str(dataset_dir))
+        io.write_dataset(sample_table, str(dataset_dir))
 
         assert dataset_dir.exists()
-        files = list(dataset_dir.glob("*.parquet"))
+        files = list(dataset_dir.glob("**/*.parquet"))
         assert len(files) >= 1
 
     def test_read_parquet_with_columns(self, sample_table, temp_dir):
@@ -100,85 +99,6 @@ class TestPyarrowDatasetIOReadWrite:
         result = io.read_parquet(str(parquet_file), columns=["id", "name"])
         assert result.num_columns == 2
         assert result.column_names == ["id", "name"]
-
-
-class TestPyarrowDatasetIOMerge:
-    """Tests for merge operations."""
-
-    def test_insert_dataset_helper(self, sample_table, temp_dir):
-        """Test insert_dataset convenience method."""
-        dataset_dir = temp_dir / "dataset"
-
-        io = PyarrowDatasetIO()
-
-        # Initial write
-        io.write_parquet_dataset(sample_table, str(dataset_dir))
-
-        # Insert
-        new_data = pa.table({"id": [6, 7], "name": ["Frank", "Grace"], "value": [100.0, 200.0]})
-        # insert_dataset returns None, just verify it doesn't raise
-        io.insert_dataset(new_data, str(dataset_dir), key_columns=["id"])
-
-    def test_upsert_dataset_helper(self, sample_table, temp_dir):
-        """Test upsert_dataset convenience method."""
-        dataset_dir = temp_dir / "dataset"
-
-        io = PyarrowDatasetIO()
-        io.write_parquet_dataset(sample_table, str(dataset_dir))
-
-        # Upsert
-        update_data = pa.table({"id": [1, 6], "name": ["Alice Updated", "Frank"], "value": [999.0, 100.0]})
-        # upsert_dataset returns None, just verify it doesn't raise
-        io.upsert_dataset(update_data, str(dataset_dir), key_columns=["id"])
-
-    def test_update_dataset_helper(self, sample_table, temp_dir):
-        """Test update_dataset convenience method."""
-        dataset_dir = temp_dir / "dataset"
-
-        io = PyarrowDatasetIO()
-        io.write_parquet_dataset(sample_table, str(dataset_dir))
-
-        # Update
-        update_data = pa.table({"id": [1, 2], "name": ["Alice Updated", "Bob Updated"], "value": [999.0, 888.0]})
-        # update_dataset returns None, just verify it doesn't raise
-        io.update_dataset(update_data, str(dataset_dir), key_columns=["id"])
-
-    def test_deduplicate_dataset_helper(self, temp_dir):
-        """Test deduplicate_dataset convenience method."""
-        dataset_dir = temp_dir / "dataset"
-
-        io = PyarrowDatasetIO()
-
-        # Data with duplicates
-        data_with_dupes = pa.table({
-            "id": [1, 1, 2, 2, 3],
-            "name": ["a", "b", "c", "d", "e"],
-            "value": [1.0, 2.0, 3.0, 4.0, 5.0],
-        })
-
-        # deduplicate_dataset returns None, just verify it doesn't raise
-        io.deduplicate_dataset(data_with_dupes, str(dataset_dir), key_columns=["id"])
-
-    def test_insert_requires_key_columns(self, sample_table, temp_dir):
-        """Test that insert_dataset requires key_columns."""
-        io = PyarrowDatasetIO()
-
-        with pytest.raises(ValueError, match="key_columns is required"):
-            io.insert_dataset(sample_table, str(temp_dir / "ds"), key_columns=None)
-
-    def test_upsert_requires_key_columns(self, sample_table, temp_dir):
-        """Test that upsert_dataset requires key_columns."""
-        io = PyarrowDatasetIO()
-
-        with pytest.raises(ValueError, match="key_columns is required"):
-            io.upsert_dataset(sample_table, str(temp_dir / "ds"), key_columns=None)
-
-    def test_update_requires_key_columns(self, sample_table, temp_dir):
-        """Test that update_dataset requires key_columns."""
-        io = PyarrowDatasetIO()
-
-        with pytest.raises(ValueError, match="key_columns is required"):
-            io.update_dataset(sample_table, str(temp_dir / "ds"), key_columns=None)
 
 
 class TestPyarrowDatasetIOMaintenance:
@@ -208,9 +128,11 @@ class TestPyarrowDatasetIOMaintenance:
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
         io = PyarrowDatasetIO()
-        io.write_parquet_dataset(sample_table, str(dataset_dir))
+        io.write_dataset(sample_table, str(dataset_dir))
 
-        result = io.compact_parquet_dataset(str(dataset_dir), target_mb_per_file=1, dry_run=True)
+        result = io.compact_parquet_dataset(
+            str(dataset_dir), target_mb_per_file=1, dry_run=True
+        )
         assert result["dry_run"] is True
 
     def test_optimize_dataset(self, sample_table, temp_dir):
@@ -219,7 +141,7 @@ class TestPyarrowDatasetIOMaintenance:
         dataset_dir.mkdir(parents=True, exist_ok=True)
 
         io = PyarrowDatasetIO()
-        io.write_parquet_dataset(sample_table, str(dataset_dir))
+        io.write_dataset(sample_table, str(dataset_dir))
 
         result = io.optimize_parquet_dataset(str(dataset_dir), target_mb_per_file=64)
         assert "before_file_count" in result
@@ -240,17 +162,17 @@ class TestPyarrowDatasetHandlerAPISymmetry:
         assert hasattr(handler, "write_parquet")
         assert callable(handler.write_parquet)
 
-    def test_has_write_parquet_dataset(self):
-        """Test that handler has write_parquet_dataset method."""
+    def test_has_write_dataset(self):
+        """Test that handler has write_dataset method."""
         handler = PyarrowDatasetHandler()
-        assert hasattr(handler, "write_parquet_dataset")
-        assert callable(handler.write_parquet_dataset)
+        assert hasattr(handler, "write_dataset")
+        assert callable(handler.write_dataset)
 
-    def test_has_merge_parquet_dataset(self):
-        """Test that handler has merge_parquet_dataset method."""
+    def test_has_merge(self):
+        """Test that handler has merge method."""
         handler = PyarrowDatasetHandler()
-        assert hasattr(handler, "merge_parquet_dataset")
-        assert callable(handler.merge_parquet_dataset)
+        assert hasattr(handler, "merge")
+        assert callable(handler.merge)
 
     def test_has_compact_parquet_dataset(self):
         """Test that handler has compact_parquet_dataset method."""
@@ -288,6 +210,7 @@ class TestOptionalDependencyHandling:
         try:
             # Re-import to trigger check
             from fsspeckit.datasets.pyarrow.io import PyarrowDatasetIO
+
             with pytest.raises(ImportError, match="pyarrow is required"):
                 PyarrowDatasetIO()
         finally:

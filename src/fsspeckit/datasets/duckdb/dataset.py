@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     import duckdb
     import pyarrow as pa
 
+    from fsspeckit.core.incremental import MergeResult
     from fsspeckit.datasets.interfaces import DatasetHandler
     from fsspeckit.storage_options.base import BaseStorageOptions
 
@@ -179,7 +180,13 @@ class DuckDBDatasetIO:
             ```
         """
         validate_path(path)
-        validate_compression_codec(compression)
+        compression_final = compression or "snappy"
+        validate_compression_codec(compression_final)
+
+        fs = self._connection.filesystem
+        parent = str(Path(path).parent)
+        if parent and parent not in (".", "/"):
+            fs.mkdirs(parent, exist_ok=True)
 
         conn = self._connection.connection
 
@@ -193,11 +200,13 @@ class DuckDBDatasetIO:
 
             params = [path]
 
-            if compression:
-                copy_query += f" (COMPRESSION {compression})"
-
+            options: list[str] = []
+            if compression_final:
+                options.append(f"COMPRESSION {compression_final}")
             if row_group_size:
-                copy_query += f" (ROW_GROUP_SIZE {row_group_size})"
+                options.append(f"ROW_GROUP_SIZE {row_group_size}")
+            if options:
+                copy_query += " (" + ", ".join(options) + ")"
 
             # Execute the copy
             if use_threads:
@@ -264,6 +273,11 @@ class DuckDBDatasetIO:
             For merge operations, the strategy semantics control the behavior regardless of the mode setting.
             rewrite_mode='incremental' is only supported for 'upsert' and 'update' strategies.
         """
+        raise NotImplementedError(
+            "DuckDBDatasetIO.write_parquet_dataset() legacy API has been removed; "
+            "use write_dataset(..., mode='append'|'overwrite') or "
+            "merge(..., strategy='insert'|'update'|'upsert')."
+        )
         import tempfile
 
         from fsspeckit.common.optional import _import_pyarrow
@@ -343,24 +357,38 @@ class DuckDBDatasetIO:
         rewrite_mode_final = rewrite_mode or "full"  # Default to "full"
         validate_rewrite_mode_compatibility(strategy_enum, rewrite_mode_final)
 
-        # Handle incremental rewrite
-        if rewrite_mode == "incremental" and target_exists:
+        # Handle incremental rewrite (delegate to canonical merge implementation)
+        if rewrite_mode_final == "incremental" and target_exists:
             if strategy_enum in [CoreMergeStrategy.UPSERT, CoreMergeStrategy.UPDATE]:
-                # Use incremental rewrite for UPSERT/UPDATE
-                return self._write_parquet_dataset_incremental(
+                if normalized_key_columns is None:
+                    raise ValueError(
+                        "key_columns is required for incremental merge strategies"
+                    )
+
+                merge_result = self.merge(
                     data=data,
                     path=path,
-                    strategy=strategy_enum,
-                    key_columns=normalized_key_columns or [],
+                    strategy=strategy_enum.value,  # "upsert" | "update"
+                    key_columns=normalized_key_columns,
                     compression=compression,
                     max_rows_per_file=max_rows_per_file,
                     row_group_size=row_group_size,
                 )
-            else:
-                # This should have been caught by validation, but double-check
-                raise ValueError(
-                    f"rewrite_mode='incremental' is not supported for strategy='{strategy_enum.value}'"
+
+                return MergeStats(
+                    strategy=strategy_enum,
+                    source_count=merge_result.source_count,
+                    target_count_before=merge_result.target_count_before,
+                    target_count_after=merge_result.target_count_after,
+                    inserted=merge_result.inserted,
+                    updated=merge_result.updated,
+                    deleted=merge_result.deleted,
                 )
+
+            # This should have been caught by validation, but double-check
+            raise ValueError(
+                f"rewrite_mode='incremental' is not supported for strategy='{strategy_enum.value}'"
+            )
 
         # For INSERT/UPSERT without existing target, do a simple write
         if (
@@ -403,6 +431,567 @@ class DuckDBDatasetIO:
             )
 
             return stats
+
+    def write_dataset(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        *,
+        mode: Literal["append", "overwrite"] = "append",
+        compression: str | None = "snappy",
+        max_rows_per_file: int | None = 5_000_000,
+        row_group_size: int | None = 500_000,
+    ) -> "WriteDatasetResult":
+        """Write a parquet dataset and return per-file metadata."""
+        import uuid
+
+        from fsspeckit.common.security import validate_compression_codec, validate_path
+        from fsspeckit.core.incremental import IncrementalFileManager
+        from fsspeckit.datasets.write_result import (
+            FileWriteMetadata,
+            WriteDatasetResult,
+        )
+
+        validate_path(path)
+        validate_compression_codec(compression)
+
+        if mode not in ("append", "overwrite"):
+            raise ValueError(f"mode must be 'append' or 'overwrite', got: {mode}")
+        if max_rows_per_file is not None and max_rows_per_file <= 0:
+            raise ValueError("max_rows_per_file must be > 0")
+        if row_group_size is not None and row_group_size <= 0:
+            raise ValueError("row_group_size must be > 0")
+
+        fs = self._connection.filesystem
+        fs.mkdirs(path, exist_ok=True)
+
+        if mode == "overwrite":
+            self._clear_dataset_parquet_only(path)
+
+        file_manager = IncrementalFileManager()
+        staging_dir = file_manager.create_staging_directory(path, filesystem=fs)
+
+        moved_files: list[str] = []
+        try:
+            self._write_to_path(
+                data=data,
+                path=staging_dir,
+                compression=compression,
+                max_rows_per_file=max_rows_per_file,
+                row_group_size=row_group_size,
+                mode="overwrite",
+            )
+
+            staging_files = [
+                f
+                for f in fs.find(staging_dir, withdirs=False)
+                if f.endswith(".parquet")
+            ]
+
+            for staging_file in staging_files:
+                filename = f"part-{uuid.uuid4().hex[:16]}.parquet"
+                target_file = f"{path}/{filename}"
+                fs.move(staging_file, target_file)
+                moved_files.append(target_file)
+        finally:
+            file_manager.cleanup_staging_files(filesystem=fs)
+
+        files: list[FileWriteMetadata] = []
+        for f in moved_files:
+            row_count = int(self._get_file_row_count(f, fs))
+            size_bytes = None
+            try:
+                size_bytes = int(fs.size(f))
+            except Exception:
+                size_bytes = None
+
+            files.append(
+                FileWriteMetadata(path=f, row_count=row_count, size_bytes=size_bytes)
+            )
+
+        return WriteDatasetResult(
+            files=files,
+            total_rows=sum(f.row_count for f in files),
+            mode=mode,
+            backend="duckdb",
+        )
+
+    def merge(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        strategy: Literal["insert", "update", "upsert"],
+        key_columns: list[str] | str,
+        *,
+        partition_columns: list[str] | str | None = None,
+        schema: pa.Schema | None = None,
+        compression: str | None = "snappy",
+        max_rows_per_file: int | None = 5_000_000,
+        row_group_size: int | None = 500_000,
+    ) -> "MergeResult":
+        """Merge data into an existing parquet dataset incrementally (DuckDB backend).
+
+        Semantics:
+        - `insert`: append only new keys as new file(s); never rewrites existing files.
+        - `update`: rewrite only files that actually contain keys being updated; never inserts.
+        - `upsert`: rewrite only affected files and append inserted keys as new file(s).
+        """
+        import pyarrow.compute as pc
+        import pyarrow.parquet as pq
+
+        from fsspeckit.core.incremental import (
+            IncrementalFileManager,
+            MergeFileMetadata,
+            MergeResult,
+            confirm_affected_files,
+            extract_source_partition_values,
+            list_dataset_files,
+            plan_incremental_rewrite,
+            validate_no_null_keys,
+        )
+        from fsspeckit.core.merge import normalize_key_columns
+
+        validate_path(path)
+        validate_compression_codec(compression)
+
+        if strategy not in ("insert", "update", "upsert"):
+            raise ValueError("strategy must be one of: insert, update, upsert")
+
+        key_cols = normalize_key_columns(key_columns)
+
+        partition_cols: list[str] = []
+        if partition_columns is not None:
+            partition_cols = normalize_key_columns(partition_columns)
+
+        # Combine source input to a single table.
+        if isinstance(data, list):
+            import pyarrow as pa_mod
+
+            source_table = pa_mod.concat_tables(data, promote_options="permissive")
+        else:
+            source_table = data
+
+        if schema is not None:
+            from fsspeckit.common.schema import cast_schema
+
+            source_table = cast_schema(source_table, schema)
+
+        validate_no_null_keys(source_table, key_cols)
+
+        for col in key_cols:
+            if col not in source_table.column_names:
+                raise ValueError(
+                    f"Key column '{col}' not found in source. "
+                    f"Available columns: {', '.join(source_table.column_names)}"
+                )
+
+        for col in partition_cols:
+            if col not in source_table.column_names:
+                raise ValueError(
+                    f"Partition column '{col}' not found in source. "
+                    f"Available columns: {', '.join(source_table.column_names)}"
+                )
+
+        # De-duplicate source by key (last-write-wins).
+        def _dedupe_source_last_wins(table: pa.Table) -> pa.Table:
+            import pyarrow as pa_mod
+
+            if table.num_rows == 0:
+                return table
+
+            if len(key_cols) == 1:
+                keys = table.column(key_cols[0]).to_pylist()
+                last_index: dict[object, int] = {}
+                for idx, key in enumerate(keys):
+                    last_index[key] = idx
+                indices = sorted(last_index.values())
+            else:
+                key_arrays = [table.column(c).to_pylist() for c in key_cols]
+                last_index = {}
+                for idx, key in enumerate(zip(*key_arrays)):
+                    last_index[key] = idx
+                indices = sorted(last_index.values())
+
+            return table.take(pa_mod.array(indices, type=pa_mod.int64()))
+
+        source_table = _dedupe_source_last_wins(source_table)
+
+        # Extract source keys for planning.
+        if len(key_cols) == 1:
+            source_keys = source_table.column(key_cols[0]).to_pylist()
+            source_key_set: set[object] = set(source_keys)
+        else:
+            arrays = [source_table.column(c).to_pylist() for c in key_cols]
+            source_keys = list(zip(*arrays))
+            source_key_set = set(source_keys)
+
+        fs = self._connection.filesystem
+
+        # List existing parquet files in the dataset.
+        target_files = list_dataset_files(path, filesystem=fs)
+        target_exists = bool(target_files)
+
+        target_count_before = sum(
+            pq.read_metadata(f, filesystem=fs).num_rows for f in target_files
+        )
+
+        if source_table.num_rows == 0:
+            return MergeResult(
+                strategy=strategy,
+                source_count=0,
+                target_count_before=target_count_before,
+                target_count_after=target_count_before,
+                inserted=0,
+                updated=0,
+                deleted=0,
+                files=[
+                    MergeFileMetadata(path=f, row_count=0, operation="preserved")
+                    for f in target_files
+                ],
+                rewritten_files=[],
+                inserted_files=[],
+                preserved_files=list(target_files),
+            )
+
+        if not target_exists:
+            if strategy == "update":
+                raise ValueError(
+                    "UPDATE strategy requires an existing target dataset (non-existent target)"
+                )
+
+            # INSERT/UPSERT into a non-existent dataset: write all rows as inserts.
+            fs.mkdirs(path, exist_ok=True)
+            write_res = self.write_dataset(
+                source_table,
+                path,
+                mode="append",
+                compression=compression,
+                max_rows_per_file=max_rows_per_file,
+                row_group_size=row_group_size,
+            )
+
+            inserted_files = [m.path for m in write_res.files]
+            files_meta = [
+                MergeFileMetadata(
+                    path=m.path,
+                    row_count=m.row_count,
+                    operation="inserted",
+                    size_bytes=m.size_bytes,
+                )
+                for m in write_res.files
+            ]
+
+            return MergeResult(
+                strategy=strategy,
+                source_count=source_table.num_rows,
+                target_count_before=0,
+                target_count_after=write_res.total_rows,
+                inserted=write_res.total_rows,
+                updated=0,
+                deleted=0,
+                files=files_meta,
+                rewritten_files=[],
+                inserted_files=inserted_files,
+                preserved_files=[],
+            )
+
+        def _select_rows_by_keys(table: pa.Table, key_set: set[object]) -> pa.Table:
+            import pyarrow as pa_mod
+
+            if not key_set:
+                return table.slice(0, 0)
+
+            if len(key_cols) == 1:
+                key_col = key_cols[0]
+                value_set = pa_mod.array(
+                    list(key_set), type=table.schema.field(key_col).type
+                )
+                mask = pc.is_in(table.column(key_col), value_set=value_set)
+                return table.filter(mask)
+
+            key_list = [tuple(k) for k in key_set]
+            key_columns_values = list(zip(*key_list))
+            value_arrays = [
+                pa_mod.array(list(values), type=table.schema.field(col).type)
+                for col, values in zip(key_cols, key_columns_values)
+            ]
+            keys_table = pa_mod.table(value_arrays, names=key_cols)
+            return table.join(
+                keys_table,
+                keys=key_cols,
+                join_type="inner",
+                coalesce_keys=True,
+            )
+
+        # Existing dataset: plan incremental rewrite candidates using metadata.
+        source_partition_values: set[tuple[object, ...]] | None = None
+        if partition_cols:
+            source_partition_values = extract_source_partition_values(
+                source_table, partition_cols
+            )
+
+        rewrite_plan = plan_incremental_rewrite(
+            dataset_path=path,
+            source_keys=source_keys,
+            key_columns=key_cols,
+            filesystem=fs,
+            partition_columns=partition_cols or None,
+            source_partition_values=source_partition_values,
+        )
+
+        # Confirm actual affected files by scanning key columns.
+        affected_files = confirm_affected_files(
+            candidate_files=rewrite_plan.affected_files,
+            key_columns=key_cols,
+            source_keys=source_keys,
+            filesystem=fs,
+        )
+
+        # Compute per-file matched keys for accurate updates and insert determination.
+        matched_keys: set[object] = set()
+        matched_keys_by_file: dict[str, set[object]] = {}
+        for file_path in affected_files:
+            try:
+                key_table = pq.read_table(file_path, columns=key_cols, filesystem=fs)
+                if len(key_cols) == 1:
+                    file_keys = set(key_table.column(key_cols[0]).to_pylist())
+                else:
+                    file_keys = set(
+                        zip(*[key_table.column(c).to_pylist() for c in key_cols])
+                    )
+                file_matched = source_key_set & file_keys
+                if file_matched:
+                    matched_keys_by_file[file_path] = set(file_matched)
+                    matched_keys |= set(file_matched)
+            except Exception:
+                # Conservative: assume all source keys might be present.
+                matched_keys_by_file[file_path] = set(source_key_set)
+                matched_keys |= set(source_key_set)
+
+        inserted_key_set = source_key_set - matched_keys
+
+        if strategy == "insert":
+            preserved_files = list(target_files)
+
+            if not inserted_key_set:
+                return MergeResult(
+                    strategy="insert",
+                    source_count=source_table.num_rows,
+                    target_count_before=target_count_before,
+                    target_count_after=target_count_before,
+                    inserted=0,
+                    updated=0,
+                    deleted=0,
+                    files=[
+                        MergeFileMetadata(path=f, row_count=0, operation="preserved")
+                        for f in preserved_files
+                    ],
+                    rewritten_files=[],
+                    inserted_files=[],
+                    preserved_files=preserved_files,
+                )
+
+            insert_table = _select_rows_by_keys(source_table, set(inserted_key_set))
+            write_res = self.write_dataset(
+                insert_table,
+                path,
+                mode="append",
+                compression=compression,
+                max_rows_per_file=max_rows_per_file,
+                row_group_size=row_group_size,
+            )
+
+            inserted_files = [m.path for m in write_res.files]
+            inserted_meta = [
+                MergeFileMetadata(
+                    path=m.path,
+                    row_count=m.row_count,
+                    operation="inserted",
+                    size_bytes=m.size_bytes,
+                )
+                for m in write_res.files
+            ]
+
+            files_meta = [
+                MergeFileMetadata(path=f, row_count=0, operation="preserved")
+                for f in preserved_files
+            ] + inserted_meta
+
+            return MergeResult(
+                strategy="insert",
+                source_count=source_table.num_rows,
+                target_count_before=target_count_before,
+                target_count_after=target_count_before + insert_table.num_rows,
+                inserted=insert_table.num_rows,
+                updated=0,
+                deleted=0,
+                files=files_meta,
+                rewritten_files=[],
+                inserted_files=inserted_files,
+                preserved_files=preserved_files,
+            )
+
+        # UPDATE / UPSERT: rewrite only actually affected files.
+        file_manager = IncrementalFileManager()
+        staging_dir = file_manager.create_staging_directory(path, filesystem=fs)
+
+        rewritten_files: list[str] = []
+        rewritten_meta: list[MergeFileMetadata] = []
+
+        preserved_files = [f for f in target_files if f not in affected_files]
+
+        # Prepare a match marker for join-driven full-row replacement.
+        match_col_name = "__fsspeckit_match"
+        if match_col_name in source_table.column_names:
+            raise ValueError(f"Source contains reserved column: {match_col_name}")
+
+        import pyarrow as pa_mod
+
+        source_with_match = source_table.append_column(
+            match_col_name, pa_mod.array([True] * source_table.num_rows)
+        )
+
+        try:
+            for file_path in affected_files:
+                file_matched = matched_keys_by_file.get(file_path, set())
+                if not file_matched:
+                    preserved_files.append(file_path)
+                    continue
+
+                target_table = pq.read_table(file_path, filesystem=fs)
+                source_for_file = _select_rows_by_keys(
+                    source_with_match, set(file_matched)
+                )
+
+                joined = target_table.join(
+                    source_for_file,
+                    keys=key_cols,
+                    join_type="left outer",
+                    right_suffix="__src",
+                    coalesce_keys=True,
+                )
+
+                match_mask = pc.is_valid(joined.column(match_col_name))
+
+                if partition_cols:
+                    for col in partition_cols:
+                        if col in key_cols:
+                            continue
+                        src_name = f"{col}__src"
+                        if src_name not in joined.column_names:
+                            raise ValueError(
+                                f"Partition column '{col}' must be present in source for merge"
+                            )
+                        eq = pc.equal(joined.column(col), joined.column(src_name))
+                        neq = pc.invert(eq)
+                        violations = pc.and_(match_mask, pc.fill_null(neq, True))
+                        if pc.any(violations).as_py():
+                            raise ValueError(
+                                "Cannot merge: partition column values cannot change for existing keys"
+                            )
+
+                out_arrays = []
+                out_names = []
+                for col in target_table.column_names:
+                    if col in key_cols:
+                        out_arrays.append(joined.column(col))
+                        out_names.append(col)
+                        continue
+
+                    src_name = f"{col}__src"
+                    if src_name in joined.column_names:
+                        out_arrays.append(
+                            pc.if_else(
+                                match_mask, joined.column(src_name), joined.column(col)
+                            )
+                        )
+                    else:
+                        out_arrays.append(joined.column(col))
+                    out_names.append(col)
+
+                updated_table = pa_mod.table(out_arrays, names=out_names)
+
+                staging_file = f"{staging_dir}/{uuid.uuid4().hex[:16]}.parquet"
+                pq.write_table(
+                    updated_table,
+                    staging_file,
+                    filesystem=fs,
+                    compression=compression,
+                    row_group_size=row_group_size,
+                )
+
+                size_bytes = None
+                try:
+                    size_bytes = int(fs.size(staging_file))
+                except Exception:
+                    size_bytes = None
+
+                file_manager.atomic_replace_files(
+                    [staging_file], [file_path], filesystem=fs
+                )
+
+                rewritten_files.append(file_path)
+                rewritten_meta.append(
+                    MergeFileMetadata(
+                        path=file_path,
+                        row_count=updated_table.num_rows,
+                        operation="rewritten",
+                        size_bytes=size_bytes,
+                    )
+                )
+        finally:
+            file_manager.cleanup_staging_files(filesystem=fs)
+
+        inserted_files: list[str] = []
+        inserted_meta: list[MergeFileMetadata] = []
+        inserted_rows = 0
+
+        if strategy == "upsert" and inserted_key_set:
+            insert_table = _select_rows_by_keys(source_table, set(inserted_key_set))
+            inserted_rows = insert_table.num_rows
+            write_res = self.write_dataset(
+                insert_table,
+                path,
+                mode="append",
+                compression=compression,
+                max_rows_per_file=max_rows_per_file,
+                row_group_size=row_group_size,
+            )
+            inserted_files = [m.path for m in write_res.files]
+            inserted_meta = [
+                MergeFileMetadata(
+                    path=m.path,
+                    row_count=m.row_count,
+                    operation="inserted",
+                    size_bytes=m.size_bytes,
+                )
+                for m in write_res.files
+            ]
+
+        updated_rows = len(matched_keys)
+
+        files_meta = (
+            rewritten_meta
+            + inserted_meta
+            + [
+                MergeFileMetadata(path=f, row_count=0, operation="preserved")
+                for f in preserved_files
+            ]
+        )
+
+        return MergeResult(
+            strategy=strategy,
+            source_count=source_table.num_rows,
+            target_count_before=target_count_before,
+            target_count_after=target_count_before + inserted_rows,
+            inserted=inserted_rows,
+            updated=updated_rows if strategy != "insert" else 0,
+            deleted=0,
+            files=files_meta,
+            rewritten_files=rewritten_files,
+            inserted_files=inserted_files,
+            preserved_files=preserved_files,
+        )
 
     def _merge_with_sql(
         self,
@@ -675,6 +1264,7 @@ class DuckDBDatasetIO:
             MergeStats with operation results
         """
         import tempfile
+
         from fsspeckit.core.incremental import plan_incremental_rewrite
 
         conn = self._connection.connection
@@ -818,6 +1408,7 @@ class DuckDBDatasetIO:
     ) -> MergeStats:
         """Perform the actual incremental rewrite operation."""
         import tempfile
+
         from fsspeckit.core.incremental import IncrementalFileManager
 
         conn = self._connection.connection
@@ -826,7 +1417,7 @@ class DuckDBDatasetIO:
 
         try:
             # Create staging directory
-            staging_dir = file_manager.create_staging_directory(path)
+            staging_dir = file_manager.create_staging_directory(path, filesystem=fs)
 
             # Process each affected file
             updated_rows = 0
@@ -874,7 +1465,7 @@ class DuckDBDatasetIO:
                     fs.move(staging_file, affected_file)
 
             # Remove staging directory
-            file_manager.cleanup_staging_files()
+            file_manager.cleanup_staging_files(filesystem=fs)
 
             # Calculate final statistics
             target_count_before = sum(
@@ -894,7 +1485,7 @@ class DuckDBDatasetIO:
 
         except Exception:
             # Clean up on error
-            file_manager.cleanup_staging_files()
+            file_manager.cleanup_staging_files(filesystem=fs)
             raise
 
     def _read_parquet_file(self, file_path: str, filesystem: Any) -> pa.Table:
@@ -1053,14 +1644,9 @@ class DuckDBDatasetIO:
         if fs.exists(path) and fs.isdir(path):
             # Find and remove only parquet files
             for file_info in fs.find(path, withdirs=False):
-                print(f"DEBUG: Found file: {file_info}")
                 if file_info.endswith(".parquet"):
-                    print(f"DEBUG: Removing parquet file: {file_info}")
                     fs.rm(file_info)
-                else:
-                    print(f"DEBUG: Preserving non-parquet file: {file_info}")
-        else:
-            print(f"DEBUG: Path does not exist or is not a directory: {path}")
+        # If path doesn't exist or isn't a directory, nothing to clear.
 
     def merge_parquet_dataset(
         self,
@@ -1103,6 +1689,10 @@ class DuckDBDatasetIO:
             )
             ```
         """
+        raise NotImplementedError(
+            "DuckDBDatasetIO.merge_parquet_dataset() legacy API has been removed; "
+            "use merge(..., strategy=...) on a target dataset path instead."
+        )
         # Validate inputs using shared core logic
         validate_merge_inputs(
             sources=sources,
@@ -1351,6 +1941,11 @@ class DuckDBDatasetIO:
         Returns:
             Compaction statistics
         """
+        import uuid
+
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
         from fsspeckit.core.maintenance import MaintenanceStats, plan_compaction_groups
 
         # Collect stats
@@ -1367,26 +1962,24 @@ class DuckDBDatasetIO:
         groups = plan_result["groups"]
         planned_stats = plan_result["planned_stats"]
 
+        planned_stats.compression_codec = compression
+        planned_stats.dry_run = dry_run
+
         if dry_run:
             result = planned_stats.to_dict()
-            result["planned_groups"] = groups
+            result["planned_groups"] = plan_result["planned_groups"]
             return result
 
         # Execute compaction
         if not groups:
             return planned_stats.to_dict()
 
-        conn = self._connection.connection
+        fs = self._connection.filesystem
 
         for group in groups:
-            # Read all files in this group into DuckDB
-            tables = []
-            for file_info in group["files"]:
-                file_path = file_info["path"]
-                table = conn.execute(
-                    f"SELECT * FROM parquet_scan('{file_path}')"
-                ).fetch_arrow_table()
-                tables.append(table)
+            tables: list[pa.Table] = []
+            for file_info in group.files:
+                tables.append(pq.read_table(file_info.path, filesystem=fs))
 
             # Concatenate tables
             if len(tables) > 1:
@@ -1394,15 +1987,15 @@ class DuckDBDatasetIO:
             else:
                 combined = tables[0]
 
-            # Write to output
-            output_path = group["output_path"]
+            output_path = (
+                f"{path.rstrip('/')}/compacted-{uuid.uuid4().hex[:16]}.parquet"
+            )
             self.write_parquet(combined, output_path, compression=compression)
 
         # Remove original files
         for group in groups:
-            for file_info in group["files"]:
-                file_path = file_info["path"]
-                self._connection.filesystem.rm(file_path)
+            for file_info in group.files:
+                fs.rm(file_info.path)
 
         return planned_stats.to_dict()
 
@@ -1497,6 +2090,10 @@ class DuckDBDatasetIO:
             stats = io.insert_dataset(new_records, "/tmp/dataset/", key_columns=["id"])
             ```
         """
+        raise NotImplementedError(
+            "DuckDBDatasetIO.insert_dataset() legacy API has been removed; "
+            "use merge(..., strategy='insert', key_columns=...)."
+        )
         if not key_columns:
             raise ValueError("key_columns is required for insert_dataset")
 
@@ -1543,6 +2140,10 @@ class DuckDBDatasetIO:
             stats = io.upsert_dataset(updates, "/tmp/dataset/", key_columns=["id"])
             ```
         """
+        raise NotImplementedError(
+            "DuckDBDatasetIO.upsert_dataset() legacy API has been removed; "
+            "use merge(..., strategy='upsert', key_columns=...)."
+        )
         if not key_columns:
             raise ValueError("key_columns is required for upsert_dataset")
 
@@ -1589,6 +2190,10 @@ class DuckDBDatasetIO:
             stats = io.update_dataset(updates, "/tmp/dataset/", key_columns=["id"])
             ```
         """
+        raise NotImplementedError(
+            "DuckDBDatasetIO.update_dataset() legacy API has been removed; "
+            "use merge(..., strategy='update', key_columns=...)."
+        )
         if not key_columns:
             raise ValueError("key_columns is required for update_dataset")
 
@@ -1632,6 +2237,10 @@ class DuckDBDatasetIO:
             stats = io.deduplicate_dataset(data, "/tmp/dataset/", key_columns=["id"])
             ```
         """
+        raise NotImplementedError(
+            "DuckDBDatasetIO.deduplicate_dataset() legacy API has been removed; "
+            "write then deduplicate via deduplicate_parquet_dataset(...) if needed."
+        )
         return self.write_parquet_dataset(
             data=data,
             path=path,
