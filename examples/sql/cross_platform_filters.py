@@ -38,7 +38,15 @@ def create_standardized_dataset() -> Path:
 
     # Generate consistent test data
     records = []
-    products = ["Laptop", "Mouse", "Keyboard", "Monitor", "Headphones", "Webcam", "USB Hub"]
+    products = [
+        "Laptop",
+        "Mouse",
+        "Keyboard",
+        "Monitor",
+        "Headphones",
+        "Webcam",
+        "USB Hub",
+    ]
     regions = ["North", "South", "East", "West", "Central"]
     categories = ["Electronics", "Accessories", "Peripherals"]
 
@@ -53,8 +61,12 @@ def create_standardized_dataset() -> Path:
             "discount_percent": round(random.uniform(0.0, 30.0), 1),
             "in_stock": random.choice([True, False]),
             "rating": round(random.uniform(1.0, 5.0), 1),
-            "sale_date": (datetime(2024, 1, 1) + timedelta(days=random.randint(0, 365))).strftime("%Y-%m-%d"),
-            "last_updated": (datetime(2024, 6, 1) + timedelta(days=random.randint(0, 180))).strftime("%Y-%m-%d")
+            "sale_date": (
+                datetime(2024, 1, 1) + timedelta(days=random.randint(0, 365))
+            ).strftime("%Y-%m-%d"),
+            "last_updated": (
+                datetime(2024, 6, 1) + timedelta(days=random.randint(0, 180))
+            ).strftime("%Y-%m-%d"),
         }
         records.append(record)
 
@@ -66,22 +78,27 @@ def create_standardized_dataset() -> Path:
     dataset_path.mkdir(parents=True, exist_ok=True)
 
     # Write as partitioned dataset
-    ds.write_dataset(data, dataset_path, format="parquet", partitioning=["region", "category"])
+    ds.write_dataset(
+        data, dataset_path, format="parquet", partitioning=["region", "category"]
+    )
 
     print(f"Created dataset with {len(records)} records at: {dataset_path}")
     return dataset_path
 
 
-def test_pyarrow_filters(dataset_path: Path, sql_filters: dict[str, str]) -> dict[str, pa.Table]:
+def test_pyarrow_filters(
+    dataset_path: Path, sql_filters: dict[str, str]
+) -> dict[str, pa.Table]:
     """Test SQL filters with PyArrow backend."""
 
     print("\n🔹 Testing PyArrow Backend")
     dataset = ds.dataset(dataset_path, format="parquet")
+    schema = dataset.schema
     results = {}
 
     for filter_name, sql_filter in sql_filters.items():
         try:
-            pyarrow_filter = sql2pyarrow_filter(sql_filter)
+            pyarrow_filter = sql2pyarrow_filter(sql_filter, schema)
             filtered_table = dataset.to_table(filter=pyarrow_filter)
             results[filter_name] = filtered_table
             print(f"   ✅ {filter_name}: {len(filtered_table)} rows")
@@ -92,16 +109,19 @@ def test_pyarrow_filters(dataset_path: Path, sql_filters: dict[str, str]) -> dic
     return results
 
 
-def test_polars_filters(dataset_path: Path, sql_filters: dict[str, str]) -> dict[str, pl.DataFrame]:
+def test_polars_filters(
+    dataset_path: Path, sql_filters: dict[str, str]
+) -> dict[str, pl.DataFrame]:
     """Test SQL filters with Polars backend."""
 
     print("\n🔹 Testing Polars Backend")
     df = pl.read_parquet(dataset_path, glob="**/*.parquet")
+    schema = df.schema
     results = {}
 
     for filter_name, sql_filter in sql_filters.items():
         try:
-            polars_filter = sql2polars_filter(sql_filter)
+            polars_filter = sql2polars_filter(sql_filter, schema)
             filtered_df = df.filter(polars_filter)
             results[filter_name] = filtered_df
             print(f"   ✅ {filter_name}: {len(filtered_df)} rows")
@@ -112,7 +132,9 @@ def test_polars_filters(dataset_path: Path, sql_filters: dict[str, str]) -> dict
     return results
 
 
-def test_duckdb_filters(dataset_path: Path, sql_filters: dict[str, str]) -> dict[str, pa.Table]:
+def test_duckdb_filters(
+    dataset_path: Path, sql_filters: dict[str, str]
+) -> dict[str, pa.Table]:
     """Test SQL filters with DuckDB backend."""
 
     print("\n🔹 Testing DuckDB Backend")
@@ -145,7 +167,7 @@ def compare_results_across_backends(
     pyarrow_results: dict[str, pa.Table],
     polars_results: dict[str, pl.DataFrame],
     duckdb_results: dict[str, pa.Table],
-    sql_filters: dict[str, str]
+    sql_filters: dict[str, str],
 ):
     """Compare results across different backends."""
 
@@ -171,7 +193,8 @@ def compare_results_across_backends(
 
         # Check consistency (exclude error cases)
         valid_counts = [
-            count for count in [pyarrow_count, polars_count, duckdb_count]
+            count
+            for count in [pyarrow_count, polars_count, duckdb_count]
             if isinstance(count, int)
         ]
 
@@ -190,33 +213,33 @@ def demonstrate_platform_specific_features():
         {
             "name": "String pattern matching",
             "sql": "product_name LIKE '%Laptop%'",
-            "notes": "Basic LIKE should work everywhere"
+            "notes": "Basic LIKE should work everywhere",
         },
         {
             "name": "Case-insensitive search",
             "sql": "LOWER(product_name) LIKE 'laptop'",
-            "notes": "Function support varies by platform"
+            "notes": "Function support varies by platform",
         },
         {
             "name": "Complex mathematical expression",
             "sql": "(price * quantity * (1 - discount_percent/100)) > 500",
-            "notes": "Mathematical operations in conditions"
+            "notes": "Mathematical operations in conditions",
         },
         {
             "name": "Date functions",
             "sql": "sale_date >= '2024-06-01'",
-            "notes": "Date comparison support"
+            "notes": "Date comparison support",
         },
         {
             "name": "Multiple OR conditions",
             "sql": "category = 'Electronics' OR category = 'Peripherals'",
-            "notes": "OR logic performance varies"
+            "notes": "OR logic performance varies",
         },
         {
             "name": "IN clause with many values",
             "sql": "region IN ('North', 'South', 'East', 'West', 'Central')",
-            "notes": "IN vs OR performance differences"
-        }
+            "notes": "IN vs OR performance differences",
+        },
     ]
 
     print("\nTest Cases for Platform Comparison:")
@@ -238,8 +261,8 @@ def provide_cross_platform_best_practices():
                 "Use standard SQL syntax that works across platforms",
                 "Avoid platform-specific functions when possible",
                 "Test complex filters on all target backends",
-                "Use explicit column names instead of * in production"
-            ]
+                "Use explicit column names instead of * in production",
+            ],
         },
         {
             "category": "Performance",
@@ -247,8 +270,8 @@ def provide_cross_platform_best_practices():
                 "Profile performance on each backend with realistic data",
                 "Consider partition pruning in filter design",
                 "Use the most selective conditions first",
-                "Benchmark IN vs OR for your specific use case"
-            ]
+                "Benchmark IN vs OR for your specific use case",
+            ],
         },
         {
             "category": "Compatibility",
@@ -256,8 +279,8 @@ def provide_cross_platform_best_practices():
                 "Have fallback strategies for unsupported features",
                 "Consider using the lowest common denominator for complex queries",
                 "Test edge cases (NULL values, empty strings, etc.)",
-                "Document any platform-specific limitations"
-            ]
+                "Document any platform-specific limitations",
+            ],
         },
         {
             "category": "Maintenance",
@@ -265,14 +288,14 @@ def provide_cross_platform_best_practices():
                 "Store SQL filters separately from application code",
                 "Create automated tests for critical filters",
                 "Monitor backend compatibility when updating libraries",
-                "Consider abstraction layers for complex logic"
-            ]
-        }
+                "Consider abstraction layers for complex logic",
+            ],
+        },
     ]
 
     for practice in practices:
         print(f"\n{practice['category']}:")
-        for tip in practice['tips']:
+        for tip in practice["tips"]:
             print(f"   • {tip}")
 
 
@@ -293,7 +316,7 @@ def main():
             "Recent Sales": "sale_date >= '2024-06-01'",
             "Discounted Items": "discount_percent > 10",
             "North Region Sales": "region = 'North' AND quantity > 20",
-            "Multi-Region High Rating": "rating >= 4.0 AND region IN ('North', 'South', 'East')"
+            "Multi-Region High Rating": "rating >= 4.0 AND region IN ('North', 'South', 'East')",
         }
 
         # Test filters across all backends
@@ -302,7 +325,9 @@ def main():
         duckdb_results = test_duckdb_filters(dataset_path, sql_filters)
 
         # Compare results
-        compare_results_across_backends(pyarrow_results, polars_results, duckdb_results, sql_filters)
+        compare_results_across_backends(
+            pyarrow_results, polars_results, duckdb_results, sql_filters
+        )
 
         # Demonstrate platform differences
         demonstrate_platform_specific_features()
@@ -320,6 +345,7 @@ def main():
     finally:
         # Cleanup
         import shutil
+
         shutil.rmtree(dataset_path.parent)
         print(f"\n🧹 Cleaned up temporary directory")
 

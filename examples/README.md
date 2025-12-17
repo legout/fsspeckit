@@ -1,14 +1,12 @@
 # fsspeckit Examples
 
-Welcome to the fsspeckit examples repository! This comprehensive collection demonstrates the full power and capabilities of the fsspeckit ecosystem through practical, real-world examples.
+Welcome to the fsspeckit examples! This collection demonstrates the core capabilities of the fsspeckit ecosystem through practical, runnable examples that work offline without requiring credentials.
 
 ## 🎯 Overview
 
-fsspeckit is a modular Python ecosystem for data processing that provides powerful tools for working with datasets, SQL operations, common utilities, and cloud storage options. These examples are designed to help you master fsspeckit through hands-on learning, from basic concepts to enterprise-grade production deployments.
+fsspeckit is a modular Python ecosystem for data processing that provides powerful tools for working with datasets, SQL operations, common utilities, and cloud storage options. These examples are designed to help you learn fsspeckit through hands-on practice.
 
 ## 📚 Learning Path
-
-The examples are organized into a progressive learning path that takes you from beginner to expert:
 
 ### 🟢 Getting Started (Beginner)
 *Perfect for newcomers to fsspeckit*
@@ -18,6 +16,7 @@ The examples are organized into a progressive learning path that takes you from 
 1. **DuckDB Basics** - Learn database-style operations with parquet files
 2. **PyArrow Basics** - Master in-memory columnar data processing
 3. **Simple Merges** - Understand dataset combination techniques
+4. **PyArrow Merges** - Advanced merge operations with PyArrow
 
 **Time:** 1-2 hours | **Prerequisites:** Basic Python knowledge
 
@@ -27,8 +26,7 @@ The examples are organized into a progressive learning path that takes you from 
 *Develop practical data processing skills*
 
 **Location:** `datasets/workflows/`
-
-1. **Cloud Datasets** - Work with S3, Azure, and Google Cloud Storage
+1. **Cloud Datasets** - Work with S3, Azure, and Google Cloud Storage (works offline)
 2. **Performance Optimization** - Learn memory management and parallel processing
 
 **Location:** `sql/`
@@ -46,86 +44,37 @@ The examples are organized into a progressive learning path that takes you from 
 2. **Parallel Processing** - Multi-core data processing patterns
 3. **Type Conversion** - Format conversion between data libraries
 
-**Time:** 8-12 hours | **Prerequisites:** Getting Started completion
+**Time:** 6-8 hours | **Prerequisites:** Getting Started completion
 
 ---
 
-### 🔴 Advanced (Expert Skills)
-*Master enterprise-grade data processing*
+### 🔧 Functional Examples
 
-**Location:** `datasets/advanced/`
+**Location:** `batch_processing/`
+- Large-scale batch data processing patterns
 
-1. **Real-Time Analytics** - Stream processing and sliding window analytics
-2. **Large-Scale Processing** - Distributed processing for big data
-3. **Multi-Cloud Operations** - Cross-cloud replication and disaster recovery
+**Location:** `caching/`
+- Efficient data caching strategies
 
-**Time:** 10-15 hours | **Prerequisites:** All intermediate examples
+**Location:** `dir_file_system/`
+- Directory and filesystem operations
 
----
+**Location:** `read_folder/`
+- Folder reading and data ingestion patterns
 
-### 🚀 Cross-Domain Integration (Production Ready)
-*Build complete, enterprise-grade solutions*
-
-**Location:** `cross_domain/`
-
-1. **End-to-End Pipeline** - Complete data pipeline orchestration
-2. **Production Patterns** - Deployment, monitoring, and operational excellence
-
-**Time:** 8-12 hours | **Prerequisites:** All advanced examples
-
-## 🏗️ Package Integration
-
-### Core Packages
-
-| Package | Purpose | Key Features | Examples |
-|---------|---------|--------------|----------|
-| **datasets** | Core data processing | DuckDB integration, PyArrow optimization, schema management | All examples |
-| **sql** | SQL operations | Query optimization, cross-platform filters, validation | sql/ directory |
-| **common** | Shared utilities | Parallel processing, logging, type conversion | common/ directory |
-| **storage_options** | Cloud storage | Multi-cloud support, authentication, cost optimization | workflows/cloud_datasets.py |
-
-### Integration Patterns
-
-```python
-# Pattern 1: Data Processing + SQL
-from fsspeckit.datasets import DuckDBParquetHandler
-from fsspeckit.sql import optimize_sql_query
-
-# Optimize queries for better performance
-query = optimize_sql_query("SELECT * FROM data WHERE category = 'A'")
-with DuckDBParquetHandler() as handler:
-    result = handler.execute_sql(query)
-```
-
-```python
-# Pattern 2: Cloud + Performance
-from fsspeckit.datasets import optimize_parquet_dataset_pyarrow
-from fsspeckit.storage_options import AwsStorageOptions
-
-# Optimize cloud data for fast queries
-optimize_parquet_dataset_pyarrow(
-    "s3://bucket/data/",
-    zorder_columns=["date", "region"],
-    target_file_size_mb=128
-)
-```
+**Location:** `storage_options/`
+- Cloud storage configuration (graceful offline operation)
 
 ## 🚀 Quick Start
 
 ### Installation
 
 ```bash
-# Install core packages
+# Install fsspeckit with core packages
 pip install fsspeckit[datasets,sql,common,storage_options]
 
-# Install additional dependencies
+# Install basic dependencies for examples
 pip install pyarrow duckdb pandas polars
-
-# For cloud operations
-pip install boto3 azure-storage-blob google-cloud-storage
-
-# For production monitoring
-pip install prometheus-client structlog
 ```
 
 ### Your First Example
@@ -153,26 +102,23 @@ with DuckDBParquetHandler() as handler:
 
 **☁️ For Cloud Architects:** Jump to `datasets/workflows/cloud_datasets.py`
 
-**🏭 For Production Teams:** Explore `cross_domain/production_patterns.py`
+**🔧 For Application Developers:** Explore `common/` and `batch_processing/`
 
-## 📊 Example Categories
-
-### 📁 Directory Structure
+## 📁 Directory Structure
 
 ```
 examples/
 ├── README.md                    # This file - main guide
-├── requirements.txt             # All example dependencies
+├── requirements.txt             # Minimal example dependencies
 │
 ├── datasets/                    # Core data processing examples
-│   ├── getting_started/         # Beginner tutorials (3 examples)
+│   ├── getting_started/         # Beginner tutorials (4 examples)
 │   │   ├── 01_duckdb_basics.py
 │   │   ├── 02_pyarrow_basics.py
 │   │   ├── 03_simple_merges.py
 │   │   └── 04_pyarrow_merges.py
 │   ├── workflows/               # Intermediate workflows (2 examples)
-│   ├── schema/                  # Schema management (3 examples)
-│   └── advanced/                # Advanced processing (3 examples)
+│   └── schema/                  # Schema management (3 examples)
 │
 ├── sql/                         # SQL operations (3 examples)
 │   ├── sql_filter_basic.py
@@ -184,38 +130,12 @@ examples/
 │   ├── parallel_processing.py
 │   └── type_conversion.py
 │
-└── cross_domain/                # Production integrations (2 examples)
-    ├── end_to_end_pipeline.py
-    ├── production_patterns.py
-    └── README.md
+├── batch_processing/            # Batch processing patterns (3 examples)
+├── caching/                     # Caching strategies (3 examples)
+├── dir_file_system/             # Filesystem operations (3 examples)
+├── read_folder/                 # Data ingestion patterns (3 examples)
+└── storage_options/             # Cloud storage config (3 examples)
 ```
-
-## 🎯 Learning by Use Case
-
-### **Data Analysis & BI**
-- Start with: `datasets/getting_started/`
-- Focus on: DuckDB operations, SQL queries, data filtering
-- Goal: Interactive data exploration and reporting
-
-### **Big Data Processing**
-- Start with: `datasets/advanced/large_scale_processing.py`
-- Focus on: Parallel processing, memory management, optimization
-- Goal: Process terabyte-scale datasets efficiently
-
-### **Cloud Data Engineering**
-- Start with: `datasets/workflows/cloud_datasets.py`
-- Focus on: Multi-cloud operations, cost optimization, security
-- Goal: Build cloud-native data pipelines
-
-### **Real-Time Analytics**
-- Start with: `datasets/advanced/real_time_analytics.py`
-- Focus on: Stream processing, windowing, monitoring
-- Goal: Build real-time dashboards and alerting
-
-### **Production Deployment**
-- Start with: `cross_domain/production_patterns.py`
-- Focus on: Docker, Kubernetes, monitoring, security
-- Goal: Deploy reliable, scalable production systems
 
 ## 💡 Best Practices
 
@@ -271,32 +191,6 @@ examples/
    results = run_parallel(process_data, data_chunks, max_workers=4)
    ```
 
-### 🏭 Production Best Practices
-
-1. **Configuration Management**
-   ```python
-   # Use environment-specific configurations
-   config = load_config(environment="production")
-   ```
-
-2. **Comprehensive Logging**
-   ```python
-   # Use structured logging for debugging
-   logger = setup_structured_logging("my_app", include_timestamp=True)
-   logger.info("Processing complete", extra={"record_count": len(result)})
-   ```
-
-3. **Error Handling**
-   ```python
-   # Implement retry logic for resilience
-   from fsspeckit.common import retry_with_backoff
-
-   @retry_with_backoff(max_retries=3)
-   def process_data(data):
-       # Your processing logic
-       pass
-   ```
-
 ## 🛠️ Environment Setup
 
 ### Development Environment
@@ -314,48 +208,42 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### IDE Configuration
+### Running Examples
 
-**VSCode:**
-```json
-{
-    "python.defaultInterpreterPath": "./venv/bin/python",
-    "python.linting.enabled": true,
-    "python.formatting.provider": "black"
-}
+```bash
+# Run a specific example
+python datasets/getting_started/01_duckdb_basics.py
+
+# Run all examples
+python run_examples.py
+
+# Test examples
+python test_examples.py
 ```
-
-**PyCharm:**
-- Set Python interpreter to `./venv/bin/python`
-- Enable code completion and type checking
-- Configure run configurations for examples
 
 ## 🧪 Testing
 
 ### Running Tests
 
 ```bash
-# Run all example tests
-python -m pytest tests/ -v
+# Run example tests
+python -m pytest test_examples.py -v
 
 # Run specific category tests
-python -m pytest tests/test_datasets.py -v
-python -m pytest tests/test_sql.py -v
-
-# Run with coverage
-python -m pytest tests/ --cov=fsspeckit --cov-report=html
+python -m pytest test_examples.py::test_datasets -v
 ```
 
 ### Test Data
 
-Many examples include sample data generation. For examples requiring external data:
+Examples include built-in sample data generation and use local test files:
 
 ```bash
-# Download test datasets (optional)
-python scripts/download_test_data.py
+# Use built-in sample data generation
+python datasets/getting_started/01_duckdb_basics.py
 
-# Or use built-in sample data generation
-python datasets/getting_started/01_duckdb_basics.py --generate-sample
+# Examples work offline with included test data
+ls local:/          # Sample parquet files
+ls temp_multicloud_data/  # Multi-cloud test data
 ```
 
 ## 📈 Performance Benchmarks
@@ -366,41 +254,11 @@ python datasets/getting_started/01_duckdb_basics.py --generate-sample
 |-----------|--------------|------|--------|-------|
 | Basic SQL Query | 1M rows | <1s | <100MB | DuckDB optimized |
 | Parallel Processing | 10M rows | 5-10s | 1-2GB | 4-core parallel |
-| Cloud Upload | 100MB | 10-30s | 50MB | Varies by provider |
-| Large-Scale Processing | 100M rows | 2-5min | 8-16GB | With optimization |
-
-### Benchmarking Examples
-
-```python
-# Benchmark your own operations
-import time
-import psutil
-
-def benchmark_operation(operation, *args):
-    start_time = time.time()
-    start_memory = psutil.Process().memory_info().rss
-
-    result = operation(*args)
-
-    end_time = time.time()
-    end_memory = psutil.Process().memory_info().rss
-
-    return {
-        "result": result,
-        "duration": end_time - start_time,
-        "memory_delta": end_memory - start_memory
-    }
-```
+| Schema Optimization | 100M rows | 2-5min | 8-16GB | With optimization |
 
 ## 🔍 Troubleshooting
 
 ### Common Issues
-
-**Memory Errors:**
-```python
-# Reduce batch size or use streaming
-handler = DuckDBParquetHandler(memory_limit="2GB")
-```
 
 **Import Errors:**
 ```bash
@@ -414,21 +272,26 @@ pip install fsspeckit[datasets,sql,common,storage_options]
 optimized_query = optimize_sql_query(query)
 ```
 
+**Memory Errors:**
+```python
+# Reduce batch size or use streaming
+handler = DuckDBParquetHandler(memory_limit="2GB")
+```
+
 ### Getting Help
 
 - **Documentation**: [Complete API Reference](https://fsspeckit.readthedocs.io/)
 - **Examples**: This repository and inline code comments
 - **Community**: [GitHub Discussions](https://github.com/your-org/fsspeckit/discussions)
 - **Issues**: [GitHub Issues](https://github.com/your-org/fsspeckit/issues)
-- **Support**: Commercial support available for enterprise deployments
 
 ## 🤝 Contributing
 
-We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+We welcome contributions! Please see our [Contributing Guide](../CONTRIBUTING.md) for details.
 
 ### Adding Examples
 
-1. **Choose the right category** (getting_started, workflows, advanced, etc.)
+1. **Choose the right category** (getting_started, workflows, etc.)
 2. **Follow the template** in existing examples
 3. **Include comprehensive documentation**
 4. **Add tests** for your example
@@ -475,7 +338,6 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](../LIC
 
 - **PyArrow Team** - For the amazing columnar data processing library
 - **DuckDB Team** - For the fast analytical database
-- **Cloud Providers** - For robust storage and compute services
 - **Community Contributors** - For feedback, suggestions, and contributions
 
 ---
@@ -485,9 +347,9 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](../LIC
 Ready to master fsspeckit? Choose your starting point:
 
 - 🟢 **New to fsspeckit?** Start with `datasets/getting_started/01_duckdb_basics.py`
-- 🔄 **DuckDB Merge Operations?** See `duckdb/duckdb_merge_example.py` for comprehensive merge strategies
+- 🔄 **DuckDB Merge Operations?** See `datasets/getting_started/03_simple_merges.py`
 - 🚀 **Have experience?** Jump to `datasets/workflows/performance_optimization.py`
-- 🏭 **Production ready?** Explore `cross_domain/production_patterns.py`
+- 🏭 **Production ready?** Explore `common/parallel_processing.py`
 - 📚 **Want to learn everything?** Follow the complete learning path above
 
 Happy coding! 🚀

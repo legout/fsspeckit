@@ -18,6 +18,7 @@ dataset capabilities with DuckDB for high-performance data operations.
 from __future__ import annotations
 
 import tempfile
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -33,22 +34,80 @@ def create_sample_sales_data() -> pa.Table:
 
     # Sample sales records
     sales_data = [
-        {"order_id": 1001, "customer": "Alice", "product": "Laptop", "quantity": 1, "price": 999.99, "date": "2024-01-15"},
-        {"order_id": 1002, "customer": "Bob", "product": "Mouse", "quantity": 2, "price": 25.50, "date": "2024-01-16"},
-        {"order_id": 1003, "customer": "Charlie", "product": "Keyboard", "quantity": 1, "price": 79.99, "date": "2024-01-17"},
-        {"order_id": 1004, "customer": "Diana", "product": "Monitor", "quantity": 1, "price": 299.99, "date": "2024-01-18"},
-        {"order_id": 1005, "customer": "Eve", "product": "Headphones", "quantity": 1, "price": 149.99, "date": "2024-01-19"},
-        {"order_id": 1006, "customer": "Frank", "product": "Webcam", "quantity": 1, "price": 89.99, "date": "2024-01-20"},
-        {"order_id": 1007, "customer": "Grace", "product": "USB Hub", "quantity": 3, "price": 15.99, "date": "2024-01-21"},
-        {"order_id": 1008, "customer": "Henry", "product": "External SSD", "quantity": 1, "price": 129.99, "date": "2024-01-22"}
+        {
+            "order_id": 1001,
+            "customer": "Alice",
+            "product": "Laptop",
+            "quantity": 1,
+            "price": 999.99,
+            "date": "2024-01-15",
+        },
+        {
+            "order_id": 1002,
+            "customer": "Bob",
+            "product": "Mouse",
+            "quantity": 2,
+            "price": 25.50,
+            "date": "2024-01-16",
+        },
+        {
+            "order_id": 1003,
+            "customer": "Charlie",
+            "product": "Keyboard",
+            "quantity": 1,
+            "price": 79.99,
+            "date": "2024-01-17",
+        },
+        {
+            "order_id": 1004,
+            "customer": "Diana",
+            "product": "Monitor",
+            "quantity": 1,
+            "price": 299.99,
+            "date": "2024-01-18",
+        },
+        {
+            "order_id": 1005,
+            "customer": "Eve",
+            "product": "Headphones",
+            "quantity": 1,
+            "price": 149.99,
+            "date": "2024-01-19",
+        },
+        {
+            "order_id": 1006,
+            "customer": "Frank",
+            "product": "Webcam",
+            "quantity": 1,
+            "price": 89.99,
+            "date": "2024-01-20",
+        },
+        {
+            "order_id": 1007,
+            "customer": "Grace",
+            "product": "USB Hub",
+            "quantity": 3,
+            "price": 15.99,
+            "date": "2024-01-21",
+        },
+        {
+            "order_id": 1008,
+            "customer": "Henry",
+            "product": "External SSD",
+            "quantity": 1,
+            "price": 129.99,
+            "date": "2024-01-22",
+        },
     ]
 
     # Convert to PyArrow table
-    table = pa.table(sales_data)
+    table = pa.Table.from_pylist(sales_data)
 
     # Add calculated column
     total_values = [record["quantity"] * record["price"] for record in sales_data]
-    table = table.append_column("total", pa.array(total_values, type=pa.float64()))
+    table = table.add_column(
+        len(table.schema), "total", pa.array(total_values, type=pa.float64())
+    )
 
     print(f"Created {len(table)} sales records")
     return table
@@ -89,7 +148,9 @@ def demonstrate_basic_duckdb_usage():
             if original_count == read_count:
                 print(f"✅ Data integrity verified: {original_count} records")
             else:
-                print(f"❌ Data integrity issue: {original_count} -> {read_count} records")
+                print(
+                    f"❌ Data integrity issue: {original_count} -> {read_count} records"
+                )
 
     except Exception as e:
         print(f"❌ Error: {e}")
@@ -98,6 +159,7 @@ def demonstrate_basic_duckdb_usage():
     finally:
         # Cleanup
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -115,44 +177,43 @@ def demonstrate_sql_queries():
         with DuckDBParquetHandler() as handler:
             handler.write_parquet(sales_data, str(data_file))
 
-            # Register the parquet file as a table
-            handler.register_dataset("sales", str(data_file))
-
             print("📊 Running SQL queries on sales data:")
 
-            # Query 1: Basic SELECT
+            # Query 1: Basic SELECT using direct file access
             print("\n1. All sales records:")
-            result1 = handler.execute_sql("SELECT * FROM sales ORDER BY order_id")
-            print(result1.to_pandas())
+            result1 = handler.execute_sql(
+                f"SELECT * FROM read_parquet('{data_file}') ORDER BY order_id"
+            )
+            print(result1.fetchdf().to_string())
 
             # Query 2: Filter with WHERE clause
             print("\n2. High-value orders (total > $200):")
-            result2 = handler.execute_sql("""
+            result2 = handler.execute_sql(f"""
                 SELECT order_id, customer, product, total
-                FROM sales
+                FROM read_parquet('{data_file}')
                 WHERE total > 200
                 ORDER BY total DESC
             """)
-            print(result2.to_pandas())
+            print(result2.fetchdf().to_string())
 
             # Query 3: Aggregate functions
             print("\n3. Sales summary by customer:")
-            result3 = handler.execute_sql("""
+            result3 = handler.execute_sql(f"""
                 SELECT
                     customer,
                     COUNT(*) as order_count,
                     SUM(quantity) as total_quantity,
                     SUM(total) as total_sales,
                     AVG(total) as avg_order_value
-                FROM sales
+                FROM read_parquet('{data_file}')
                 GROUP BY customer
                 ORDER BY total_sales DESC
             """)
-            print(result3.to_pandas())
+            print(result3.fetchdf().to_string())
 
             # Query 4: Calculated fields
             print("\n4. Orders with tax calculation (10% tax):")
-            result4 = handler.execute_sql("""
+            result4 = handler.execute_sql(f"""
                 SELECT
                     order_id,
                     product,
@@ -160,10 +221,10 @@ def demonstrate_sql_queries():
                     quantity,
                     total,
                     total * 1.10 as total_with_tax
-                FROM sales
+                FROM read_parquet('{data_file}')
                 ORDER BY total_with_tax DESC
             """)
-            print(result4.to_pandas())
+            print(result4.fetchdf().to_string())
 
     except Exception as e:
         print(f"❌ Error: {e}")
@@ -172,6 +233,7 @@ def demonstrate_sql_queries():
     finally:
         # Cleanup
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -211,6 +273,7 @@ def demonstrate_context_manager():
     finally:
         # Cleanup
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -238,10 +301,11 @@ def demonstrate_error_handling():
                 # Write data first
                 data_file = temp_dir / "test.parquet"
                 handler.write_parquet(sales_data, str(data_file))
-                handler.register_dataset("test_table", str(data_file))
 
                 # Try invalid SQL
-                invalid_result = handler.execute_sql("SELECT FROM WHERE INVALID")
+                invalid_result = handler.execute_sql(
+                    f"SELECT FROM read_parquet('{data_file}') WHERE INVALID"
+                )
         except Exception as e:
             print(f"   ✅ Caught SQL error: {type(e).__name__}")
 
@@ -249,20 +313,26 @@ def demonstrate_error_handling():
         print("\n3. Validating data before writing:")
         try:
             # Create data with potential issues
-            problematic_data = pa.table({
-                "id": pa.array([1, 2, 3, 4, 5]),
-                "name": pa.array(["Alice", "Bob", None, "Diana", "Eve"]),  # Has null
-                "value": pa.array([10.5, 20.3, None, 40.1, 50.9])  # Has null
-            })
+            problematic_data = pa.Table.from_pydict(
+                {
+                    "id": pa.array([1, 2, 3, 4, 5]),
+                    "name": pa.array(
+                        ["Alice", "Bob", None, "Diana", "Eve"]
+                    ),  # Has null
+                    "value": pa.array([10.5, 20.3, None, 40.1, 50.9]),  # Has null
+                }
+            )
 
             with DuckDBParquetHandler() as handler:
                 # Validate before writing
-                null_check = problematic_data.null_count
-                total_nulls = sum(null_check.values())
+                null_counts = [col.null_count for col in problematic_data.itercolumns()]
+                total_nulls = sum(null_counts)
 
                 if total_nulls > 0:
                     print(f"   ⚠️  Data contains {total_nulls} null values")
-                    print(f"   Null counts by column: {dict(null_check)}")
+                    print(
+                        f"   Null counts by column: {dict(zip(problematic_data.schema.names, null_counts))}"
+                    )
 
                 # Write anyway (just to show it works)
                 data_file = temp_dir / "problematic.parquet"
@@ -279,6 +349,7 @@ def demonstrate_error_handling():
     finally:
         # Cleanup
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -295,7 +366,7 @@ def demonstrate_basic_performance_tips():
         large_data = create_sample_sales_data()
 
         # Replicate data to make it larger
-        larger_data = pa.concat_tables([large_data] * 100)  # 800 records
+        larger_data = pa.concat_tables([large_data] * 50)  # 400 records
 
         print(f"Created dataset with {len(larger_data)} records")
 
@@ -316,43 +387,31 @@ def demonstrate_basic_performance_tips():
         start_time = time.time()
 
         with DuckDBParquetHandler() as handler:
-            # Register once, use multiple times
-            handler.register_dataset("sales", str(data_file))
-
-            # Multiple queries on the same registered dataset
-            summary = handler.execute_sql("""
+            # Multiple queries on the same dataset using direct file access
+            summary_result = handler.execute_sql(f"""
                 SELECT COUNT(*) as total_records,
                        SUM(total) as total_sales,
                        AVG(total) as avg_sale
-                FROM sales
-            """)
+                FROM read_parquet('{data_file}')
+            """).fetchdf()
 
-            top_customers = handler.execute_sql("""
-                SELECT customer, SUM(total) as customer_total
-                FROM sales
-                GROUP BY customer
-                ORDER BY customer_total DESC
-                LIMIT 3
-            """)
+            query_time = time.time() - start_time
 
-        query_time = time.time() - start_time
         print(f"   Query time: {query_time:.3f} seconds")
-        print(f"   Summary: {summary.to_pandas()}")
-        print(f"   Top customers: {top_customers.to_pandas()}")
+        print(f"   Summary:")
+        print(summary_result.to_string())
 
         # Tip 3: Use specific column selection instead of SELECT *
         print("\n💡 Tip 3: Select only needed columns")
         start_time = time.time()
 
         with DuckDBParquetHandler() as handler:
-            handler.register_dataset("sales", str(data_file))
-
             # Good: Specific columns
-            specific_result = handler.execute_sql("""
+            specific_result = handler.execute_sql(f"""
                 SELECT customer, total
-                FROM sales
+                FROM read_parquet('{data_file}')
                 WHERE total > 100
-            """)
+            """).fetchdf()
 
             # Bad: All columns (commented out to avoid unnecessary processing)
             # all_result = handler.execute_sql("SELECT * FROM sales WHERE total > 100")
@@ -368,6 +427,7 @@ def demonstrate_basic_performance_tips():
     finally:
         # Cleanup
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -403,4 +463,5 @@ def main():
 
 if __name__ == "__main__":
     import time
+
     main()

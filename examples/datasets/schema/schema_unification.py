@@ -39,13 +39,21 @@ def create_multiple_datasets_with_varying_schemas() -> list[Path]:
     dataset_paths = []
 
     # Dataset 1: Sales data (Version 1)
-    sales_v1 = pa.table({
-        "sale_id": pa.array([101, 102, 103, 104, 105]),
-        "customer_name": pa.array(["Alice Corp", "Bob Inc", "Charlie Ltd", "Diana Co", "Eve LLC"]),
-        "product": pa.array(["Laptop", "Mouse", "Keyboard", "Monitor", "Headphones"]),
-        "amount": pa.array([1200.50, 25.99, 89.99, 450.00, 125.50]),
-        "date": pa.array(["2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19"])
-    })
+    sales_v1 = pa.table(
+        {
+            "sale_id": pa.array([101, 102, 103, 104, 105]),
+            "customer_name": pa.array(
+                ["Alice Corp", "Bob Inc", "Charlie Ltd", "Diana Co", "Eve LLC"]
+            ),
+            "product": pa.array(
+                ["Laptop", "Mouse", "Keyboard", "Monitor", "Headphones"]
+            ),
+            "amount": pa.array([1200.50, 25.99, 89.99, 450.00, 125.50]),
+            "date": pa.array(
+                ["2024-01-15", "2024-01-16", "2024-01-17", "2024-01-18", "2024-01-19"]
+            ),
+        }
+    )
 
     dataset1_path = temp_dir / "sales_v1"
     dataset1_path.mkdir(parents=True, exist_ok=True)
@@ -53,49 +61,66 @@ def create_multiple_datasets_with_varying_schemas() -> list[Path]:
     dataset_paths.append(dataset1_path)
 
     # Dataset 2: Sales data (Version 2 - different column names)
-    sales_v2 = pa.table({
-        "transaction_id": pa.array([201, 202, 203, 204]),
-        "client": pa.array(["Frank Industries", "Grace Enterprises", "Henry Solutions", "Iris Tech"]),
-        "item": pa.array(["Webcam", "USB Hub", "External SSD", "Docking Station"]),
-        "price": pa.array([75.99, 35.50, 189.99, 149.99]),
-        "sale_date": pa.array(["2024-02-01", "2024-02-02", "2024-02-03", "2024-02-04"]),
-        "category": pa.array(["Electronics", "Accessories", "Storage", "Accessories"])
-    })
+    sales_v2 = pa.table(
+        {
+            "transaction_id": pa.array([201, 202, 203, 204]),
+            "client": pa.array(
+                [
+                    "Frank Industries",
+                    "Grace Enterprises",
+                    "Henry Solutions",
+                    "Iris Tech",
+                ]
+            ),
+            "item": pa.array(["Webcam", "USB Hub", "External SSD", "Docking Station"]),
+            "price": pa.array([75.99, 35.50, 189.99, 149.99]),
+            "sale_date": pa.array(
+                ["2024-02-01", "2024-02-02", "2024-02-03", "2024-02-04"]
+            ),
+            "category": pa.array(
+                ["Electronics", "Accessories", "Storage", "Accessories"]
+            ),
+        }
+    )
 
     dataset2_path = temp_dir / "sales_v2"
-    dataset2_path.mkdir(parents_only=True)
+    dataset2_path.mkdir(parents=True)
     pq.write_table(sales_v2, dataset2_path / "data.parquet")
     dataset_paths.append(dataset2_path)
 
     # Dataset 3: Sales data (Version 3 - additional columns and type changes)
-    sales_v3 = pa.table({
-        "order_id": pa.array([301, 302, 303]),
-        "customer": pa.array(["Jack Systems", "Kate Manufacturing"]),
-        "product_name": pa.array(["Cable Kit", "Power Bank"]),
-        "total_amount": pa.array([29.99, 45.50]),
-        "order_date": pa.array(["2024-03-01", "2024-03-02"]),
-        "quantity": pa.array([2, 1]),
-        "discount": pa.array([5.0, 0.0]),
-        "status": pa.array(["completed", "shipped"])
-    })
+    sales_v3 = pa.table(
+        {
+            "order_id": pa.array([301, 302]),
+            "customer": pa.array(["Jack Systems", "Kate Manufacturing"]),
+            "product_name": pa.array(["Cable Kit", "Power Bank"]),
+            "total_amount": pa.array([29.99, 45.50]),
+            "order_date": pa.array(["2024-03-01", "2024-03-02"]),
+            "quantity": pa.array([2, 1]),
+            "discount": pa.array([5.0, 0.0]),
+            "status": pa.array(["completed", "shipped"]),
+        }
+    )
 
     dataset3_path = temp_dir / "sales_v3"
-    dataset3_path.mkdir(parents_only=True)
+    dataset3_path.mkdir(parents=True)
     pq.write_table(sales_v3, dataset3_path / "data.parquet")
     dataset_paths.append(dataset3_path)
 
     # Dataset 4: Sales data (Version 4 - some columns renamed, some missing)
-    sales_v4 = pa.table({
-        "sale_id": pa.array([401, 402]),
-        "customer_name": pa.array(["Leo Corp", "Maya Inc"]),
-        "product": pa.array(["Router", "Switch"]),
-        "amount": pa.array([299.99, 449.99]),
-        "date": pa.array(["2024-03-15", "2024-03-16"]),
-        "region": pa.array(["West", "East"])
-    })
+    sales_v4 = pa.table(
+        {
+            "sale_id": pa.array([401, 402]),
+            "customer_name": pa.array(["Leo Corp", "Maya Inc"]),
+            "product": pa.array(["Router", "Switch"]),
+            "amount": pa.array([299.99, 449.99]),
+            "date": pa.array(["2024-03-15", "2024-03-16"]),
+            "region": pa.array(["West", "East"]),
+        }
+    )
 
     dataset4_path = temp_dir / "sales_v4"
-    dataset4_path.mkdir(parents_only=True)
+    dataset4_path.mkdir(parents=True)
     pq.write_table(sales_v4, dataset4_path / "data.parquet")
     dataset_paths.append(dataset4_path)
 
@@ -172,7 +197,9 @@ def demonstrate_schema_unification(dataset_paths: list[Path]):
                 # If column exists, choose the more general type
                 existing_field = all_columns[field.name]
                 if str(field.type) != str(existing_field.type):
-                    print(f"  Type conflict for '{field.name}': {existing_field.type} vs {field.type}")
+                    print(
+                        f"  Type conflict for '{field.name}': {existing_field.type} vs {field.type}"
+                    )
                     # For simplicity, use string as common type for conflicts
                     all_columns[field.name] = pa.field(field.name, pa.string())
 
@@ -210,7 +237,7 @@ def demonstrate_schema_unification(dataset_paths: list[Path]):
         unified_table = pa.Table.from_arrays(unified_arrays, schema=unified_schema)
         unified_tables.append(unified_table)
 
-        print(f"  Dataset {i+1}: {len(table)} -> {len(unified_table)} rows")
+        print(f"  Dataset {i + 1}: {len(table)} -> {len(unified_table)} rows")
 
     # Combine all unified tables
     combined_table = pa.concat_tables(unified_tables)
@@ -243,7 +270,7 @@ def demonstrate_column_mapping():
         "customer": ["customer_name", "client", "customer"],
         "product": ["product", "item", "product_name"],
         "amount": ["amount", "price", "total_amount"],
-        "date": ["date", "sale_date", "order_date"]
+        "date": ["date", "sale_date", "order_date"],
     }
 
     print("Column mappings:")
@@ -251,29 +278,35 @@ def demonstrate_column_mapping():
         print(f"  {standard_name}: {variants}")
 
     # Create sample data with different column names
-    data1 = pa.table({
-        "sale_id": pa.array([1, 2, 3]),
-        "customer_name": pa.array(["Alice", "Bob", "Charlie"]),
-        "product": pa.array(["A", "B", "C"]),
-        "amount": pa.array([100.0, 200.0, 300.0])
-    })
+    data1 = pa.table(
+        {
+            "sale_id": pa.array([1, 2, 3]),
+            "customer_name": pa.array(["Alice", "Bob", "Charlie"]),
+            "product": pa.array(["A", "B", "C"]),
+            "amount": pa.array([100.0, 200.0, 300.0]),
+        }
+    )
 
-    data2 = pa.table({
-        "transaction_id": pa.array([4, 5]),
-        "client": pa.array(["Diana", "Eve"]),
-        "item": pa.array(["D", "E"]),
-        "price": pa.array([150.0, 250.0])
-    })
+    data2 = pa.table(
+        {
+            "transaction_id": pa.array([4, 5]),
+            "client": pa.array(["Diana", "Eve"]),
+            "item": pa.array(["D", "E"]),
+            "price": pa.array([150.0, 250.0]),
+        }
+    )
 
     print(f"\n📊 Applying column mapping:")
 
     # Create standardized schema
-    standard_schema = pa.schema([
-        pa.field("identifier", pa.int64()),
-        pa.field("customer", pa.string()),
-        pa.field("product", pa.string()),
-        pa.field("amount", pa.float64())
-    ])
+    standard_schema = pa.schema(
+        [
+            pa.field("identifier", pa.int64()),
+            pa.field("customer", pa.string()),
+            pa.field("product", pa.string()),
+            pa.field("amount", pa.float64()),
+        ]
+    )
 
     # Apply mapping to first dataset
     print(f"\nDataset 1 mapping:")
@@ -334,17 +367,23 @@ def demonstrate_type_reconciliation():
     print("\n🔧 Data Type Reconciliation")
 
     # Create datasets with same column names but different types
-    data1 = pa.table({
-        "id": pa.array([1, 2, 3], type=pa.int32()),
-        "score": pa.array([85.5, 90.0, 78.5], type=pa.float64()),
-        "active": pa.array([True, False, True], type=pa.bool_())
-    })
+    data1 = pa.table(
+        {
+            "id": pa.array([1, 2, 3], type=pa.int32()),
+            "score": pa.array([85.5, 90.0, 78.5], type=pa.float64()),
+            "active": pa.array([True, False, True], type=pa.bool_()),
+        }
+    )
 
-    data2 = pa.table({
-        "id": pa.array([4, 5], type=pa.int64()),  # Different int type
-        "score": pa.array(["92.3", "88.1"], type=pa.string()),  # String instead of float
-        "active": pa.array([1, 0], type=pa.int8())  # Int instead of bool
-    })
+    data2 = pa.table(
+        {
+            "id": pa.array([4, 5], type=pa.int64()),  # Different int type
+            "score": pa.array(
+                ["92.3", "88.1"], type=pa.string()
+            ),  # String instead of float
+            "active": pa.array([1, 0], type=pa.int8()),  # Int instead of bool
+        }
+    )
 
     print("Dataset 1 types:")
     for field in data1.schema:
@@ -355,11 +394,13 @@ def demonstrate_type_reconciliation():
         print(f"  {field.name}: {field.type}")
 
     # Define reconciliation strategy
-    reconciled_schema = pa.schema([
-        pa.field("id", pa.int64()),  # Use largest int type
-        pa.field("score", pa.float64()),  # Convert string to float
-        pa.field("active", pa.bool_())  # Convert int to bool
-    ])
+    reconciled_schema = pa.schema(
+        [
+            pa.field("id", pa.int64()),  # Use largest int type
+            pa.field("score", pa.float64()),  # Convert string to float
+            pa.field("active", pa.bool_()),  # Convert int to bool
+        ]
+    )
 
     print(f"\nReconciled schema:")
     for field in reconciled_schema:
@@ -380,11 +421,14 @@ def demonstrate_type_reconciliation():
         active_array = data2.column("active").cast(pa.bool_())
 
         # Build reconciled table
-        reconciled_data2 = pa.table({
-            "id": data2.column("id").cast(pa.int64()),
-            "score": score_array,
-            "active": active_array
-        }, schema=reconciled_schema)
+        reconciled_data2 = pa.table(
+            {
+                "id": data2.column("id").cast(pa.int64()),
+                "score": score_array,
+                "active": active_array,
+            },
+            schema=reconciled_schema,
+        )
 
         print(f"\nDataset 2 after reconciliation:")
         print(reconciled_data2)
@@ -408,33 +452,39 @@ def demonstrate_partitioned_schema_handling():
 
     # Create partitioned dataset with schema evolution
     # Partition 1: Initial schema
-    data_v1 = pa.table({
-        "id": pa.array([1, 2, 3]),
-        "value": pa.array([10.0, 20.0, 30.0]),
-        "category": pa.array(["A", "B", "A"])
-    })
+    data_v1 = pa.table(
+        {
+            "id": pa.array([1, 2, 3]),
+            "value": pa.array([10.0, 20.0, 30.0]),
+            "category": pa.array(["A", "B", "A"]),
+        }
+    )
 
     # Partition 2: Schema with additional column
-    data_v2 = pa.table({
-        "id": pa.array([4, 5, 6]),
-        "value": pa.array([40.0, 50.0, 60.0]),
-        "category": pa.array(["B", "C", "A"]),
-        "description": pa.array(["desc1", "desc2", "desc3"])
-    })
+    data_v2 = pa.table(
+        {
+            "id": pa.array([4, 5, 6]),
+            "value": pa.array([40.0, 50.0, 60.0]),
+            "category": pa.array(["B", "C", "A"]),
+            "description": pa.array(["desc1", "desc2", "desc3"]),
+        }
+    )
 
     # Partition 3: Schema with different data types
-    data_v3 = pa.table({
-        "id": pa.array([7, 8]),
-        "value": pa.array(["70.0", "80.0"]),  # String instead of float
-        "category": pa.array(["C", "B"]),
-        "metadata": pa.array([{"key": "val"}, {"key2": "val2"}])  # Struct type
-    })
+    data_v3 = pa.table(
+        {
+            "id": pa.array([7, 8]),
+            "value": pa.array(["70.0", "80.0"]),  # String instead of float
+            "category": pa.array(["C", "B"]),
+            "metadata": pa.array([{"key": "val"}, {"key2": "val2"}]),  # Struct type
+        }
+    )
 
     # Write as partitioned dataset
     partitions = [
         (data_v1, "version=v1"),
         (data_v2, "version=v2"),
-        (data_v3, "version=v3")
+        (data_v3, "version=v3"),
     ]
 
     for data, partition in partitions:
@@ -466,7 +516,9 @@ def demonstrate_partitioned_schema_handling():
                 try:
                     partition_filter = ds.field("version") == partition
                     part_table = dataset.to_table(filter=partition_filter)
-                    print(f"  {partition}: {len(part_table)} rows, schema: {part_table.schema}")
+                    print(
+                        f"  {partition}: {len(part_table)} rows, schema: {part_table.schema}"
+                    )
                 except Exception as pe:
                     print(f"  {partition}: Error - {pe}")
 
@@ -475,6 +527,7 @@ def demonstrate_partitioned_schema_handling():
 
     # Cleanup
     import shutil
+
     shutil.rmtree(temp_dir)
 
 
@@ -501,6 +554,7 @@ def main():
     finally:
         # Cleanup
         import shutil
+
         shutil.rmtree(dataset_paths[0].parent)
         print(f"\n🧹 Cleaned up temporary directory")
 

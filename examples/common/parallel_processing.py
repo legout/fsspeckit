@@ -19,6 +19,7 @@ or multiple files efficiently using parallel processing.
 from __future__ import annotations
 
 import tempfile
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -40,13 +41,17 @@ def create_sample_datasets(num_datasets: int = 10) -> list[Path]:
 
     for i in range(num_datasets):
         # Create sample data
-        data = pa.table({
-            "id": pa.array(range(i * 100, (i + 1) * 100)),
-            "value": pa.array([x * 1.5 for x in range(100)]),
-            "category": pa.array([f"Cat_{x % 5}" for x in range(100)]),
-            "timestamp": pa.array([f"2024-01-{(x % 28) + 1:02d}" for x in range(100)]),
-            "active": pa.array([x % 2 == 0 for x in range(100)])
-        })
+        data = pa.table(
+            {
+                "id": pa.array(range(i * 100, (i + 1) * 100)),
+                "value": pa.array([x * 1.5 for x in range(100)]),
+                "category": pa.array([f"Cat_{x % 5}" for x in range(100)]),
+                "timestamp": pa.array(
+                    [f"2024-01-{(x % 28) + 1:02d}" for x in range(100)]
+                ),
+                "active": pa.array([x % 2 == 0 for x in range(100)]),
+            }
+        )
 
         # Write to file
         dataset_path = temp_dir / f"dataset_{i:03d}.parquet"
@@ -70,7 +75,7 @@ def demonstrate_basic_parallel_processing():
             "task_id": task_id,
             "result": f"Task {task_id} completed",
             "processing_time": 0.1,
-            "thread_id": time.get_ident()
+            "thread_id": threading.get_ident(),
         }
 
     # Run tasks sequentially first
@@ -87,7 +92,7 @@ def demonstrate_basic_parallel_processing():
     # Run tasks in parallel
     print("Running tasks in parallel...")
     start_time = time.time()
-    parallel_results = run_parallel(simple_task, range(8), max_workers=4)
+    parallel_results = run_parallel(simple_task, range(8), n_jobs=4)
     parallel_time = time.time() - start_time
 
     print(f"Parallel execution: {parallel_time:.2f} seconds")
@@ -121,7 +126,11 @@ def demonstrate_parallel_file_processing():
             # Calculate some statistics
             total_rows = len(table)
             filtered_rows = len(processed_table)
-            avg_value = pc.mean(processed_table.column("value")).as_py() if filtered_rows > 0 else 0
+            avg_value = (
+                pc.mean(processed_table.column("value")).as_py()
+                if filtered_rows > 0
+                else 0
+            )
 
             processing_time = time.time() - start_time
 
@@ -131,7 +140,7 @@ def demonstrate_parallel_file_processing():
                 "filtered_rows": filtered_rows,
                 "avg_filtered_value": avg_value,
                 "processing_time": processing_time,
-                "success": True
+                "success": True,
             }
 
         except Exception as e:
@@ -139,13 +148,13 @@ def demonstrate_parallel_file_processing():
                 "file_name": file_path.name,
                 "error": str(e),
                 "processing_time": time.time() - start_time,
-                "success": False
+                "success": False,
             }
 
     # Process files in parallel
     print("Processing files in parallel...")
     start_time = time.time()
-    results = run_parallel(process_file, dataset_paths, max_workers=4)
+    results = run_parallel(process_file, dataset_paths, n_jobs=4)
     total_time = time.time() - start_time
 
     # Display results
@@ -175,6 +184,7 @@ def demonstrate_parallel_file_processing():
 
     # Cleanup
     import shutil
+
     shutil.rmtree(dataset_paths[0].parent)
 
 
@@ -185,12 +195,14 @@ def demonstrate_parallel_data_transformation():
 
     # Create a large dataset to transform
     print("Creating large dataset...")
-    large_data = pa.table({
-        "id": pa.array(range(10000)),
-        "value": pa.array([x * 1.5 + 0.1 for x in range(10000)]),
-        "category": pa.array([f"Category_{x % 20}" for x in range(10000)]),
-        "score": pa.array([x * 0.1 for x in range(10000)])
-    })
+    large_data = pa.table(
+        {
+            "id": pa.array(range(10000)),
+            "value": pa.array([x * 1.5 + 0.1 for x in range(10000)]),
+            "category": pa.array([f"Category_{x % 20}" for x in range(10000)]),
+            "score": pa.array([x * 0.1 for x in range(10000)]),
+        }
+    )
 
     # Define transformation function
     def transform_chunk(chunk_data: pa.Table, chunk_id: int) -> dict:
@@ -199,7 +211,9 @@ def demonstrate_parallel_data_transformation():
 
         # Apply transformations
         # 1. Filter by value
-        filtered_chunk = chunk_data.filter(pc.greater_equal(chunk_data.column("value"), 100))
+        filtered_chunk = chunk_data.filter(
+            pc.greater_equal(chunk_data.column("value"), 100)
+        )
 
         # 2. Add computed columns
         if len(filtered_chunk) > 0:
@@ -207,13 +221,9 @@ def demonstrate_parallel_data_transformation():
             categories_upper = pc.utf8_upper(filtered_chunk.column("category"))
 
             transformed_chunk = filtered_chunk.set_column(
-                filtered_chunk.column_names.index("score"),
-                "score",
-                computed_scores
+                filtered_chunk.column_names.index("score"), "score", computed_scores
             ).set_column(
-                len(filtered_chunk.column_names),
-                "category_upper",
-                categories_upper
+                len(filtered_chunk.column_names), "category_upper", categories_upper
             )
         else:
             transformed_chunk = filtered_chunk
@@ -226,8 +236,14 @@ def demonstrate_parallel_data_transformation():
                 "input_rows": len(chunk_data),
                 "output_rows": len(transformed_chunk),
                 "avg_value": pc.mean(transformed_chunk.column("value")).as_py(),
-                "max_score": pc.max(transformed_chunk.column("score")).as_py() if "score" in transformed_chunk.column_names else 0,
-                "unique_categories": len(pc.unique(transformed_chunk.column("category"))) if "category" in transformed_chunk.column_names else 0
+                "max_score": pc.max(transformed_chunk.column("score")).as_py()
+                if "score" in transformed_chunk.column_names
+                else 0,
+                "unique_categories": len(
+                    pc.unique(transformed_chunk.column("category"))
+                )
+                if "category" in transformed_chunk.column_names
+                else 0,
             }
         else:
             stats = {
@@ -236,7 +252,7 @@ def demonstrate_parallel_data_transformation():
                 "output_rows": 0,
                 "avg_value": 0,
                 "max_score": 0,
-                "unique_categories": 0
+                "unique_categories": 0,
             }
 
         stats["processing_time"] = time.time() - start_time
@@ -257,7 +273,7 @@ def demonstrate_parallel_data_transformation():
     chunk_results = run_parallel(
         lambda chunk_data: transform_chunk(chunk_data[0], chunk_data[1]),
         chunks,
-        max_workers=4
+        n_jobs=4,
     )
     parallel_time = time.time() - start_time
 
@@ -279,12 +295,16 @@ def demonstrate_parallel_data_transformation():
     # Aggregate results
     total_input = sum(r["input_rows"] for r in chunk_results)
     total_output = sum(r["output_rows"] for r in chunk_results)
-    avg_processing_time = sum(r["processing_time"] for r in chunk_results) / len(chunk_results)
+    avg_processing_time = sum(r["processing_time"] for r in chunk_results) / len(
+        chunk_results
+    )
 
     print(f"\n📊 Transformation Results:")
     print(f"  Total input rows:  {total_input:,}")
     print(f"  Total output rows: {total_output:,}")
-    print(f"  Filter rate:       {((total_input - total_output) / total_input * 100):.1f}%")
+    print(
+        f"  Filter rate:       {((total_input - total_output) / total_input * 100):.1f}%"
+    )
     print(f"  Avg chunk time:    {avg_processing_time:.3f} seconds")
 
 
@@ -303,7 +323,7 @@ def demonstrate_error_handling_in_parallel():
         return {
             "task_id": task_id,
             "status": "success",
-            "result": f"Task {task_id} completed successfully"
+            "result": f"Task {task_id} completed successfully",
         }
 
     # Mix of successful and failing tasks
@@ -325,11 +345,11 @@ def demonstrate_error_handling_in_parallel():
                 "task_id": task_id,
                 "status": "failed",
                 "error": str(e),
-                "error_type": type(e).__name__
+                "error_type": type(e).__name__,
             }
 
     # Process all tasks
-    all_results = run_parallel(safe_task_wrapper, tasks, max_workers=4)
+    all_results = run_parallel(safe_task_wrapper, tasks, n_jobs=4)
 
     # Separate successful and failed results
     successful_results = [r for r in all_results if r.get("status") == "success"]
@@ -339,12 +359,16 @@ def demonstrate_error_handling_in_parallel():
     print(f"  Total tasks:      {len(all_results)}")
     print(f"  Successful:       {len(successful_results)}")
     print(f"  Failed:           {len(failed_results)}")
-    print(f"  Success rate:     {(len(successful_results) / len(all_results) * 100):.1f}%")
+    print(
+        f"  Success rate:     {(len(successful_results) / len(all_results) * 100):.1f}%"
+    )
 
     if failed_results:
         print(f"\n❌ Failed Tasks:")
         for result in failed_results[:5]:  # Show first 5 failures
-            print(f"  Task {result['task_id']}: {result['error']} ({result['error_type']})")
+            print(
+                f"  Task {result['task_id']}: {result['error']} ({result['error_type']})"
+            )
         if len(failed_results) > 5:
             print(f"  ... and {len(failed_results) - 5} more failures")
 
@@ -371,9 +395,7 @@ def demonstrate_resource_management():
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB
 
         # Create data to consume memory
-        large_data = pa.table({
-            "data": pa.array([x for x in range(data_size)])
-        })
+        large_data = pa.table({"data": pa.array([x for x in range(data_size)])})
 
         # Simulate processing
         time.sleep(0.1)
@@ -391,7 +413,7 @@ def demonstrate_resource_management():
             "initial_memory_mb": initial_memory,
             "peak_memory_mb": peak_memory,
             "memory_increase_mb": memory_increase,
-            "success": True
+            "success": True,
         }
 
     # Test different worker counts
@@ -409,7 +431,7 @@ def demonstrate_resource_management():
         results = run_parallel(
             lambda task_args: memory_intensive_task(task_args[0], task_args[1]),
             tasks,
-            max_workers=workers
+            n_jobs=workers,
         )
 
         execution_time = time.time() - start_time

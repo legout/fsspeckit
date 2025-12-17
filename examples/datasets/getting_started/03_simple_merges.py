@@ -18,6 +18,7 @@ efficiently and safely.
 from __future__ import annotations
 
 import tempfile
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -43,19 +44,21 @@ def create_sample_sales_data(batch_id: str, num_records: int = 50) -> pa.Table:
 
     for i in range(num_records):
         record = {
-            "order_id": f"{batch_id}-{i+1:04d}",
+            "order_id": f"{batch_id}-{i + 1:04d}",
             "batch_id": batch_id,
             "customer": random.choice(customers),
             "product": random.choice(products),
             "quantity": random.randint(1, 10),
             "unit_price": round(random.uniform(10.0, 500.0), 2),
             "region": random.choice(regions),
-            "order_date": (base_date + timedelta(days=random.randint(0, 90))).strftime("%Y-%m-%d")
+            "order_date": (base_date + timedelta(days=random.randint(0, 90))).strftime(
+                "%Y-%m-%d"
+            ),
         }
         record["total"] = record["quantity"] * record["unit_price"]
         records.append(record)
 
-    return pa.table(records)
+    return pa.Table.from_pylist(records)
 
 
 def demonstrate_basic_append():
@@ -106,7 +109,9 @@ def demonstrate_basic_append():
         if len(combined_data) == expected_total:
             print(f"   ✅ Data integrity verified: {expected_total} records")
         else:
-            print(f"   ❌ Data mismatch: expected {expected_total}, got {len(combined_data)}")
+            print(
+                f"   ❌ Data mismatch: expected {expected_total}, got {len(combined_data)}"
+            )
 
         # Show batch distribution
         print(f"\n📊 Batch Distribution:")
@@ -121,6 +126,7 @@ def demonstrate_basic_append():
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -148,10 +154,9 @@ def demonstrate_schema_consistency():
         print(f"   Schema: {[field.name for field in sales1.schema]}")
 
         # Verify schemas are identical
-        schemas_identical = (
-            sales1.schema.equals(sales2.schema) and
-            sales2.schema.equals(sales3.schema)
-        )
+        schemas_identical = sales1.schema.equals(
+            sales2.schema
+        ) and sales2.schema.equals(sales3.schema)
 
         if schemas_identical:
             print("✅ All schemas are identical - safe to merge")
@@ -191,6 +196,7 @@ def demonstrate_schema_consistency():
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -212,10 +218,11 @@ def demonstrate_schema_alignment():
 
         # Dataset 2: Extended sales data with additional columns
         import random
+
         extended_records = []
         for i in range(20):
             record = {
-                "order_id": f"X002-{i+1:04d}",
+                "order_id": f"X002-{i + 1:04d}",
                 "customer": random.choice(["Alice", "Bob", "Charlie"]),
                 "product": random.choice(["Laptop", "Mouse"]),
                 "quantity": random.randint(1, 5),
@@ -223,12 +230,12 @@ def demonstrate_schema_alignment():
                 "region": random.choice(["North", "South"]),
                 "order_date": "2024-02-01",
                 "priority": random.choice(["high", "medium", "low"]),
-                "sales_rep": random.choice(["John", "Jane", "Mike"])
+                "sales_rep": random.choice(["John", "Jane", "Mike"]),
             }
             record["total"] = record["quantity"] * record["unit_price"]
             extended_records.append(record)
 
-        sales_extended = pa.table(extended_records)
+        sales_extended = pa.Table.from_pylist(extended_records)
 
         print(f"\n📋 Schema Comparison:")
         print(f"   Basic schema: {[field.name for field in sales_basic.schema]}")
@@ -246,41 +253,30 @@ def demonstrate_schema_alignment():
         aligned_tables = []
 
         for table, name in [(sales_basic, "Basic"), (sales_extended, "Extended")]:
-            aligned_arrays = []
+            aligned_data = {}
 
             for column_name in all_columns:
                 if column_name in table.column_names:
-                    aligned_arrays.append(table.column(column_name))
+                    aligned_data[column_name] = table.column(column_name)
                 else:
-                    # Add null array for missing column
-                    null_array = pa.array([None] * len(table), type=pa.string())
-                    if column_name in ["quantity", "unit_price", "total"]:
-                        null_array = pa.array([None] * len(table), type=pa.float64())
-                    elif column_name in ["priority", "sales_rep"]:
-                        null_array = pa.array([None] * len(table), type=pa.string())
-                    aligned_arrays.append(null_array)
+                    # Add null array for missing column - use same type as in extended schema
+                    if column_name in ["priority", "sales_rep"]:
+                        aligned_data[column_name] = pa.array(
+                            [None] * len(table), type=pa.string()
+                        )
+                    elif column_name in ["batch_id", "total"]:
+                        aligned_data[column_name] = pa.array(
+                            [None] * len(table),
+                            type=pa.string()
+                            if column_name == "batch_id"
+                            else pa.float64(),
+                        )
+                    else:
+                        aligned_data[column_name] = pa.array(
+                            [None] * len(table), type=pa.string()
+                        )
 
-            # Create aligned table with consistent column order
-            aligned_schema = pa.schema([
-                pa.field(name, aligned_arrays[i].type)
-                for i, name in enumerate(sorted(all_columns))
-            ])
-
-            # Reorder arrays to match schema
-            ordered_arrays = []
-            for field in aligned_schema:
-                for i, original_name in enumerate(table.column_names):
-                    if original_name == field.name:
-                        ordered_arrays.append(aligned_arrays[i])
-                        break
-                else:
-                    # Find null array for missing column
-                    for arr in aligned_arrays:
-                        if len(arr) == len(table) and arr.null_count == len(arr):
-                            ordered_arrays.append(arr)
-                            break
-
-            aligned_table = pa.Table.from_arrays(ordered_arrays, schema=aligned_schema)
+            aligned_table = pa.Table.from_pydict(aligned_data)
             aligned_tables.append(aligned_table)
 
             print(f"   {name} table aligned to {len(aligned_table.schema)} columns")
@@ -305,7 +301,7 @@ def demonstrate_schema_alignment():
             for j, field in enumerate(sample_data.schema):
                 value = sample_data.column(j)[i].as_py()
                 row_dict[field.name] = value if value is not None else "NULL"
-            print(f"   Row {i+1}: {row_dict}")
+            print(f"   Row {i + 1}: {row_dict}")
 
     except Exception as e:
         print(f"❌ Schema alignment demo failed: {e}")
@@ -313,6 +309,7 @@ def demonstrate_schema_alignment():
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -332,6 +329,7 @@ def demonstrate_duplicate_handling():
 
         # Dataset 2: Some duplicates and some new records
         import random
+
         duplicate_records = []
         new_records = []
 
@@ -339,14 +337,15 @@ def demonstrate_duplicate_handling():
         for i in range(10):  # 10 duplicates
             original_row = i  # Reuse first 10 rows
             record = {
-                "order_id": f"DUP002-{original_row+1:04d}",  # Same order IDs
+                "order_id": f"DUP002-{original_row + 1:04d}",  # Same order IDs
                 "batch_id": "DUP002",
                 "customer": sales1.column("customer")[original_row].as_py(),
                 "product": sales1.column("product")[original_row].as_py(),
-                "quantity": sales1.column("quantity")[original_row].as_py() + random.randint(-2, 2),  # Slight variation
+                "quantity": sales1.column("quantity")[original_row].as_py()
+                + random.randint(-2, 2),  # Slight variation
                 "unit_price": sales1.column("unit_price")[original_row].as_py(),
                 "region": sales1.column("region")[original_row].as_py(),
-                "order_date": sales1.column("order_date")[original_row].as_py()
+                "order_date": sales1.column("order_date")[original_row].as_py(),
             }
             record["total"] = record["quantity"] * record["unit_price"]
             duplicate_records.append(record)
@@ -354,22 +353,24 @@ def demonstrate_duplicate_handling():
         # Add some new records
         for i in range(20):
             record = {
-                "order_id": f"DUP002-{i+50:04d}",  # Different IDs
+                "order_id": f"DUP002-{i + 50:04d}",  # Different IDs
                 "batch_id": "DUP002",
                 "customer": random.choice(["Alice", "Bob", "Charlie"]),
                 "product": random.choice(["Laptop", "Mouse", "Keyboard"]),
                 "quantity": random.randint(1, 10),
                 "unit_price": round(random.uniform(50.0, 300.0), 2),
                 "region": random.choice(["North", "South"]),
-                "order_date": "2024-03-01"
+                "order_date": "2024-03-01",
             }
             record["total"] = record["quantity"] * record["unit_price"]
             new_records.append(record)
 
-        sales2 = pa.table(duplicate_records + new_records)
+        sales2 = pa.Table.from_pylist(duplicate_records + new_records)
 
         print(f"   Dataset 1: {len(sales1)} records")
-        print(f"   Dataset 2: {len(sales2)} records ({len(duplicate_records)} potential duplicates)")
+        print(
+            f"   Dataset 2: {len(sales2)} records ({len(duplicate_records)} potential duplicates)"
+        )
 
         # Simple merge first
         print(f"\n🔄 Simple merge (may contain duplicates)...")
@@ -386,29 +387,25 @@ def demonstrate_duplicate_handling():
         pq.write_table(sales2, file2)
 
         with DuckDBParquetHandler() as handler:
-            # Register both datasets
-            handler.register_dataset("sales1", str(file1))
-            handler.register_dataset("sales2", str(file2))
-
-            # Find duplicates based on order_id
+            # Find duplicates based on order_id using direct file access
             print(f"\n🔍 Analyzing duplicates...")
-            duplicate_analysis = handler.execute_sql("""
+            duplicate_analysis = handler.execute_sql(f"""
                 SELECT
                     order_id,
                     COUNT(*) as duplicate_count
                 FROM (
-                    SELECT order_id FROM sales1
+                    SELECT order_id FROM read_parquet('{file1}')
                     UNION ALL
-                    SELECT order_id FROM sales2
+                    SELECT order_id FROM read_parquet('{file2}')
                 )
                 GROUP BY order_id
                 HAVING COUNT(*) > 1
                 ORDER BY duplicate_count DESC
-            """)
+            """).fetchdf()
 
             if len(duplicate_analysis) > 0:
                 print(f"   Found {len(duplicate_analysis)} duplicate order IDs:")
-                print(duplicate_analysis.to_pandas())
+                print(duplicate_analysis.to_string())
             else:
                 print("   No duplicates found")
 
@@ -416,18 +413,18 @@ def demonstrate_duplicate_handling():
             print(f"\n🧹 Creating deduplicated dataset...")
             start_time = time.time()
 
-            deduplication_query = """
+            deduplication_query = f"""
             SELECT
-                s1.*
-            FROM sales1 s1
+                *
+            FROM read_parquet('{file1}')
             UNION
             SELECT
-                s2.*
-            FROM sales2 s2
+                *
+            FROM read_parquet('{file2}')
             ORDER BY order_id
             """
 
-            deduplicated_data = handler.execute_sql(deduplication_query)
+            deduplicated_data = handler.execute_sql(deduplication_query).fetchdf()
 
             deduplication_time = time.time() - start_time
 
@@ -451,6 +448,7 @@ def demonstrate_duplicate_handling():
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -470,11 +468,13 @@ def demonstrate_performance_considerations():
         total_records = 0
 
         for i, size in enumerate(dataset_sizes):
-            batch_data = create_sample_sales_data(f"PERF{i+1:03d}", size)
+            batch_data = create_sample_sales_data(f"PERF{i + 1:03d}", size)
             datasets.append(batch_data)
             total_records += size
 
-        print(f"   Created {len(datasets)} datasets with {total_records:,} total records")
+        print(
+            f"   Created {len(datasets)} datasets with {total_records:,} total records"
+        )
 
         # Test different merge strategies
         print(f"\n🏃 Testing merge strategies...")
@@ -514,16 +514,16 @@ def demonstrate_performance_considerations():
         start_time = time.time()
 
         with DuckDBParquetHandler() as handler:
-            # Register all datasets
-            for i, file_path in enumerate(dataset_files):
-                handler.register_dataset(f"dataset_{i}", str(file_path))
+            # Combine using UNION ALL with direct file access
+            union_queries = [
+                f"SELECT * FROM read_parquet('{file_path}')"
+                for file_path in dataset_files
+            ]
+            union_query = " UNION ALL ".join(union_queries)
 
-            # Combine using UNION ALL
-            union_query = " UNION ALL ".join([
-                f"SELECT * FROM dataset_{i}" for i in range(len(dataset_files))
-            ])
-
-            duckdb_result = handler.execute_sql(f"SELECT * FROM ({union_query})")
+            duckdb_result = handler.execute_sql(
+                f"SELECT * FROM ({union_query})"
+            ).fetchdf()
 
         duckdb_time = time.time() - start_time
         print(f"   Time: {duckdb_time:.4f} seconds")
@@ -536,14 +536,16 @@ def demonstrate_performance_considerations():
         print(f"   DuckDB:        {duckdb_time:.4f}s")
 
         # Verify all results are equivalent
-        results_match = (
-            len(merged_all) == len(incremental_result) == len(duckdb_result)
-        )
+        results_match = len(merged_all) == len(incremental_result) == len(duckdb_result)
 
         if results_match:
-            print(f"   ✅ All strategies produced equivalent results: {len(merged_all)} records")
+            print(
+                f"   ✅ All strategies produced equivalent results: {len(merged_all)} records"
+            )
         else:
-            print(f"   ❌ Results differ: {len(merged_all)}, {len(incremental_result)}, {len(duckdb_result)}")
+            print(
+                f"   ❌ Results differ: {len(merged_all)}, {len(incremental_result)}, {len(duckdb_result)}"
+            )
 
         # Memory usage considerations
         print(f"\n💾 Memory Usage Considerations:")
@@ -562,6 +564,7 @@ def demonstrate_performance_considerations():
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -603,4 +606,5 @@ def main():
 
 if __name__ == "__main__":
     import time
+
     main()

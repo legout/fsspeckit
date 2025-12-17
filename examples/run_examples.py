@@ -22,6 +22,9 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 import traceback
 
+# Get the examples directory (where this script is located)
+EXAMPLES_DIR = Path(__file__).parent
+
 
 EXAMPLE_CATEGORIES = {
     "getting_started": {
@@ -30,16 +33,14 @@ EXAMPLE_CATEGORIES = {
         "examples": [
             "01_duckdb_basics.py",
             "02_pyarrow_basics.py",
-            "03_simple_merges.py"
-        ]
+            "03_simple_merges.py",
+            "04_pyarrow_merges.py",
+        ],
     },
     "workflows": {
         "path": "datasets/workflows",
         "description": "Intermediate workflow examples",
-        "examples": [
-            "cloud_datasets.py",
-            "performance_optimization.py"
-        ]
+        "examples": ["cloud_datasets.py", "performance_optimization.py"],
     },
     "sql": {
         "path": "sql",
@@ -47,8 +48,8 @@ EXAMPLE_CATEGORIES = {
         "examples": [
             "sql_filter_basic.py",
             "sql_filter_advanced.py",
-            "cross_platform_filters.py"
-        ]
+            "cross_platform_filters.py",
+        ],
     },
     "schema": {
         "path": "datasets/schema",
@@ -56,8 +57,8 @@ EXAMPLE_CATEGORIES = {
         "examples": [
             "schema_basics.py",
             "schema_unification.py",
-            "type_optimization.py"
-        ]
+            "type_optimization.py",
+        ],
     },
     "common": {
         "path": "common",
@@ -65,26 +66,42 @@ EXAMPLE_CATEGORIES = {
         "examples": [
             "logging_setup.py",
             "parallel_processing.py",
-            "type_conversion.py"
-        ]
+            "type_conversion.py",
+        ],
     },
-    "advanced": {
-        "path": "datasets/advanced",
-        "description": "Advanced processing examples",
+    "batch_processing": {
+        "path": "batch_processing",
+        "description": "Batch processing patterns",
         "examples": [
-            "real_time_analytics.py",
-            "large_scale_processing.py",
-            "multi_cloud_operations.py"
-        ]
+            "batch_processing_example.py",
+            "batch_processing_example_mamo.py",
+            "generate_batched_data.py",
+        ],
     },
-    "cross_domain": {
-        "path": "cross_domain",
-        "description": "Production integration examples",
+    "caching": {
+        "path": "caching",
+        "description": "Caching strategies",
+        "examples": ["caching_example.py", "caching_example_mamo.py", "setup_data.py"],
+    },
+    "dir_file_system": {
+        "path": "dir_file_system",
+        "description": "Directory and filesystem operations",
+        "examples": ["dir_file_system_example.py", "dir_file_system_example_mamo.py"],
+    },
+    "read_folder": {
+        "path": "read_folder",
+        "description": "Data ingestion patterns",
         "examples": [
-            "end_to_end_pipeline.py",
-            "production_patterns.py"
-        ]
-    }
+            "create_dataset.py",
+            "read_folder_example.py",
+            "read_folder_example_mamo.py",
+        ],
+    },
+    "storage_options": {
+        "path": "storage_options",
+        "description": "Cloud storage configuration",
+        "examples": ["storage_options_example.py", "storage_options_example_mamo.py"],
+    },
 }
 
 # Learning path order
@@ -94,18 +111,15 @@ LEARNING_PATH_ORDER = [
     "sql",
     "schema",
     "common",
-    "advanced",
-    "cross_domain"
+    "batch_processing",
+    "caching",
+    "dir_file_system",
+    "read_folder",
+    "storage_options",
 ]
 
 # Examples that require special handling (async, long runtime, etc.)
-SPECIAL_EXAMPLES = {
-    "datasets/advanced/real_time_analytics.py": {"async": True, "timeout": 300},
-    "datasets/advanced/large_scale_processing.py": {"async": True, "timeout": 600},
-    "datasets/advanced/multi_cloud_operations.py": {"async": True, "timeout": 300},
-    "cross_domain/end_to_end_pipeline.py": {"async": True, "timeout": 300},
-    "cross_domain/production_patterns.py": {"async": True, "timeout": 300}
-}
+SPECIAL_EXAMPLES = {}
 
 
 def list_examples():
@@ -116,8 +130,8 @@ def list_examples():
     for category, info in EXAMPLE_CATEGORIES.items():
         print(f"\n📂 {category}: {info['description']}")
         print(f"   Path: {info['path']}")
-        for example in info['examples']:
-            example_path = Path(info['path']) / example
+        for example in info["examples"]:
+            example_path = Path(info["path"]) / example
             if example_path.exists():
                 print(f"   ✅ {example}")
             else:
@@ -132,11 +146,15 @@ def run_example_file(file_path: str, timeout: int = 120) -> Dict[str, Any]:
     """Run a single example file."""
     file_path = Path(file_path)
 
+    # If the path is not absolute, resolve it relative to examples directory
+    if not file_path.is_absolute():
+        file_path = EXAMPLES_DIR / file_path
+
     if not file_path.exists():
         return {
             "success": False,
             "error": f"File not found: {file_path}",
-            "duration": 0
+            "duration": 0,
         }
 
     print(f"🚀 Running: {file_path.name}")
@@ -144,7 +162,9 @@ def run_example_file(file_path: str, timeout: int = 120) -> Dict[str, Any]:
 
     try:
         # Check if this is a special example
-        special_info = SPECIAL_EXAMPLES.get(str(file_path.relative_to(Path.cwd())), {})
+        special_info = SPECIAL_EXAMPLES.get(
+            str(file_path.relative_to(EXAMPLES_DIR)), {}
+        )
 
         if special_info.get("async", False):
             # Run async example
@@ -158,11 +178,7 @@ def run_example_file(file_path: str, timeout: int = 120) -> Dict[str, Any]:
         print(f"❌ Failed: {file_path.name}")
         print(f"   Error: {str(e)}")
 
-        return {
-            "success": False,
-            "error": str(e),
-            "duration": duration
-        }
+        return {"success": False, "error": str(e), "duration": duration}
 
 
 def run_sync_example(file_path: Path, timeout: int) -> Dict[str, Any]:
@@ -183,27 +199,20 @@ def run_sync_example(file_path: Path, timeout: int) -> Dict[str, Any]:
         spec.loader.exec_module(module)
 
         # Look for and run main function if it exists
-        if hasattr(module, 'main'):
+        if hasattr(module, "main"):
             module.main()
 
         duration = time.time() - start_time
         print(f"✅ Completed: {file_path.name} ({duration:.2f}s)")
 
-        return {
-            "success": True,
-            "duration": duration
-        }
+        return {"success": True, "duration": duration}
 
     except Exception as e:
         duration = time.time() - start_time
         print(f"❌ Failed: {file_path.name} ({duration:.2f}s)")
         print(f"   Error: {str(e)}")
 
-        return {
-            "success": False,
-            "error": str(e),
-            "duration": duration
-        }
+        return {"success": False, "error": str(e), "duration": duration}
 
 
 def run_async_example(file_path: Path, timeout: int) -> Dict[str, Any]:
@@ -224,7 +233,7 @@ def run_async_example(file_path: Path, timeout: int) -> Dict[str, Any]:
         spec.loader.exec_module(module)
 
         # Run the async main function
-        if hasattr(module, 'main'):
+        if hasattr(module, "main"):
             # Run with timeout
             try:
                 asyncio.run(asyncio.wait_for(module.main(), timeout=timeout))
@@ -235,27 +244,20 @@ def run_async_example(file_path: Path, timeout: int) -> Dict[str, Any]:
                 return {
                     "success": False,
                     "error": f"Timeout after {timeout}s",
-                    "duration": duration
+                    "duration": duration,
                 }
 
         duration = time.time() - start_time
         print(f"✅ Completed: {file_path.name} ({duration:.2f}s)")
 
-        return {
-            "success": True,
-            "duration": duration
-        }
+        return {"success": True, "duration": duration}
 
     except Exception as e:
         duration = time.time() - start_time
         print(f"❌ Failed: {file_path.name} ({duration:.2f}s)")
         print(f"   Error: {str(e)}")
 
-        return {
-            "success": False,
-            "error": str(e),
-            "duration": duration
-        }
+        return {"success": False, "error": str(e), "duration": duration}
 
 
 def run_category(category_name: str) -> Dict[str, Any]:
@@ -278,7 +280,7 @@ def run_category(category_name: str) -> Dict[str, Any]:
         "successful": 0,
         "failed": 0,
         "total_duration": 0,
-        "examples": []
+        "examples": [],
     }
 
     for example_file in category_info["examples"]:
@@ -286,12 +288,14 @@ def run_category(category_name: str) -> Dict[str, Any]:
 
         if example_path.exists():
             result = run_example_file(example_path)
-            results["examples"].append({
-                "file": example_file,
-                "success": result["success"],
-                "duration": result["duration"],
-                "error": result.get("error")
-            })
+            results["examples"].append(
+                {
+                    "file": example_file,
+                    "success": result["success"],
+                    "duration": result["duration"],
+                    "error": result.get("error"),
+                }
+            )
 
             if result["success"]:
                 results["successful"] += 1
@@ -301,12 +305,14 @@ def run_category(category_name: str) -> Dict[str, Any]:
             results["total_duration"] += result["duration"]
         else:
             print(f"❌ Missing: {example_file}")
-            results["examples"].append({
-                "file": example_file,
-                "success": False,
-                "duration": 0,
-                "error": "File not found"
-            })
+            results["examples"].append(
+                {
+                    "file": example_file,
+                    "success": False,
+                    "duration": 0,
+                    "error": "File not found",
+                }
+            )
             results["failed"] += 1
 
     # Print summary
@@ -319,7 +325,7 @@ def run_category(category_name: str) -> Dict[str, Any]:
     return results
 
 
-def run_learning_path() -> Dict[str, Any]:
+def run_learning_path(interactive: bool = False) -> Dict[str, Any]:
     """Run the complete learning path."""
     print("\n🎓 Running Complete Learning Path")
     print("=" * 60)
@@ -329,11 +335,11 @@ def run_learning_path() -> Dict[str, Any]:
         "category_results": [],
         "overall_successful": 0,
         "overall_failed": 0,
-        "total_duration": 0
+        "total_duration": 0,
     }
 
     for i, category_name in enumerate(LEARNING_PATH_ORDER, 1):
-        print(f"\n{'='*20} Stage {i}/{len(LEARNING_PATH_ORDER)} {'='*20}")
+        print(f"\n{'=' * 20} Stage {i}/{len(LEARNING_PATH_ORDER)} {'=' * 20}")
 
         category_result = run_category(category_name)
         results["category_results"].append(category_result)
@@ -342,23 +348,39 @@ def run_learning_path() -> Dict[str, Any]:
         results["overall_failed"] += category_result["failed"]
         results["total_duration"] += category_result["total_duration"]
 
-        # Ask user if they want to continue
-        if i < len(LEARNING_PATH_ORDER):
-            response = input(f"\nContinue to next stage? (Y/n): ").strip().lower()
-            if response and response != 'y':
-                print("Learning path interrupted by user")
+        # Ask user if they want to continue (only in interactive mode)
+        if i < len(LEARNING_PATH_ORDER) and interactive:
+            try:
+                response = input(f"\nContinue to next stage? (Y/n): ").strip().lower()
+                if response and response != "y":
+                    print("Learning path interrupted by user")
+                    break
+            except (EOFError, KeyboardInterrupt):
+                print("\nLearning path interrupted")
                 break
+        elif i < len(LEARNING_PATH_ORDER) and not interactive:
+            print(f"\n⏭️  Continuing to next stage automatically...")
 
     # Print final summary
     print(f"\n🎓 Learning Path Summary")
     print("=" * 60)
-    print(f"   Categories completed: {len(results['category_results'])}/{results['total_categories']}")
-    print(f"   Total examples: {results['overall_successful'] + results['overall_failed']}")
+    print(
+        f"   Categories completed: {len(results['category_results'])}/{results['total_categories']}"
+    )
+    print(
+        f"   Total examples: {results['overall_successful'] + results['overall_failed']}"
+    )
     print(f"   Successful: {results['overall_successful']}")
     print(f"   Failed: {results['overall_failed']}")
-    print(f"   Total duration: {results['total_duration']:.2f}s ({results['total_duration']/60:.1f}m)")
+    print(
+        f"   Total duration: {results['total_duration']:.2f}s ({results['total_duration'] / 60:.1f}m)"
+    )
 
-    success_rate = results['overall_successful'] / (results['overall_successful'] + results['overall_failed']) * 100
+    success_rate = (
+        results["overall_successful"]
+        / (results["overall_successful"] + results["overall_failed"])
+        * 100
+    )
     print(f"   Success rate: {success_rate:.1f}%")
 
     return results
@@ -374,7 +396,7 @@ def validate_examples() -> Dict[str, Any]:
         "valid_examples": 0,
         "missing_examples": 0,
         "import_errors": 0,
-        "details": []
+        "details": [],
     }
 
     for category_name, category_info in EXAMPLE_CATEGORIES.items():
@@ -390,13 +412,15 @@ def validate_examples() -> Dict[str, Any]:
                 "path": str(example_path),
                 "exists": example_path.exists(),
                 "importable": False,
-                "error": None
+                "error": None,
             }
 
             if example_path.exists():
                 try:
                     # Try to import the module
-                    spec = importlib.util.spec_from_file_location("validation_module", example_path)
+                    spec = importlib.util.spec_from_file_location(
+                        "validation_module", example_path
+                    )
                     if spec and spec.loader:
                         module = importlib.util.module_from_spec(spec)
                         example_result["importable"] = True
@@ -424,7 +448,7 @@ def validate_examples() -> Dict[str, Any]:
     print(f"   Missing examples: {results['missing_examples']}")
     print(f"   Import errors: {results['import_errors']}")
 
-    validation_rate = results['valid_examples'] / results['total_examples'] * 100
+    validation_rate = results["valid_examples"] / results["total_examples"] * 100
     print(f"   Validation rate: {validation_rate:.1f}%")
 
     return results
@@ -442,49 +466,57 @@ Examples:
   %(prog)s --file datasets/getting_started/01_duckdb_basics.py
   %(prog)s --learning-path                  # Run complete learning path
   %(prog)s --validate                       # Validate all examples
-        """
+        """,
     )
 
     parser.add_argument(
-        "--list", "-l",
-        action="store_true",
-        help="List all available examples"
+        "--list", "-l", action="store_true", help="List all available examples"
     )
 
     parser.add_argument(
-        "--category", "-c",
+        "--category",
+        "-c",
         choices=list(EXAMPLE_CATEGORIES.keys()),
-        help="Run all examples in a category"
+        help="Run all examples in a category",
     )
 
-    parser.add_argument(
-        "--file", "-f",
-        help="Run a specific example file"
-    )
+    parser.add_argument("--file", "-f", help="Run a specific example file")
 
     parser.add_argument(
-        "--learning-path", "-p",
+        "--learning-path",
+        "-p",
         action="store_true",
-        help="Run the complete learning path"
+        help="Run the complete learning path",
     )
 
     parser.add_argument(
-        "--validate", "-v",
+        "--validate",
+        "-v",
         action="store_true",
-        help="Validate that all examples exist and can be imported"
+        help="Validate that all examples exist and can be imported",
     )
 
     parser.add_argument(
-        "--timeout", "-t",
+        "--timeout",
+        "-t",
         type=int,
         default=120,
-        help="Timeout for individual examples (seconds, default: 120)"
+        help="Timeout for individual examples (seconds, default: 120)",
+    )
+
+    parser.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Enable interactive prompts (e.g., learning path confirmation)",
     )
 
     args = parser.parse_args()
 
     # If no arguments provided, show help
-    if not any([args.list, args.category, args.file, args.learning_path, args.validate]):
+    if not any(
+        [args.list, args.category, args.file, args.learning_path, args.validate]
+    ):
         parser.print_help()
         return
 
@@ -501,7 +533,7 @@ Examples:
                 sys.exit(1)
 
         elif args.learning_path:
-            run_learning_path()
+            run_learning_path(interactive=args.interactive)
 
         elif args.validate:
             validate_examples()

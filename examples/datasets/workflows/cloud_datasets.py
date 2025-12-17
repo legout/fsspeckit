@@ -1,23 +1,30 @@
 """
-Cloud Datasets Workflow Example
+Cloud Datasets Workflow Example (Local-First)
 
-This intermediate-level example demonstrates working with datasets stored in
-cloud storage systems using fsspeckit's integration with various cloud providers.
+This intermediate-level example demonstrates working with datasets using
+fsspeckit's cloud storage integration patterns. The example runs entirely
+offline using local filesystem simulation of cloud storage structures.
 
 The example covers:
-1. Setting up connections to different cloud storage providers
-2. Working with S3, Azure Blob, and Google Cloud Storage datasets
+1. Setting up connections to different cloud storage providers (local simulation)
+2. Working with cloud-like partitioned dataset structures
 3. Performance optimization for cloud-based operations
-4. Authentication and security considerations
+4. Authentication and security considerations (configuration patterns)
 5. Cost optimization strategies
-6. Error handling and retry logic
+6. Error handling and retry logic patterns
 
-This example builds on the basic dataset knowledge and shows how to
-apply it in real-world cloud environments.
+This example demonstrates local-first development with optional real cloud
+configuration for production use.
+
+To enable real cloud operations, set environment variables:
+- AWS: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_DEFAULT_REGION
+- Azure: AZURE_STORAGE_ACCOUNT, AZURE_STORAGE_KEY
+- GCP: GOOGLE_APPLICATION_CREDENTIALS, GCP_PROJECT
 """
 
 from __future__ import annotations
 
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -31,7 +38,7 @@ from fsspeckit.datasets import DuckDBParquetHandler
 from fsspeckit.storage_options import (
     AwsStorageOptions,
     AzureStorageOptions,
-    GcsStorageOptions
+    GcsStorageOptions,
 )
 
 
@@ -45,13 +52,34 @@ def create_sample_sales_data() -> pa.Table:
 
     # Generate realistic sales data
     products = [
-        "Laptop Pro 15", "Wireless Mouse", "Mechanical Keyboard", "4K Monitor",
-        "Noise-Cancelling Headphones", "HD Webcam", "USB-C Hub", "External SSD 1TB",
-        "Gaming Chair", "Standing Desk", "Bluetooth Speakers", "Graphics Tablet"
+        "Laptop Pro 15",
+        "Wireless Mouse",
+        "Mechanical Keyboard",
+        "4K Monitor",
+        "Noise-Cancelling Headphones",
+        "HD Webcam",
+        "USB-C Hub",
+        "External SSD 1TB",
+        "Gaming Chair",
+        "Standing Desk",
+        "Bluetooth Speakers",
+        "Graphics Tablet",
     ]
 
-    regions = ["North America", "Europe", "Asia Pacific", "Latin America", "Middle East"]
-    sales_reps = ["Alice Chen", "Bob Johnson", "Charlie Davis", "Diana Wilson", "Eve Brown"]
+    regions = [
+        "North America",
+        "Europe",
+        "Asia Pacific",
+        "Latin America",
+        "Middle East",
+    ]
+    sales_reps = [
+        "Alice Chen",
+        "Bob Johnson",
+        "Charlie Davis",
+        "Diana Wilson",
+        "Eve Brown",
+    ]
     channels = ["Online", "Retail", "Partner", "Direct", "Distributor"]
 
     records = []
@@ -61,11 +89,13 @@ def create_sample_sales_data() -> pa.Table:
         sale_date = base_date + timedelta(days=random.randint(0, 270))
 
         record = {
-            "sale_id": f"S{2024}{i+1:06d}",
+            "sale_id": f"S{2024}{i + 1:06d}",
             "date": sale_date.strftime("%Y-%m-%d"),
-            "quarter": f"Q{(sale_date.month-1)//3 + 1}2024",
+            "quarter": f"Q{(sale_date.month - 1) // 3 + 1}2024",
             "product": random.choice(products),
-            "category": random.choice(["Electronics", "Accessories", "Furniture", "Audio"]),
+            "category": random.choice(
+                ["Electronics", "Accessories", "Furniture", "Audio"]
+            ),
             "quantity": random.randint(1, 50),
             "unit_price": round(random.uniform(25.0, 2500.0), 2),
             "total_amount": 0,  # Will be calculated
@@ -73,7 +103,9 @@ def create_sample_sales_data() -> pa.Table:
             "sales_rep": random.choice(sales_reps),
             "channel": random.choice(channels),
             "commission_rate": round(random.uniform(0.02, 0.15), 4),
-            "shipping_method": random.choice(["Standard", "Express", "Overnight", "Freight"])
+            "shipping_method": random.choice(
+                ["Standard", "Express", "Overnight", "Freight"]
+            ),
         }
 
         # Calculate total and commission
@@ -82,7 +114,18 @@ def create_sample_sales_data() -> pa.Table:
 
         records.append(record)
 
-    data = pa.table(records)
+    # Convert list of dicts to table using proper PyArrow API
+    if records:
+        # Extract column names from first record
+        column_names = list(records[0].keys())
+        # Convert to columnar format
+        columns = {}
+        for name in column_names:
+            columns[name] = [record[name] for record in records]
+        data = pa.table(columns)
+    else:
+        data = pa.table({})
+
     print(f"Created sales dataset with {len(data):,} records")
     return data
 
@@ -115,41 +158,43 @@ def demonstrate_local_s3_workflow():
                 partition_data = sales_data.filter(combined_filter)
 
                 if len(partition_data) > 0:
-                    partition_dir = local_s3_path / f"quarter={quarter}" / f"region={region}"
+                    partition_dir = (
+                        local_s3_path / f"quarter={quarter}" / f"region={region}"
+                    )
                     partition_dir.mkdir(parents=True, exist_ok=True)
 
                     file_path = partition_dir / "sales.parquet"
                     pq.write_table(partition_data, file_path)
 
-                    print(f"  Created {quarter}/{region}: {len(partition_data)} records")
+                    print(
+                        f"  Created {quarter}/{region}: {len(partition_data)} records"
+                    )
 
         # Simulate S3 storage options
         print(f"\n🔧 Configuring AWS Storage Options:")
 
-        # Create AWS storage options (these would use real credentials in production)
+        # Create AWS storage options (uses environment variables in production)
+        import os
+
         aws_options = AwsStorageOptions(
-            key="your-access-key",  # In production, use environment variables or IAM roles
-            secret="your-secret-key",  # In production, use secure credential management
-            region="us-east-1",
-            endpoint_override=str(local_s3_path),  # Local override for demo
-            anon=False,  # Set to True for public buckets
-            use_ssl=False  # Set to False for local testing
+            access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),  # None for local demo
+            secret_access_key=os.environ.get(
+                "AWS_SECRET_ACCESS_KEY"
+            ),  # None for local demo
+            region=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+            endpoint_url=str(local_s3_path),  # Local override for demo
+            anonymous=True,  # Set to True for local/public access
+            allow_http=True,  # Set to True for local testing
         )
 
         print("  AWS Storage Options configured:")
         print(f"    Region: {aws_options.region}")
-        print(f"    Endpoint: {aws_options.endpoint_override}")
-        print(f"    Anonymous: {aws_options.anon}")
-        print(f"    SSL: {aws_options.use_ssl}")
+        print(f"    Endpoint: {aws_options.endpoint_url}")
+        print(f"    Anonymous: {aws_options.anonymous}")
+        print(f"    HTTP: {aws_options.allow_http}")
 
         # Demonstrate using the storage options
         print(f"\n📖 Reading partitioned data:")
-
-        # Create fsspec filesystem from storage options
-        fs = aws_options.to_filesystem()
-
-        # Read data using the filesystem
-        dataset = fs.open_fs(f"s3://sales-data", protocol="s3")
 
         # Simulate reading partitioned data
         print("  Simulating S3 read operations:")
@@ -198,7 +243,9 @@ def demonstrate_local_s3_workflow():
         filtered = combined_data.filter(pc.and_(quarter_filter, region_filter))
 
         read_time = time.time() - start_time
-        print(f"  Filtered read ({target_quarter}, {target_region}): {read_time:.4f}s, {len(filtered)} records")
+        print(
+            f"  Filtered read ({target_quarter}, {target_region}): {read_time:.4f}s, {len(filtered)} records"
+        )
 
         return sales_data, local_s3_path
 
@@ -209,6 +256,7 @@ def demonstrate_local_s3_workflow():
     finally:
         # Cleanup
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -238,30 +286,40 @@ def demonstrate_azure_blob_workflow():
                 partition_data = sales_data.filter(combined_filter)
 
                 if len(partition_data) > 0:
-                    azure_dir = azure_path / f"year={year_month[:4]}" / f"month={year_month[5:7]}" / f"category={category}"
+                    azure_dir = (
+                        azure_path
+                        / f"year={year_month[:4]}"
+                        / f"month={year_month[5:7]}"
+                        / f"category={category}"
+                    )
                     azure_dir.mkdir(parents=True, exist_ok=True)
 
-                    file_path = azure_dir / f"sales_{year_month}_{category.lower()}.parquet"
+                    file_path = (
+                        azure_dir / f"sales_{year_month}_{category.lower()}.parquet"
+                    )
                     pq.write_table(partition_data, file_path)
 
-                    print(f"  Created {year_month}/{category}: {len(partition_data)} records")
+                    print(
+                        f"  Created {year_month}/{category}: {len(partition_data)} records"
+                    )
 
         # Configure Azure storage options
         print(f"\n🔧 Configuring Azure Storage Options:")
 
+        # Azure storage options (uses environment variables in production)
         azure_options = AzureStorageOptions(
-            account_name="your-storage-account",  # Use environment variables in production
-            account_key="your-account-key",       # Use SAS tokens or managed identity
+            account_name=os.environ.get("AZURE_STORAGE_ACCOUNT"),
+            account_key=os.environ.get("AZURE_STORAGE_KEY"),
             container_name="sales-data",
-            connection_string="DefaultEndpointsProtocol=https;AccountName=...",  # Full connection string
-            endpoint_override=str(azure_path),     # Local override for demo
-            use_ssl=False  # Set to True in production
+            connection_string=os.environ.get("AZURE_STORAGE_CONNECTION_STRING"),
+            endpoint_url=str(azure_path),  # Local override for demo
+            allow_http=True,  # Set to True for local testing
         )
 
         print("  Azure Storage Options configured:")
         print(f"    Account: {azure_options.account_name}")
         print(f"    Container: {azure_options.container_name}")
-        print(f"    SSL: {azure_options.use_ssl}")
+        print(f"    HTTP: {azure_options.allow_http}")
 
         # Demonstrate Azure-specific operations
         print(f"\n📊 Azure Blob Analytics:")
@@ -291,11 +349,20 @@ def demonstrate_azure_blob_workflow():
             category_filter = pc.equal(azure_combined.column("category"), category)
             category_data = azure_combined.filter(category_filter)
             category_total = pc.sum(category_data.column("total_amount")).as_py()
-            category_count = pc.count(category_data.filter(pc.greater(category_data.column("total_amount"), 1000))).as_py()
-            category_stats[category] = {"total": category_total, "high_value_orders": category_count}
+            category_count = pc.count(
+                category_data.filter(
+                    pc.greater(category_data.column("total_amount"), 1000)
+                )
+            ).as_py()
+            category_stats[category] = {
+                "total": category_total,
+                "high_value_orders": category_count,
+            }
 
         for category, stats in category_stats.items():
-            print(f"    {category}: ${stats['total']:,.2f} total, {stats['high_value_orders']} high-value orders")
+            print(
+                f"    {category}: ${stats['total']:,.2f} total, {stats['high_value_orders']} high-value orders"
+            )
 
         return sales_data, azure_path
 
@@ -305,6 +372,7 @@ def demonstrate_azure_blob_workflow():
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -329,7 +397,12 @@ def demonstrate_gcs_workflow():
                 # Simulate business unit segmentation
                 unit_filter = pc.greater(
                     sales_data.column("total_amount"),
-                    {"Enterprise": 5000, "SMB": 1000, "Consumer": 100, "Government": 10000}[business_unit]
+                    {
+                        "Enterprise": 5000,
+                        "SMB": 1000,
+                        "Consumer": 100,
+                        "Government": 10000,
+                    }[business_unit],
                 )
 
                 quarter_filter = pc.equal(sales_data.column("quarter"), year_quarter)
@@ -338,30 +411,39 @@ def demonstrate_gcs_workflow():
                 partition_data = sales_data.filter(combined_filter)
 
                 if len(partition_data) > 0:
-                    gcs_dir = gcs_path / f"business_unit={business_unit}" / f"quarter={year_quarter}"
+                    gcs_dir = (
+                        gcs_path
+                        / f"business_unit={business_unit}"
+                        / f"quarter={year_quarter}"
+                    )
                     gcs_dir.mkdir(parents=True, exist_ok=True)
 
-                    file_path = gcs_dir / f"sales_{business_unit.lower()}_{year_quarter.replace('-', '')}.parquet"
+                    file_path = (
+                        gcs_dir
+                        / f"sales_{business_unit.lower()}_{year_quarter.replace('-', '')}.parquet"
+                    )
                     pq.write_table(partition_data, file_path)
 
-                    print(f"  Created {business_unit}/{year_quarter}: {len(partition_data)} records")
+                    print(
+                        f"  Created {business_unit}/{year_quarter}: {len(partition_data)} records"
+                    )
 
         # Configure GCS storage options
         print(f"\n🔧 Configuring GCS Storage Options:")
 
+        # GCS storage options (uses environment variables in production)
         gcs_options = GcsStorageOptions(
-            project="your-gcp-project",           # Use environment variables in production
-            token="your-service-account-token",    # Use service account authentication
+            project=os.environ.get("GCP_PROJECT"),
+            token=os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"),
             bucket="sales-data-bucket",
-            service_account_key_path="/path/to/service-account.json",
-            endpoint_override=str(gcs_path),       # Local override for demo
-            use_ssl=False
+            endpoint_url=str(gcs_path),  # Local override for demo
+            allow_http=True,
         )
 
         print("  GCS Storage Options configured:")
         print(f"    Project: {gcs_options.project}")
         print(f"    Bucket: {gcs_options.bucket}")
-        print(f"    SSL: {gcs_options.use_ssl}")
+        print(f"    HTTP: {gcs_options.allow_http}")
 
         # GCS-specific analytics
         print(f"\n📈 Business Unit Analysis:")
@@ -374,13 +456,19 @@ def demonstrate_gcs_workflow():
         # Business unit performance analysis
         print("  Business unit performance:")
         for unit in ["Enterprise", "SMB", "Consumer", "Government"]:
-            if unit in gcs_combined.column("customer_region").to_pylist():  # Add unit column for demo
+            if (
+                unit in gcs_combined.column("customer_region").to_pylist()
+            ):  # Add unit column for demo
                 # In real implementation, business_unit would be a separate column
                 continue
 
         # Simulate business unit analysis (would use actual business_unit column)
-        large_deals = gcs_combined.filter(pc.greater(gcs_combined.column("total_amount"), 10000))
-        high_value_products = gcs_combined.filter(pc.greater(gcs_combined.column("unit_price"), 500))
+        large_deals = gcs_combined.filter(
+            pc.greater(gcs_combined.column("total_amount"), 10000)
+        )
+        high_value_products = gcs_combined.filter(
+            pc.greater(gcs_combined.column("unit_price"), 500)
+        )
 
         print(f"  Large deals (>$10k): {len(large_deals):,} orders")
         print(f"  High-value products: {len(high_value_products):,} orders")
@@ -393,8 +481,12 @@ def demonstrate_gcs_workflow():
                 channel_data = gcs_combined.filter(channel_filter)
                 channel_revenue = pc.sum(channel_data.column("total_amount")).as_py()
                 channel_orders = len(channel_data)
-                avg_order = channel_revenue / channel_orders if channel_orders > 0 else 0
-                print(f"    {channel}: {channel_orders:,} orders, ${channel_revenue:,.0f} revenue, ${avg_order:.2f} avg")
+                avg_order = (
+                    channel_revenue / channel_orders if channel_orders > 0 else 0
+                )
+                print(
+                    f"    {channel}: {channel_orders:,} orders, ${channel_revenue:,.0f} revenue, ${avg_order:.2f} avg"
+                )
 
         return sales_data, gcs_path
 
@@ -404,6 +496,7 @@ def demonstrate_gcs_workflow():
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -470,7 +563,7 @@ def demonstrate_performance_optimization():
 
         print(f"    Flat structure: {flat_time:.4f}s")
         print(f"    Partitioned:    {partitioned_time:.4f}s")
-        print(f"    Speedup:        {flat_time/partitioned_time:.2f}x")
+        print(f"    Speedup:        {flat_time / partitioned_time:.2f}x")
 
         # Test 2: Selective read (partition pruning benefit)
         print("  Test 2: Selective read (Q2 Online sales only)")
@@ -481,26 +574,38 @@ def demonstrate_performance_optimization():
         # Simulate partition pruning by filtering after read
         quarter_filter = pc.equal(partitioned_data.column("quarter"), "Q22024")
         channel_filter = pc.equal(partitioned_data.column("channel"), "Online")
-        selective_data = partitioned_data.filter(pc.and_(quarter_filter, channel_filter))
+        selective_data = partitioned_data.filter(
+            pc.and_(quarter_filter, channel_filter)
+        )
 
         selective_time = time.time() - start_time
-        print(f"    Selective read: {selective_time:.4f}s, {len(selective_data)} records")
+        print(
+            f"    Selective read: {selective_time:.4f}s, {len(selective_data)} records"
+        )
 
         # Estimate theoretical cloud savings (would only read 1/20 of files)
-        theoretical_savings = (len(partitioned_files) - 1) / len(partitioned_files) * 100
-        print(f"    Theoretical cloud savings: {theoretical_savings:.1f}% (partition pruning)")
+        theoretical_savings = (
+            (len(partitioned_files) - 1) / len(partitioned_files) * 100
+        )
+        print(
+            f"    Theoretical cloud savings: {theoretical_savings:.1f}% (partition pruning)"
+        )
 
         # Test 3: Column projection
         print("  Test 3: Column projection")
 
         start_time = time.time()
-        essential_columns = sales_data.select(["sale_id", "date", "total_amount", "customer_region"])
+        essential_columns = sales_data.select(
+            ["sale_id", "date", "total_amount", "customer_region"]
+        )
         projection_time = time.time() - start_time
 
         memory_savings = (sales_data.nbytes - essential_columns.nbytes) / 1024 / 1024
         print(f"    Column projection: {projection_time:.4f}s")
         print(f"    Memory savings: {memory_savings:.2f} MB")
-        print(f"    Columns reduced: {len(sales_data.schema)} -> {len(essential_columns.schema)}")
+        print(
+            f"    Columns reduced: {len(sales_data.schema)} -> {len(essential_columns.schema)}"
+        )
 
         # Cloud optimization recommendations
         print(f"\n💡 Cloud Optimization Recommendations:")
@@ -517,6 +622,7 @@ def demonstrate_performance_optimization():
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -538,8 +644,11 @@ def demonstrate_error_handling():
                 try:
                     # Simulate cloud operation (random failure for demo)
                     import random
+
                     if random.random() < 0.3:  # 30% failure rate
-                        raise ConnectionError(f"Simulated cloud connection error (attempt {attempt + 1})")
+                        raise ConnectionError(
+                            f"Simulated cloud connection error (attempt {attempt + 1})"
+                        )
 
                     return operation_func()
 
@@ -548,8 +657,10 @@ def demonstrate_error_handling():
                         print(f"    ❌ Final attempt failed: {e}")
                         raise
 
-                    delay = base_delay * (2 ** attempt)  # Exponential backoff
-                    print(f"    ⚠️  Attempt {attempt + 1} failed, retrying in {delay}s...")
+                    delay = base_delay * (2**attempt)  # Exponential backoff
+                    print(
+                        f"    ⚠️  Attempt {attempt + 1} failed, retrying in {delay}s..."
+                    )
                     time.sleep(min(delay, 10))  # Cap delay for demo
 
         # Test the retry pattern
@@ -583,8 +694,7 @@ def demonstrate_error_handling():
         # Test graceful degradation
         try:
             result = get_data_with_fallback(
-                lambda: "Cloud data",
-                lambda: "Local cached data"
+                lambda: "Cloud data", lambda: "Local cached data"
             )
             print(f"    ✅ Data retrieved: {result}")
         except Exception as e:
@@ -612,10 +722,12 @@ def demonstrate_error_handling():
             return data
 
         # Test validation
-        sample_data = pa.table({
-            "id": pa.array([1, 2, 3, 4, 5]),
-            "value": pa.array([10, None, 30, None, 50])
-        })
+        sample_data = pa.table(
+            {
+                "id": pa.array([1, 2, 3, 4, 5]),
+                "value": pa.array([10, None, 30, None, 50]),
+            }
+        )
 
         try:
             validated_data = validate_and_recover(sample_data)

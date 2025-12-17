@@ -54,10 +54,14 @@ def create_complex_dataset() -> Path:
             "department": random.choice(departments),
             "office_location": random.choice(offices),
             "hire_date": hire_date.strftime("%Y-%m-%d"),
-            "last_promotion_date": (hire_date + timedelta(days=random.randint(365, 1000))).strftime("%Y-%m-%d"),
+            "last_promotion_date": (
+                hire_date + timedelta(days=random.randint(365, 1000))
+            ).strftime("%Y-%m-%d"),
             "performance_score": round(random.uniform(2.5, 5.0), 1),
             "remote_worker": random.choice([True, False]),
-            "full_time": random.choice([True, False]) if emp_id % 10 == 0 else True  # Some contractors
+            "full_time": random.choice([True, False])
+            if emp_id % 10 == 0
+            else True,  # Some contractors
         }
         records.append(record)
 
@@ -69,7 +73,12 @@ def create_complex_dataset() -> Path:
     dataset_path.mkdir(parents=True, exist_ok=True)
 
     # Write as partitioned dataset
-    ds.write_dataset(data, dataset_path, format="parquet", partitioning=["department", "office_location"])
+    ds.write_dataset(
+        data,
+        dataset_path,
+        format="parquet",
+        partitioning=["department", "office_location"],
+    )
 
     print(f"Created complex dataset with {len(records)} records at: {dataset_path}")
     return dataset_path
@@ -81,6 +90,7 @@ def demonstrate_complex_pyarrow_filters(dataset_path: Path):
     print("\n=== Advanced PyArrow Filter Examples ===")
 
     dataset = ds.dataset(dataset_path, format="parquet")
+    schema = dataset.schema
 
     # Example 1: Complex boolean logic
     sql_filter = """
@@ -88,7 +98,7 @@ def demonstrate_complex_pyarrow_filters(dataset_path: Path):
         (salary >= 60000 OR bonus > 10000) AND
         department IN ('Engineering', 'Sales')
     """
-    pyarrow_filter = sql2pyarrow_filter(sql_filter)
+    pyarrow_filter = sql2pyarrow_filter(sql_filter, schema)
 
     print(f"\n1. Complex Boolean Logic:")
     print(f"   SQL: {sql_filter.strip()}")
@@ -104,7 +114,7 @@ def demonstrate_complex_pyarrow_filters(dataset_path: Path):
         (email LIKE '%@company.com' AND first_name NOT LIKE 'Employee_%')
     """
     try:
-        pyarrow_filter = sql2pyarrow_filter(sql_filter)
+        pyarrow_filter = sql2pyarrow_filter(sql_filter, schema)
 
         print(f"\n2. Date Range with String Patterns:")
         print(f"   SQL: {sql_filter.strip()}")
@@ -121,7 +131,7 @@ def demonstrate_complex_pyarrow_filters(dataset_path: Path):
         salary IS NOT NULL AND
         (full_time = true OR department = 'Engineering')
     """
-    pyarrow_filter = sql2pyarrow_filter(sql_filter)
+    pyarrow_filter = sql2pyarrow_filter(sql_filter, schema)
 
     print(f"\n3. Nested Conditions with NULL Checks:")
     print(f"   SQL: {sql_filter.strip()}")
@@ -136,7 +146,7 @@ def demonstrate_complex_pyarrow_filters(dataset_path: Path):
         performance_score >= 3.5 AND
         age BETWEEN 25 AND 45
     """
-    pyarrow_filter = sql2pyarrow_filter(sql_filter)
+    pyarrow_filter = sql2pyarrow_filter(sql_filter, schema)
 
     print(f"\n4. Mathematical Operations in Filters:")
     print(f"   SQL: {sql_filter.strip()}")
@@ -152,13 +162,14 @@ def demonstrate_advanced_polars_filters(dataset_path: Path):
     print("\n=== Advanced Polars Filter Examples ===")
 
     df = pl.read_parquet(dataset_path, glob="**/*.parquet")
+    schema = df.schema
 
     # Example 1: Complex filtering with Polars expressions
     sql_filter = """
         department IN ('Engineering', 'Sales', 'Finance') AND
         (salary > 80000 OR (bonus > 15000 AND performance_score > 4.0))
     """
-    polars_filter = sql2polars_filter(sql_filter)
+    polars_filter = sql2polars_filter(sql_filter, schema)
 
     print(f"\n1. Complex Department and Compensation Filter:")
     print(f"   SQL: {sql_filter.strip()}")
@@ -173,7 +184,7 @@ def demonstrate_advanced_polars_filters(dataset_path: Path):
         remote_worker = false AND
         email LIKE '%@company.com'
     """
-    polars_filter = sql2polars_filter(sql_filter)
+    polars_filter = sql2polars_filter(sql_filter, schema)
 
     print(f"\n2. Office Location and Work Arrangement:")
     print(f"   SQL: {sql_filter.strip()}")
@@ -188,7 +199,7 @@ def demonstrate_advanced_polars_filters(dataset_path: Path):
         full_time = true AND
         age BETWEEN 28 AND 50
     """
-    polars_filter = sql2polars_filter(sql_filter)
+    polars_filter = sql2polars_filter(sql_filter, schema)
 
     print(f"\n3. High Performers Filter:")
     print(f"   SQL: {sql_filter.strip()}")
@@ -205,13 +216,15 @@ def demonstrate_performance_comparison(dataset_path: Path):
 
     dataset = ds.dataset(dataset_path, format="parquet")
     df = pl.read_parquet(dataset_path, glob="**/*.parquet")
+    schema = dataset.schema
+    polars_schema = df.schema
 
     # Test filters of varying complexity
     test_filters = [
         "age > 30",
         "age > 30 AND salary > 70000",
         "age > 30 AND salary > 70000 AND department IN ('Engineering', 'Sales')",
-        "age > 30 AND salary > 70000 AND department IN ('Engineering', 'Sales') AND performance_score > 4.0"
+        "age > 30 AND salary > 70000 AND department IN ('Engineering', 'Sales') AND performance_score > 4.0",
     ]
 
     import time
@@ -220,13 +233,13 @@ def demonstrate_performance_comparison(dataset_path: Path):
         print(f"\n{i}. Filter: {sql_filter}")
 
         # PyArrow timing
-        pyarrow_filter = sql2pyarrow_filter(sql_filter)
+        pyarrow_filter = sql2pyarrow_filter(sql_filter, schema)
         start_time = time.time()
         pyarrow_result = dataset.to_table(filter=pyarrow_filter)
         pyarrow_time = time.time() - start_time
 
         # Polars timing
-        polars_filter = sql2polars_filter(sql_filter)
+        polars_filter = sql2polars_filter(sql_filter, polars_schema)
         start_time = time.time()
         polars_result = df.filter(polars_filter)
         polars_time = time.time() - start_time
@@ -249,7 +262,7 @@ def demonstrate_filter_optimization_tips():
         "5. Consider partition pruning with partition columns",
         "6. Use boolean columns for early filtering when possible",
         "7. Test filter performance with realistic data volumes",
-        "8. Profile both PyArrow and Polars backends for your specific use case"
+        "8. Profile both PyArrow and Polars backends for your specific use case",
     ]
 
     for tip in tips:
@@ -268,7 +281,7 @@ def demonstrate_filter_optimization_tips():
         "✅ Mathematical expressions: +, -, *, /",
         "⚠️  Subqueries (limited support)",
         "❌ Aggregate functions in WHERE clauses",
-        "❌ Window functions"
+        "❌ Window functions",
     ]
 
     for feature in features:
@@ -297,6 +310,7 @@ def main():
     finally:
         # Cleanup
         import shutil
+
         shutil.rmtree(dataset_path.parent)
         print(f"\n🧹 Cleaned up temporary directory")
 

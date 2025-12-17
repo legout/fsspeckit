@@ -22,3 +22,5 @@ misc_replacement.py
 .claude/
 .factory/
 .github/prompts/
+examples/var/
+examples/temp_multicloud_data/

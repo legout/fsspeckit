@@ -33,7 +33,7 @@ import pyarrow.parquet as pq
 from fsspeckit.datasets import (
     DuckDBParquetHandler,
     optimize_parquet_dataset_pyarrow,
-    compact_parquet_dataset_pyarrow
+    compact_parquet_dataset_pyarrow,
 )
 from fsspeckit.common.misc import run_parallel
 
@@ -47,13 +47,24 @@ def create_large_analytics_dataset() -> pa.Table:
 
     # Generate comprehensive analytics data
     products = [
-        "Laptop Pro 15", "MacBook Air", "Surface Pro", "ThinkPad X1",
-        "iPad Pro", "Surface Book", "Galaxy Tab", "Kindle Oasis"
+        "Laptop Pro 15",
+        "MacBook Air",
+        "Surface Pro",
+        "ThinkPad X1",
+        "iPad Pro",
+        "Surface Book",
+        "Galaxy Tab",
+        "Kindle Oasis",
     ]
 
     regions = [
-        "North America", "Europe", "Asia Pacific", "Latin America",
-        "Middle East", "Africa", "Oceania"
+        "North America",
+        "Europe",
+        "Asia Pacific",
+        "Latin America",
+        "Middle East",
+        "Africa",
+        "Oceania",
     ]
 
     channels = ["Online", "Retail", "Partner", "Direct", "Marketplace", "Mobile"]
@@ -64,22 +75,24 @@ def create_large_analytics_dataset() -> pa.Table:
 
     print("  Generating records (this may take a moment)...")
 
-    # Create larger dataset (100K records for meaningful performance testing)
-    for i in range(100000):
-        if i % 10000 == 0:
-            print(f"    Progress: {i:,} / 100,000")
+    # Create smaller dataset (10K records for smoke testing, adjust as needed for performance testing)
+    for i in range(10000):
+        if i % 1000 == 0:
+            print(f"    Progress: {i:,} / 10,000")
 
         sale_date = base_date + timedelta(days=random.randint(0, 730))
 
         record = {
-            "transaction_id": f"TXN_{i+1:08d}",
+            "transaction_id": f"TXN_{i + 1:08d}",
             "timestamp": sale_date.isoformat(),
             "date": sale_date.strftime("%Y-%m-%d"),
             "year": sale_date.year,
-            "quarter": f"Q{(sale_date.month-1)//3 + 1}{sale_date.year}",
+            "quarter": f"Q{(sale_date.month - 1) // 3 + 1}{sale_date.year}",
             "month": sale_date.strftime("%Y-%m"),
             "product": random.choice(products),
-            "category": random.choice(["Electronics", "Accessories", "Software", "Services"]),
+            "category": random.choice(
+                ["Electronics", "Accessories", "Software", "Services"]
+            ),
             "quantity": random.randint(1, 100),
             "unit_price": round(random.uniform(10.0, 5000.0), 2),
             "discount_percent": round(random.uniform(0.0, 30.0), 1),
@@ -91,19 +104,35 @@ def create_large_analytics_dataset() -> pa.Table:
             "sales_rep_id": f"REP_{random.randint(1, 500):04d}",
             "campaign_id": f"CAMPAIGN_{random.randint(1, 100):04d}",
             "is_returned": random.choice([True, False]) if i % 20 == 0 else False,
-            "return_reason": random.choice(["Defective", "Wrong Item", "No Longer Needed", "Gift Return"]) if i % 20 == 0 else None
+            "return_reason": random.choice(
+                ["Defective", "Wrong Item", "No Longer Needed", "Gift Return"]
+            )
+            if i % 20 == 0
+            else None,
         }
 
         # Calculate fields
         record["total_amount"] = record["quantity"] * record["unit_price"]
-        record["discount_amount"] = record["total_amount"] * (record["discount_percent"] / 100)
+        record["discount_amount"] = record["total_amount"] * (
+            record["discount_percent"] / 100
+        )
         record["net_amount"] = record["total_amount"] - record["discount_amount"]
         record["commission_rate"] = round(random.uniform(0.01, 0.20), 4)
         record["commission"] = record["net_amount"] * record["commission_rate"]
 
         records.append(record)
 
-    data = pa.table(records)
+    # Convert list of dicts to table using proper PyArrow API
+    if records:
+        # Extract column names from first record
+        column_names = list(records[0].keys())
+        # Convert to columnar format
+        columns = {}
+        for name in column_names:
+            columns[name] = [record[name] for record in records]
+        data = pa.table(columns)
+    else:
+        data = pa.table({})
     print(f"✅ Created analytics dataset with {len(data):,} records")
     print(f"   Memory usage: {data.nbytes / 1024 / 1024:.2f} MB")
     print(f"   Columns: {len(data.schema)}")
@@ -138,41 +167,59 @@ def profile_operation(operation_func, operation_name, iterations=3):
             cpu_usage = (start_cpu + end_cpu) / 2
             memory_delta = memory_after - memory_before
 
-            result_size = len(result) if hasattr(result, '__len__') else 0
+            result_size = len(result) if hasattr(result, "__len__") else 0
 
-            results.append({
-                "iteration": i + 1,
-                "execution_time": execution_time,
-                "cpu_usage": cpu_usage,
-                "memory_delta": memory_delta,
-                "result_size": result_size,
-                "throughput": result_size / execution_time if execution_time > 0 else 0
-            })
+            results.append(
+                {
+                    "iteration": i + 1,
+                    "execution_time": execution_time,
+                    "cpu_usage": cpu_usage,
+                    "memory_delta": memory_delta,
+                    "result_size": result_size,
+                    "throughput": result_size / execution_time
+                    if execution_time > 0
+                    else 0,
+                }
+            )
 
             if i == 0:
-                print(f"    Iteration {i+1}: {execution_time:.4f}s, CPU: {cpu_usage:.1f}%, Memory Δ: {memory_delta:.1f}MB")
+                print(
+                    f"    Iteration {i + 1}: {execution_time:.4f}s, CPU: {cpu_usage:.1f}%, Memory Δ: {memory_delta:.1f}MB"
+                )
 
         except Exception as e:
             print(f"    ❌ Operation failed: {e}")
-            results.append({
-                "iteration": i + 1,
-                "execution_time": float('inf'),
-                "cpu_usage": 0,
-                "memory_delta": 0,
-                "result_size": 0,
-                "throughput": 0,
-                "error": str(e)
-            })
+            results.append(
+                {
+                    "iteration": i + 1,
+                    "execution_time": float("inf"),
+                    "cpu_usage": 0,
+                    "memory_delta": 0,
+                    "result_size": 0,
+                    "throughput": 0,
+                    "error": str(e),
+                }
+            )
 
     # Calculate averages
     successful_results = [r for r in results if "error" not in r]
     if successful_results:
-        avg_time = sum(r["execution_time"] for r in successful_results) / len(successful_results)
-        avg_cpu = sum(r["cpu_usage"] for r in successful_results) / len(successful_results)
-        avg_memory = sum(r["memory_delta"] for r in successful_results) / len(successful_results)
-        avg_throughput = sum(r["throughput"] for r in successful_results) / len(successful_results)
+        avg_time = sum(r["execution_time"] for r in successful_results) / len(
+            successful_results
+        )
+        avg_cpu = sum(r["cpu_usage"] for r in successful_results) / len(
+            successful_results
+        )
+        avg_memory = sum(r["memory_delta"] for r in successful_results) / len(
+            successful_results
+        )
+        avg_throughput = sum(r["throughput"] for r in successful_results) / len(
+            successful_results
+        )
 
-        print(f"    Average: {avg_time:.4f}s, CPU: {avg_cpu:.1f}%, Memory Δ: {avg_memory:.1f}MB, Throughput: {avg_throughput:.0f} records/s")
+        print(
+            f"    Average: {avg_time:.4f}s, CPU: {avg_cpu:.1f}%, Memory Δ: {avg_memory:.1f}MB, Throughput: {avg_throughput:.0f} records/s"
+        )
 
     return results
 
@@ -191,7 +238,11 @@ def demonstrate_query_optimization():
         pq.write_table(analytics_data, data_file)
 
         with DuckDBParquetHandler() as handler:
-            handler.register_dataset("sales", str(data_file))
+            # Register the parquet file directly in DuckDB using SQL
+            handler.execute_sql(f"""
+                CREATE TABLE sales AS 
+                SELECT * FROM read_parquet('{data_file}')
+            """)
 
             print("\n📊 Query Optimization Strategies:")
 
@@ -199,25 +250,27 @@ def demonstrate_query_optimization():
             print("\n1. Column Projection:")
             print("   a) Full table scan (all columns):")
             full_results = profile_operation(
-                lambda: handler.execute_sql("SELECT * FROM sales"),
-                "Full table scan",
-                2
+                lambda: handler.execute_sql("SELECT * FROM sales"), "Full table scan", 2
             )
 
             print("   b) Selective column projection:")
             selective_results = profile_operation(
-                lambda: handler.execute_sql("SELECT transaction_id, net_amount FROM sales"),
+                lambda: handler.execute_sql(
+                    "SELECT transaction_id, net_amount FROM sales"
+                ),
                 "Selective projection",
-                2
+                2,
             )
 
             # Strategy 2: Early filtering
             print("\n2. Early Filtering:")
             print("   a) Filter after loading:")
             late_filter_results = profile_operation(
-                lambda: handler.execute_sql("SELECT * FROM sales WHERE net_amount > 1000"),
+                lambda: handler.execute_sql(
+                    "SELECT * FROM sales WHERE net_amount > 1000"
+                ),
                 "Late filtering",
-                2
+                2,
             )
 
             print("   b) Optimized filter with index simulation:")
@@ -229,7 +282,7 @@ def demonstrate_query_optimization():
                     AND year = 2024
                 """),
                 "Early filtering with compound condition",
-                2
+                2,
             )
 
             # Strategy 3: Aggregation optimization
@@ -242,7 +295,7 @@ def demonstrate_query_optimization():
                     GROUP BY region
                 """),
                 "Simple aggregation",
-                2
+                2,
             )
 
             print("   b) Optimized aggregation with filters:")
@@ -256,7 +309,7 @@ def demonstrate_query_optimization():
                     HAVING COUNT(*) > 1000
                 """),
                 "Optimized aggregation",
-                2
+                2,
             )
 
             # Strategy 4: Query batching
@@ -278,7 +331,7 @@ def demonstrate_query_optimization():
                     ORDER BY total_sales DESC
                 """),
                 "Large single query",
-                2
+                2,
             )
 
             print("   b) Batched smaller queries:")
@@ -289,27 +342,34 @@ def demonstrate_query_optimization():
                                COUNT(*) as count, SUM(net_amount) as total
                         FROM sales
                         WHERE year = 2024 AND region = '{region}'
-                        GROUP BY channel, customer_segment
-                    """) for region in ["North America", "Europe", "Asia Pacific"]
+                        GROUP BY region, channel, customer_segment
+                    """)
+                    for region in ["North America", "Europe", "Asia Pacific"]
                 ],
                 "Batched queries",
-                1
+                1,
             )
 
             print("\n📈 Optimization Summary:")
             optimizations = [
                 ("Column Projection", selective_results, full_results),
                 ("Early Filtering", early_filter_results, late_filter_results),
-                ("Optimized Aggregation", optimized_agg_results, simple_agg_results)
+                ("Optimized Aggregation", optimized_agg_results, simple_agg_results),
             ]
 
             for opt_name, opt_results, base_results in optimizations:
                 if opt_results and base_results:
-                    opt_time = sum(r["execution_time"] for r in opt_results if "error" not in r)
-                    base_time = sum(r["execution_time"] for r in base_results if "error" not in r)
+                    opt_time = sum(
+                        r["execution_time"] for r in opt_results if "error" not in r
+                    )
+                    base_time = sum(
+                        r["execution_time"] for r in base_results if "error" not in r
+                    )
                     if base_time > 0:
                         improvement = ((base_time - opt_time) / base_time) * 100
-                        print(f"   {opt_name}: {improvement:.1f}% performance improvement")
+                        print(
+                            f"   {opt_name}: {improvement:.1f}% performance improvement"
+                        )
 
     except Exception as e:
         print(f"❌ Query optimization demo failed: {e}")
@@ -317,6 +377,7 @@ def demonstrate_query_optimization():
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -338,38 +399,42 @@ def demonstrate_memory_optimization():
 
         # Strategy 1: Type optimization
         print("\n1. Data Type Optimization:")
-        optimized_schema = pa.schema([
-            pa.field("transaction_id", pa.string()),
-            pa.field("timestamp", pa.timestamp('s')),
-            pa.field("date", pa.string()),
-            pa.field("year", pa.int16()),
-            pa.field("quarter", pa.dictionary(pa.int8(), pa.string())),
-            pa.field("month", pa.string()),
-            pa.field("product", pa.dictionary(pa.int16(), pa.string())),
-            pa.field("category", pa.dictionary(pa.int8(), pa.string())),
-            pa.field("quantity", pa.int16()),
-            pa.field("unit_price", pa.float32()),
-            pa.field("discount_percent", pa.float32()),
-            pa.field("total_amount", pa.float64()),
-            pa.field("discount_amount", pa.float32()),
-            pa.field("net_amount", pa.float64()),
-            pa.field("commission_rate", pa.float32()),
-            pa.field("commission", pa.float32()),
-            pa.field("region", pa.dictionary(pa.int8(), pa.string())),
-            pa.field("country", pa.dictionary(pa.int16(), pa.string())),
-            pa.field("channel", pa.dictionary(pa.int8(), pa.string())),
-            pa.field("customer_segment", pa.dictionary(pa.int8(), pa.string())),
-            pa.field("customer_id", pa.string()),
-            pa.field("sales_rep_id", pa.string()),
-            pa.field("campaign_id", pa.string()),
-            pa.field("is_returned", pa.bool_()),
-            pa.field("return_reason", pa.dictionary(pa.int8(), pa.string()))
-        ])
+        optimized_schema = pa.schema(
+            [
+                pa.field("transaction_id", pa.string()),
+                pa.field("timestamp", pa.timestamp("s")),
+                pa.field("date", pa.string()),
+                pa.field("year", pa.int16()),
+                pa.field("quarter", pa.dictionary(pa.int8(), pa.string())),
+                pa.field("month", pa.string()),
+                pa.field("product", pa.dictionary(pa.int16(), pa.string())),
+                pa.field("category", pa.dictionary(pa.int8(), pa.string())),
+                pa.field("quantity", pa.int16()),
+                pa.field("unit_price", pa.float32()),
+                pa.field("discount_percent", pa.float32()),
+                pa.field("total_amount", pa.float64()),
+                pa.field("discount_amount", pa.float32()),
+                pa.field("net_amount", pa.float64()),
+                pa.field("commission_rate", pa.float32()),
+                pa.field("commission", pa.float32()),
+                pa.field("region", pa.dictionary(pa.int8(), pa.string())),
+                pa.field("country", pa.dictionary(pa.int16(), pa.string())),
+                pa.field("channel", pa.dictionary(pa.int8(), pa.string())),
+                pa.field("customer_segment", pa.dictionary(pa.int8(), pa.string())),
+                pa.field("customer_id", pa.string()),
+                pa.field("sales_rep_id", pa.string()),
+                pa.field("campaign_id", pa.string()),
+                pa.field("is_returned", pa.bool_()),
+                pa.field("return_reason", pa.dictionary(pa.int8(), pa.string())),
+            ]
+        )
 
         try:
             optimized_data = large_data.cast(optimized_schema)
             optimized_memory = optimized_data.nbytes / 1024 / 1024
-            memory_reduction = ((original_memory - optimized_memory) / original_memory) * 100
+            memory_reduction = (
+                (original_memory - optimized_memory) / original_memory
+            ) * 100
 
             print(f"   Optimized memory: {optimized_memory:.2f} MB")
             print(f"   Memory reduction: {memory_reduction:.1f}%")
@@ -383,8 +448,14 @@ def demonstrate_memory_optimization():
         # Strategy 2: Column selection
         print("\n2. Column Selection (Projection):")
         essential_columns = [
-            "transaction_id", "date", "product", "quantity",
-            "unit_price", "net_amount", "region", "channel"
+            "transaction_id",
+            "date",
+            "product",
+            "quantity",
+            "unit_price",
+            "net_amount",
+            "region",
+            "channel",
         ]
 
         start_time = time.time()
@@ -392,9 +463,13 @@ def demonstrate_memory_optimization():
         selection_time = time.time() - start_time
 
         selected_memory = selected_data.nbytes / 1024 / 1024
-        projection_reduction = ((optimized_memory - selected_memory) / optimized_memory) * 100
+        projection_reduction = (
+            (optimized_memory - selected_memory) / optimized_memory
+        ) * 100
 
-        print(f"   Selected {len(essential_columns)}/{len(optimized_data.schema)} columns")
+        print(
+            f"   Selected {len(essential_columns)}/{len(optimized_data.schema)} columns"
+        )
         print(f"   Memory after projection: {selected_memory:.2f} MB")
         print(f"   Projection reduction: {projection_reduction:.1f}%")
         print(f"   Selection time: {selection_time:.4f}s")
@@ -413,7 +488,9 @@ def demonstrate_memory_optimization():
         filtered_memory = filtered_data.nbytes / 1024 / 1024
 
         print(f"   Filtered for net_amount > $1000")
-        print(f"   Records reduced: {len(selected_data):,} -> {len(filtered_data):,} ({filter_reduction:.1f}%)")
+        print(
+            f"   Records reduced: {len(selected_data):,} -> {len(filtered_data):,} ({filter_reduction:.1f}%)"
+        )
         print(f"   Memory after filtering: {filtered_memory:.2f} MB")
         print(f"   Filtering time: {filtering_time:.4f}s")
 
@@ -437,14 +514,20 @@ def demonstrate_memory_optimization():
         print(f"   Processed in {len(chunk_results)} chunks of {chunk_size:,} records")
         print(f"   Total net_amount sum: ${total_processed:,.2f}")
         print(f"   Chunked processing time: {chunked_time:.4f}s")
-        print(f"   Average chunk time: {chunked_time/len(chunk_results):.4f}s")
+        print(f"   Average chunk time: {chunked_time / len(chunk_results):.4f}s")
 
         # Memory efficiency summary
         print(f"\n💡 Memory Efficiency Summary:")
         print(f"   Original dataset: {original_memory:.2f} MB")
-        print(f"   Type optimized:  {optimized_memory:.2f} MB ({((original_memory-optimized_memory)/original_memory)*100:.1f}% reduction)")
-        print(f"   Column projected: {selected_memory:.2f} MB ({((optimized_memory-selected_memory)/optimized_memory)*100:.1f}% reduction)")
-        print(f"   Row filtered:    {filtered_memory:.2f} MB ({((selected_memory-filtered_memory)/selected_memory)*100:.1f}% reduction)")
+        print(
+            f"   Type optimized:  {optimized_memory:.2f} MB ({((original_memory - optimized_memory) / original_memory) * 100:.1f}% reduction)"
+        )
+        print(
+            f"   Column projected: {selected_memory:.2f} MB ({((optimized_memory - selected_memory) / optimized_memory) * 100:.1f}% reduction)"
+        )
+        print(
+            f"   Row filtered:    {filtered_memory:.2f} MB ({((selected_memory - filtered_memory) / selected_memory) * 100:.1f}% reduction)"
+        )
 
     except Exception as e:
         print(f"❌ Memory optimization demo failed: {e}")
@@ -452,6 +535,7 @@ def demonstrate_memory_optimization():
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -482,8 +566,7 @@ def demonstrate_parallel_processing():
 
             # Complex calculation (price * quantity correlation)
             correlation_data = pc.multiply(
-                chunk_data.column("unit_price"),
-                chunk_data.column("quantity")
+                chunk_data.column("unit_price"), chunk_data.column("quantity")
             )
             avg_correlation = pc.mean(correlation_data).as_py()
 
@@ -502,7 +585,7 @@ def demonstrate_parallel_processing():
                 "avg_amount": avg_amount,
                 "high_value_count": high_value_count,
                 "avg_correlation": avg_correlation,
-                "category_counts": category_counts
+                "category_counts": category_counts,
             }
 
         # Test different worker counts
@@ -521,23 +604,25 @@ def demonstrate_parallel_processing():
             print(f"\nTesting with {workers} workers:")
 
             start_time = time.time()
-            worker_results = run_parallel(complex_analytics, chunks, max_workers=workers)
+            worker_results = run_parallel(complex_analytics, chunks, n_jobs=workers)
             total_time = time.time() - start_time
 
             # Aggregate results
             total_records = sum(r["records"] for r in worker_results)
-            avg_amounts = [r["avg_amount"] for r in worker_results if r["avg_amount"] > 0]
+            avg_amounts = [
+                r["avg_amount"] for r in worker_results if r["avg_amount"] > 0
+            ]
             high_value_total = sum(r["high_value_count"] for r in worker_results)
 
             print(f"   Processing time: {total_time:.4f}s")
             print(f"   Total records processed: {total_records:,}")
             print(f"   High-value transactions: {high_value_total:,}")
-            print(f"   Throughput: {total_records/total_time:.0f} records/s")
+            print(f"   Throughput: {total_records / total_time:.0f} records/s")
 
             results[workers] = {
                 "time": total_time,
-                "throughput": total_records/total_time,
-                "records": total_records
+                "throughput": total_records / total_time,
+                "records": total_records,
             }
 
         # Calculate speedup
@@ -552,11 +637,14 @@ def demonstrate_parallel_processing():
             # Determine optimal worker count
             best_throughput = max(results.values(), key=lambda x: x["throughput"])
             optimal_workers = [
-                workers for workers, result in results.items()
+                workers
+                for workers, result in results.items()
                 if result["throughput"] == best_throughput["throughput"]
             ][0]
 
-            print(f"   Optimal workers: {optimal_workers} ({best_throughput['throughput']:.0f} records/s)")
+            print(
+                f"   Optimal workers: {optimal_workers} ({best_throughput['throughput']:.0f} records/s)"
+            )
 
     except Exception as e:
         print(f"❌ Parallel processing demo failed: {e}")
@@ -564,6 +652,7 @@ def demonstrate_parallel_processing():
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -595,7 +684,9 @@ def demonstrate_io_optimization():
         single_read = pq.read_table(single_file)
         single_read_time = time.time() - start_time
 
-        print(f"   Single file: Write {single_write_time:.3f}s, Read {single_read_time:.3f}s")
+        print(
+            f"   Single file: Write {single_write_time:.3f}s, Read {single_read_time:.3f}s"
+        )
 
         # Multiple smaller files
         multi_dir = dataset_path / "multi_files"
@@ -608,7 +699,7 @@ def demonstrate_io_optimization():
         start_time = time.time()
         for i in range(0, len(analytics_data), chunk_size):
             chunk = analytics_data.slice(i, min(chunk_size, len(analytics_data) - i))
-            file_path = multi_dir / f"chunk_{i//chunk_size:03d}.parquet"
+            file_path = multi_dir / f"chunk_{i // chunk_size:03d}.parquet"
             pq.write_table(chunk, file_path)
         multi_write_time = time.time() - start_time
 
@@ -618,12 +709,14 @@ def demonstrate_io_optimization():
         multi_combined = pa.concat_tables(multi_tables)
         multi_read_time = time.time() - start_time
 
-        print(f"   Multiple files: Write {multi_write_time:.3f}s, Read {multi_read_time:.3f}s")
+        print(
+            f"   Multiple files: Write {multi_write_time:.3f}s, Read {multi_read_time:.3f}s"
+        )
 
         # Test 2: Compression codecs
         print("\n2. Compression Codec Impact:")
 
-        codecs = ['snappy', 'gzip', 'brotli']
+        codecs = ["snappy", "gzip", "brotli"]
         compression_results = {}
 
         for codec in codecs:
@@ -645,10 +738,12 @@ def demonstrate_io_optimization():
                 "write_time": write_time,
                 "read_time": read_time,
                 "file_size": file_size,
-                "compression_ratio": compression_ratio
+                "compression_ratio": compression_ratio,
             }
 
-            print(f"   {codec}: {write_time:.3f}s write, {read_time:.3f}s read, {compression_ratio:.3f}x compression")
+            print(
+                f"   {codec}: {write_time:.3f}s write, {read_time:.3f}s read, {compression_ratio:.3f}x compression"
+            )
 
         # Test 3: Partitioning for query performance
         print("\n3. Partitioning Strategy:")
@@ -667,7 +762,9 @@ def demonstrate_io_optimization():
                 partition_data = analytics_data.filter(combined_filter)
 
                 if len(partition_data) > 0:
-                    partition_dir = partitioned_path / f"quarter={quarter}" / f"region={region}"
+                    partition_dir = (
+                        partitioned_path / f"quarter={quarter}" / f"region={region}"
+                    )
                     partition_dir.mkdir(parents=True, exist_ok=True)
                     pq.write_table(partition_data, partition_dir / "data.parquet")
 
@@ -693,16 +790,24 @@ def demonstrate_io_optimization():
         theoretical_savings = (files_skipped / len(partition_files)) * 100
 
         print(f"   Selective read (Q2 only): {selective_read_time:.3f}s")
-        print(f"   Files skipped: {files_skipped}/{len(partition_files)} ({theoretical_savings:.1f}% theoretical savings)")
+        print(
+            f"   Files skipped: {files_skipped}/{len(partition_files)} ({theoretical_savings:.1f}% theoretical savings)"
+        )
 
         # I/O Optimization Summary
         print(f"\n💡 I/O Optimization Summary:")
 
-        best_codec = min(compression_results.items(), key=lambda x: x[1]["compression_ratio"])
-        print(f"   Best compression: {best_codec[0]} ({best_codec[1]['compression_ratio']:.2f}x ratio)")
+        best_codec = min(
+            compression_results.items(), key=lambda x: x[1]["compression_ratio"]
+        )
+        print(
+            f"   Best compression: {best_codec[0]} ({best_codec[1]['compression_ratio']:.2f}x ratio)"
+        )
 
         if single_read_time > 0:
-            partition_improvement = ((single_read_time - partitioned_read_time) / single_read_time) * 100
+            partition_improvement = (
+                (single_read_time - partitioned_read_time) / single_read_time
+            ) * 100
             print(f"   Partitioning improvement: {partition_improvement:.1f}%")
 
         print(f"\n🎯 I/O Optimization Recommendations:")
@@ -718,6 +823,7 @@ def demonstrate_io_optimization():
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -733,7 +839,9 @@ def demonstrate_monitoring():
         print(f"\n🖥️  System Resource Monitoring:")
         print(f"   CPU Cores: {psutil.cpu_count()}")
         print(f"   Memory Total: {psutil.virtual_memory().total / 1024 / 1024:.1f} MB")
-        print(f"   Memory Available: {psutil.virtual_memory().available / 1024 / 1024:.1f} MB")
+        print(
+            f"   Memory Available: {psutil.virtual_memory().available / 1024 / 1024:.1f} MB"
+        )
         print(f"   Memory Used: {psutil.virtual_memory().percent:.1f}%")
 
         # Create monitoring function
@@ -770,7 +878,7 @@ def demonstrate_monitoring():
             print(f"   Thread delta: {thread_delta:+d}")
 
             # Calculate efficiency metrics
-            if hasattr(result, '__len__'):
+            if hasattr(result, "__len__"):
                 throughput = len(result) / execution_time
                 memory_per_record = memory_delta / len(result) if len(result) > 0 else 0
                 print(f"   Throughput: {throughput:.0f} records/s")
@@ -781,7 +889,7 @@ def demonstrate_monitoring():
                 "cpu_usage": cpu_usage,
                 "memory_delta": memory_delta,
                 "thread_delta": thread_delta,
-                "result_size": len(result) if hasattr(result, '__len__') else 0
+                "result_size": len(result) if hasattr(result, "__len__") else 0,
             }
 
         # Test different operations
@@ -794,8 +902,7 @@ def demonstrate_monitoring():
         pq.write_table(test_data, test_file)
 
         read_results = monitor_operation(
-            lambda: pq.read_table(test_file),
-            "Simple Parquet Read"
+            lambda: pq.read_table(test_file), "Simple Parquet Read"
         )
 
         # Operation 2: Complex filter
@@ -803,28 +910,31 @@ def demonstrate_monitoring():
             lambda: test_data.filter(
                 pc.and_(
                     pc.greater(test_data.column("net_amount"), 1000),
-                    pc.equal(test_data.column("year"), 2024)
+                    pc.equal(test_data.column("year"), 2024),
                 )
             ),
-            "Complex Filtering"
+            "Complex Filtering",
         )
 
         # Operation 3: Aggregation
         agg_results = monitor_operation(
-            lambda: test_data.group_by("region").aggregate([
-                ("net_amount", "sum"),
-                ("quantity", "mean")
-            ]),
-            "Group Aggregation"
+            lambda: test_data.group_by("region").aggregate(
+                [("net_amount", "sum"), ("quantity", "mean")]
+            ),
+            "Group Aggregation",
         )
 
         # Operation 4: Type conversion
         conversion_results = monitor_operation(
-            lambda: test_data.cast(pa.schema([
-                pa.field("net_amount", pa.float32()),
-                pa.field("quantity", pa.int16())
-            ])),
-            "Type Conversion"
+            lambda: test_data.cast(
+                pa.schema(
+                    [
+                        pa.field("net_amount", pa.float32()),
+                        pa.field("quantity", pa.int16()),
+                    ]
+                )
+            ),
+            "Type Conversion",
         )
 
         # Performance comparison
@@ -833,17 +943,20 @@ def demonstrate_monitoring():
             ("Read", read_results),
             ("Filter", filter_results),
             ("Aggregation", agg_results),
-            ("Conversion", conversion_results)
+            ("Conversion", conversion_results),
         ]
 
         for op_name, results in operations:
             if "error" not in results:
-                print(f"   {op_name:12} {results['execution_time']:.4f}s | "
-                      f"CPU: {results['cpu_usage']:5.1f}% | "
-                      f"Memory: {results['memory_delta']:+6.1f}MB | "
-                      f"Size: {results['result_size']:6}")
+                print(
+                    f"   {op_name:12} {results['execution_time']:.4f}s | "
+                    f"CPU: {results['cpu_usage']:5.1f}% | "
+                    f"Memory: {results['memory_delta']:+6.1f}MB | "
+                    f"Size: {results['result_size']:6}"
+                )
 
         import shutil
+
         shutil.rmtree(temp_dir)
 
         print(f"\n💡 Monitoring Best Practices:")

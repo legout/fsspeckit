@@ -59,17 +59,31 @@ def create_realistic_sample_data() -> pa.Table:
             "weight": round(random.uniform(0.1, 50.0), 2),
             "status": random.choice(statuses),
             "region": random.choice(regions),
-            "created_date": (datetime(2020, 1, 1) + timedelta(days=random.randint(0, 1500))).strftime("%Y-%m-%d"),
-            "last_modified": (datetime(2024, 1, 1) + timedelta(days=random.randint(0, 365))).strftime("%Y-%m-%d"),
+            "created_date": (
+                datetime(2020, 1, 1) + timedelta(days=random.randint(0, 1500))
+            ).strftime("%Y-%m-%d"),
+            "last_modified": (
+                datetime(2024, 1, 1) + timedelta(days=random.randint(0, 365))
+            ).strftime("%Y-%m-%d"),
             "rating": round(random.uniform(1.0, 5.0), 1),
             "review_count": random.randint(0, 1000),
             "is_featured": random.choice([True, False]),
             "discount_percent": round(random.uniform(0.0, 50.0), 1),
-            "supplier_id": f"SUP-{random.randint(1, 100):03d}"
+            "supplier_id": f"SUP-{random.randint(1, 100):03d}",
         }
         records.append(record)
 
-    table = pa.table(records)
+    # Convert list of dicts to table using proper PyArrow API
+    if records:
+        # Extract column names from first record
+        column_names = list(records[0].keys())
+        # Convert to columnar format
+        columns = {}
+        for name in column_names:
+            columns[name] = [record[name] for record in records]
+        table = pa.table(columns)
+    else:
+        table = pa.table({})
     print(f"Created dataset with {len(table):,} rows and {len(table.schema)} columns")
     return table
 
@@ -79,11 +93,7 @@ def analyze_current_types(table: pa.Table) -> dict:
 
     print("\n🔍 Current Data Type Analysis")
 
-    analysis = {
-        "total_rows": len(table),
-        "total_memory": table.nbytes,
-        "columns": []
-    }
+    analysis = {"total_rows": len(table), "total_memory": table.nbytes, "columns": []}
 
     for field in table.schema:
         column = table.column(field.name)
@@ -94,13 +104,17 @@ def analyze_current_types(table: pa.Table) -> dict:
             "name": field.name,
             "type": str(field.type),
             "memory_mb": memory_usage / (1024 * 1024),
-            "null_percentage": (null_count / len(column)) * 100 if len(column) > 0 else 0
+            "null_percentage": (null_count / len(column)) * 100
+            if len(column) > 0
+            else 0,
         }
 
         # Add specific analysis based on type
         if pa.types.is_integer(field.type):
             if field.name in ["quantity", "reorder_level", "review_count"]:
-                min_val, max_val = pc.min_max(column).as_py()
+                min_max_result = pc.min_max(column).as_py()
+                min_val = int(min_max_result["min"])
+                max_val = int(min_max_result["max"])
                 column_info["range"] = f"{min_val} to {max_val}"
                 column_info["optimal_type"] = suggest_optimal_int_type(min_val, max_val)
             else:
@@ -109,7 +123,9 @@ def analyze_current_types(table: pa.Table) -> dict:
         elif pa.types.is_floating(field.type):
             if field.name in ["price", "cost", "weight", "discount_percent"]:
                 column_info["optimizable"] = "Consider float32 for storage efficiency"
-                column_info["precision_check"] = "Check if decimal precision is required"
+                column_info["precision_check"] = (
+                    "Check if decimal precision is required"
+                )
 
         elif pa.types.is_string(field.type):
             unique_count = len(pc.unique(column))
@@ -119,9 +135,13 @@ def analyze_current_types(table: pa.Table) -> dict:
             column_info["cardinality_percent"] = cardinality
 
             if cardinality < 50:  # Low cardinality
-                column_info["optimizable"] = f"Dictionary encoding (low cardinality: {cardinality:.1f}%)"
+                column_info["optimizable"] = (
+                    f"Dictionary encoding (low cardinality: {cardinality:.1f}%)"
+                )
             elif len(str(column)) > 1000:  # Long strings
-                column_info["optimizable"] = "Check for string compression opportunities"
+                column_info["optimizable"] = (
+                    "Check for string compression opportunities"
+                )
 
         analysis["columns"].append(column_info)
 
@@ -135,7 +155,9 @@ def analyze_current_types(table: pa.Table) -> dict:
 
     print(f"\nTop 10 columns by memory usage:")
     for i, col in enumerate(analysis["columns"][:10], 1):
-        print(f"  {i:2d}. {col['name']:<20} {col['type']:<25} {col['memory_mb']:>6.2f} MB")
+        print(
+            f"  {i:2d}. {col['name']:<20} {col['type']:<25} {col['memory_mb']:>6.2f} MB"
+        )
 
     return analysis
 
@@ -176,28 +198,49 @@ def demonstrate_integer_optimization(table: pa.Table) -> pa.Table:
 
     for col_name in integer_columns:
         column = table.column(col_name)
-        min_val, max_val = pc.min_max(column).as_py()
+        min_max_result = pc.min_max(column).as_py()
+        min_val = int(min_max_result["min"])
+        max_val = int(min_max_result["max"])
         current_type = str(table.schema.field(col_name).type)
         optimal_type = suggest_optimal_int_type(min_val, max_val)
 
-        if optimal_type != current_type.split('[')[0]:  # Extract base type
+        if optimal_type != current_type.split("[")[0]:  # Extract base type
             # Replace with optimized type
             for i, field in enumerate(optimized_schema):
                 if field.name == col_name:
-                    optimized_field = pa.field(field.name, pa.type_from_string(optimal_type), nullable=field.nullable)
+                    # Map string type names to pa.type calls
+                    type_mapping = {
+                        "int8": pa.int8(),
+                        "uint8": pa.uint8(),
+                        "int16": pa.int16(),
+                        "uint16": pa.uint16(),
+                        "int32": pa.int32(),
+                        "uint32": pa.uint32(),
+                        "int64": pa.int64(),
+                        "uint64": pa.uint64(),
+                    }
+                    optimized_field = pa.field(
+                        field.name,
+                        type_mapping.get(optimal_type, pa.int64()),
+                        nullable=field.nullable,
+                    )
                     optimized_schema = optimized_schema.set(i, optimized_field)
-                    optimizations.append({
-                        "column": col_name,
-                        "current": current_type,
-                        "optimal": optimal_type,
-                        "range": f"{min_val} to {max_val}"
-                    })
+                    optimizations.append(
+                        {
+                            "column": col_name,
+                            "current": current_type,
+                            "optimal": optimal_type,
+                            "range": f"{min_val} to {max_val}",
+                        }
+                    )
                     break
 
     if optimizations:
         print("Optimizations found:")
         for opt in optimizations:
-            print(f"  {opt['column']:<20} {opt['current']:<15} -> {opt['optimal']:<15} (range: {opt['range']})")
+            print(
+                f"  {opt['column']:<20} {opt['current']:<15} -> {opt['optimal']:<15} (range: {opt['range']})"
+            )
 
         # Apply optimizations
         optimized_table = table.cast(optimized_schema)
@@ -210,7 +253,9 @@ def demonstrate_integer_optimization(table: pa.Table) -> pa.Table:
         print(f"\nMemory Impact:")
         print(f"  Original:  {original_memory / (1024 * 1024):.2f} MB")
         print(f"  Optimized: {optimized_memory / (1024 * 1024):.2f} MB")
-        print(f"  Savings:   {savings / (1024 * 1024):.2f} MB ({(savings/original_memory)*100:.1f}%)")
+        print(
+            f"  Savings:   {savings / (1024 * 1024):.2f} MB ({(savings / original_memory) * 100:.1f}%)"
+        )
 
         return optimized_table
     else:
@@ -238,7 +283,7 @@ def demonstrate_floating_point_optimization(table: pa.Table) -> pa.Table:
         current_type = str(table.schema.field(col_name).type)
 
         # Check if we can safely convert to float32
-        if current_type.startswith('double') or current_type.startswith('float64'):
+        if current_type.startswith("double") or current_type.startswith("float64"):
             # Test a sample to see if float32 preserves precision
             sample = column.slice(0, min(1000, len(column)))
             converted = sample.cast(pa.float32())
@@ -252,20 +297,26 @@ def demonstrate_floating_point_optimization(table: pa.Table) -> pa.Table:
                 # Replace with float32
                 for i, field in enumerate(optimized_schema):
                     if field.name == col_name:
-                        optimized_field = pa.field(field.name, pa.float32(), nullable=field.nullable)
+                        optimized_field = pa.field(
+                            field.name, pa.float32(), nullable=field.nullable
+                        )
                         optimized_schema = optimized_schema.set(i, optimized_field)
-                        optimizations.append({
-                            "column": col_name,
-                            "current": current_type,
-                            "optimal": "float32",
-                            "max_precision_loss": max_diff
-                        })
+                        optimizations.append(
+                            {
+                                "column": col_name,
+                                "current": current_type,
+                                "optimal": "float32",
+                                "max_precision_loss": max_diff,
+                            }
+                        )
                         break
 
     if optimizations:
         print("Optimizations found:")
         for opt in optimizations:
-            print(f"  {opt['column']:<20} {opt['current']:<15} -> {opt['optimal']:<15} (max loss: {opt['max_precision_loss']:.2e})")
+            print(
+                f"  {opt['column']:<20} {opt['current']:<15} -> {opt['optimal']:<15} (max loss: {opt['max_precision_loss']:.2e})"
+            )
 
         # Apply optimizations
         optimized_table = table.cast(optimized_schema)
@@ -278,7 +329,9 @@ def demonstrate_floating_point_optimization(table: pa.Table) -> pa.Table:
         print(f"\nMemory Impact:")
         print(f"  Original:  {original_memory / (1024 * 1024):.2f} MB")
         print(f"  Optimized: {optimized_memory / (1024 * 1024):.2f} MB")
-        print(f"  Savings:   {savings / (1024 * 1024):.2f} MB ({(savings/original_memory)*100:.1f}%)")
+        print(
+            f"  Savings:   {savings / (1024 * 1024):.2f} MB ({(savings / original_memory) * 100:.1f}%)"
+        )
 
         return optimized_table
     else:
@@ -318,22 +371,26 @@ def demonstrate_dictionary_encoding(table: pa.Table) -> pa.Table:
                 dict_memory = dict_array.nbytes
                 savings = current_memory - dict_memory
 
-                optimizations.append({
-                    "column": col_name,
-                    "unique_values": unique_count,
-                    "total_values": total_count,
-                    "cardinality_percent": cardinality,
-                    "current_memory_mb": current_memory / (1024 * 1024),
-                    "dict_memory_mb": dict_memory / (1024 * 1024),
-                    "savings_mb": savings / (1024 * 1024),
-                    "savings_percent": (savings / current_memory) * 100
-                })
+                optimizations.append(
+                    {
+                        "column": col_name,
+                        "unique_values": unique_count,
+                        "total_values": total_count,
+                        "cardinality_percent": cardinality,
+                        "current_memory_mb": current_memory / (1024 * 1024),
+                        "dict_memory_mb": dict_memory / (1024 * 1024),
+                        "savings_mb": savings / (1024 * 1024),
+                        "savings_percent": (savings / current_memory) * 100,
+                    }
+                )
 
                 # Update schema
                 for i, field in enumerate(optimized_schema):
                     if field.name == col_name:
                         dict_type = pa.dictionary(pa.int32(), pa.string())
-                        optimized_field = pa.field(field.name, dict_type, nullable=field.nullable)
+                        optimized_field = pa.field(
+                            field.name, dict_type, nullable=field.nullable
+                        )
                         optimized_schema = optimized_schema.set(i, optimized_field)
                         break
 
@@ -343,9 +400,11 @@ def demonstrate_dictionary_encoding(table: pa.Table) -> pa.Table:
     if optimizations:
         print("Dictionary encoding opportunities:")
         for opt in optimizations:
-            print(f"  {opt['column']:<20} {opt['cardinality_percent']:.1f}% cardinality -> {opt['savings_percent']:.1f}% savings")
+            print(
+                f"  {opt['column']:<20} {opt['cardinality_percent']:.1f}% cardinality -> {opt['savings_percent']:.1f}% savings"
+            )
 
-        total_savings = sum(opt['savings_mb'] for opt in optimizations)
+        total_savings = sum(opt["savings_mb"] for opt in optimizations)
 
         if total_savings > 0:
             print(f"\nTotal dictionary encoding savings: {total_savings:.2f} MB")
@@ -388,7 +447,9 @@ def demonstrate_comprehensive_optimization(table: pa.Table) -> pa.Table:
     print(f"\n📊 Comprehensive Optimization Results:")
     print(f"  Original memory:  {original_memory / (1024 * 1024):.2f} MB")
     print(f"  Final memory:     {final_memory / (1024 * 1024):.2f} MB")
-    print(f"  Total savings:    {total_savings / (1024 * 1024):.2f} MB ({savings_percent:.1f}%)")
+    print(
+        f"  Total savings:    {total_savings / (1024 * 1024):.2f} MB ({savings_percent:.1f}%)"
+    )
 
     # Compare schemas
     print(f"\n🔍 Schema Comparison:")
@@ -403,22 +464,35 @@ def demonstrate_comprehensive_optimization(table: pa.Table) -> pa.Table:
     return table
 
 
-def benchmark_optimization_performance(original_table: pa.Table, optimized_table: pa.Table):
+def benchmark_optimization_performance(
+    original_table: pa.Table, optimized_table: pa.Table
+):
     """Benchmark the performance impact of optimization."""
 
     print("\n⏱️  Performance Benchmarking")
 
     # Setup test queries
     test_queries = [
-        ("filter_by_category", lambda t: t.filter(pc.equal(t.column("category"), "Electronics"))),
-        ("filter_by_price_range", lambda t: t.filter(
-            pc.and_(pc.greater_equal(t.column("price"), 100), pc.less_equal(t.column("price"), 500))
-        )),
-        ("aggregate_by_brand", lambda t: t.group_by("brand").aggregate([
-            ("price", "mean"),
-            ("quantity", "sum")
-        ])),
-        ("sort_by_price", lambda t: t.sort_by([("price", "descending")]))
+        (
+            "filter_by_category",
+            lambda t: t.filter(pc.equal(t.column("category"), "Electronics")),
+        ),
+        (
+            "filter_by_price_range",
+            lambda t: t.filter(
+                pc.and_(
+                    pc.greater_equal(t.column("price"), 100),
+                    pc.less_equal(t.column("price"), 500),
+                )
+            ),
+        ),
+        (
+            "aggregate_by_brand",
+            lambda t: t.group_by("brand").aggregate(
+                [("price", "mean"), ("quantity", "sum")]
+            ),
+        ),
+        ("sort_by_price", lambda t: t.sort_by([("price", "descending")])),
     ]
 
     print("Running performance benchmarks...")
@@ -437,7 +511,7 @@ def benchmark_optimization_performance(original_table: pa.Table, optimized_table
         optimized_time = time.time() - start_time
 
         # Calculate improvement
-        speedup = original_time / optimized_time if optimized_time > 0 else float('inf')
+        speedup = original_time / optimized_time if optimized_time > 0 else float("inf")
         improvement = ((original_time - optimized_time) / original_time) * 100
 
         print(f"  Original time:  {original_time:.4f}s")
@@ -446,11 +520,17 @@ def benchmark_optimization_performance(original_table: pa.Table, optimized_table
         print(f"  Improvement:    {improvement:.1f}%")
 
         # Verify results are equivalent (for filters and sorts)
-        if query_name in ["filter_by_category", "filter_by_price_range", "sort_by_price"]:
+        if query_name in [
+            "filter_by_category",
+            "filter_by_price_range",
+            "sort_by_price",
+        ]:
             if len(original_result) == len(optimized_result):
                 print(f"  ✅ Result sizes match: {len(original_result)} rows")
             else:
-                print(f"  ⚠️  Result size mismatch: {len(original_result)} vs {len(optimized_result)}")
+                print(
+                    f"  ⚠️  Result size mismatch: {len(original_result)} vs {len(optimized_result)}"
+                )
 
 
 def demonstrate_storage_optimization(table: pa.Table):
@@ -462,7 +542,7 @@ def demonstrate_storage_optimization(table: pa.Table):
 
     try:
         # Test different compression codecs
-        codecs = ['none', 'snappy', 'gzip', 'brotli', 'zstd']
+        codecs = ["none", "snappy", "gzip", "brotli", "zstd"]
         compression_results = []
 
         for codec in codecs:
@@ -478,32 +558,39 @@ def demonstrate_storage_optimization(table: pa.Table):
             read_table = pq.read_table(file_path)
             read_time = time.time() - start_time
 
-            compression_results.append({
-                'codec': codec,
-                'write_time': write_time,
-                'read_time': read_time,
-                'file_size_mb': file_size / (1024 * 1024),
-                'compression_ratio': file_size / table.nbytes
-            })
+            compression_results.append(
+                {
+                    "codec": codec,
+                    "write_time": write_time,
+                    "read_time": read_time,
+                    "file_size_mb": file_size / (1024 * 1024),
+                    "compression_ratio": file_size / table.nbytes,
+                }
+            )
 
         print("Compression comparison:")
-        print(f"{'Codec':<10} {'Write (s)':<10} {'Read (s)':<9} {'Size (MB)':<10} {'Ratio':<8}")
+        print(
+            f"{'Codec':<10} {'Write (s)':<10} {'Read (s)':<9} {'Size (MB)':<10} {'Ratio':<8}"
+        )
         print("-" * 55)
 
         for result in compression_results:
-            print(f"{result['codec']:<10} "
-                  f"{result['write_time']:<10.4f} "
-                  f"{result['read_time']:<9.4f} "
-                  f"{result['file_size_mb']:<10.2f} "
-                  f"{result['compression_ratio']:<8.3f}")
+            print(
+                f"{result['codec']:<10} "
+                f"{result['write_time']:<10.4f} "
+                f"{result['read_time']:<9.4f} "
+                f"{result['file_size_mb']:<10.2f} "
+                f"{result['compression_ratio']:<8.3f}"
+            )
 
         # Find best codec based on size/speed tradeoff
-        best_codec = min(compression_results, key=lambda x: x['file_size_mb'])
+        best_codec = min(compression_results, key=lambda x: x["file_size_mb"])
         print(f"\n💡 Recommendation: Use '{best_codec['codec']}' for best compression")
         print(f"   Size reduction: {(1 - best_codec['compression_ratio']) * 100:.1f}%")
 
     finally:
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -544,8 +631,12 @@ def main():
 
         print(f"\n📋 Optimization Summary:")
         print(f"  Dataset size: {len(original_table):,} rows")
-        print(f"  Memory savings: {total_savings:.2f} MB ({((original_memory - final_memory) / original_memory) * 100:.1f}%)")
-        print(f"  Columns optimized: {len([c for c in analysis['columns'] if 'optimizable' in c])}")
+        print(
+            f"  Memory savings: {total_savings:.2f} MB ({((original_memory - final_memory) / original_memory) * 100:.1f}%)"
+        )
+        print(
+            f"  Columns optimized: {len([c for c in analysis['columns'] if 'optimizable' in c])}"
+        )
 
     finally:
         print(f"\n🧹 Optimization analysis complete")

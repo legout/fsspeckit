@@ -23,8 +23,8 @@ from fsspeckit import filesystem
 def main():
     # Create a temporary directory and file for our demonstration
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Create a sample JSON file
-        sample_file = os.path.join(tmpdir, "sample_data.json")
+        # Create a sample JSON file (use relative path from temp dir)
+        sample_file = "sample_data.json"
         sample_data = {
             "name": "fsspeckit caching example",
             "timestamp": time.time(),
@@ -33,19 +33,20 @@ def main():
             ],  # Larger dataset for better demo
         }
 
-        # Write the sample data to our file
-        with open(sample_file, "w") as f:
+        # Write the sample data to our file using absolute path for initial write
+        abs_sample_file = os.path.join(tmpdir, sample_file)
+        with open(abs_sample_file, "w") as f:
             json.dump(sample_data, f)
 
-        print(f"Created sample file: {sample_file}")
+        print(f"Created sample file: {abs_sample_file}")
 
         # Create a cache directory
-        cache_dir = os.path.join(tmpdir, "cache")
+        cache_dir = "cache"
 
-        # Create a filesystem with caching enabled
+        # Create a filesystem rooted at the temp directory with caching enabled
         print("\n=== Creating filesystem with caching ===")
         fs = filesystem(
-            protocol_or_path="file",
+            protocol_or_path=tmpdir,  # Root filesystem at temp directory
             cached=True,
             cache_storage=cache_dir,
             verbose=True,  # Enable verbose logging to see cache operations
@@ -54,10 +55,14 @@ def main():
         # First read - this should populate the cache
         print("\n=== First read (populating cache) ===")
         start_time = time.time()
-        data1 = fs.read_json(sample_file)
+        data1 = fs.read_json(sample_file, as_dataframe=False)  # Returns list of records
         first_read_time = time.time() - start_time
         print(f"First read completed in {first_read_time:.4f} seconds")
-        print(f"Data keys: {list(data1.keys())}")
+        print(f"Data type: {type(data1)}")
+        if isinstance(data1, list) and len(data1) > 0:
+            print(f"Data keys: {list(data1[0].keys())}")
+        else:
+            print(f"Data: {data1}")
 
         # Check if cache files were created
         cache_files = []
@@ -74,10 +79,14 @@ def main():
         # Second read - this should use the cache
         print("\n=== Second read (using cache) ===")
         start_time = time.time()
-        data2 = fs.read_json(sample_file)
+        data2 = fs.read_json(sample_file, as_dataframe=False)
         second_read_time = time.time() - start_time
         print(f"Second read completed in {second_read_time:.4f} seconds")
-        print(f"Data keys: {list(data2.keys())}")
+        print(f"Data type: {type(data2)}")
+        if isinstance(data2, list) and len(data2) > 0:
+            print(f"Data keys: {list(data2[0].keys())}")
+        else:
+            print(f"Data: {data2}")
 
         # Verify data is the same
         assert data1 == data2, "Data from first and second reads should be identical"
@@ -86,17 +95,21 @@ def main():
         # Demonstrate cache effectiveness by removing original file
         print("\n=== Demonstrating cache effectiveness ===")
         print("Removing original file...")
-        os.remove(sample_file)
-        print(f"Original file exists: {os.path.exists(sample_file)}")
+        os.remove(abs_sample_file)  # Remove the absolute path file
+        print(f"Original file exists: {os.path.exists(abs_sample_file)}")
 
         # Third read - this should still work from cache
         print("\n=== Third read (from cache only) ===")
         try:
             start_time = time.time()
-            data3 = fs.read_json(sample_file)
+            data3 = fs.read_json(sample_file, as_dataframe=False)
             third_read_time = time.time() - start_time
             print(f"Third read completed in {third_read_time:.4f} seconds")
-            print(f"Data keys: {list(data3.keys())}")
+            print(f"Data type: {type(data3)}")
+            if isinstance(data3, list) and len(data3) > 0:
+                print(f"Data keys: {list(data3[0].keys())}")
+            else:
+                print(f"Data: {data3}")
 
             # Verify data is still the same
             assert data1 == data3, "Data from cache should be identical to original"

@@ -29,6 +29,7 @@ import pyarrow.parquet as pq
 # Try to import pandas and polars, but handle gracefully if not available
 try:
     import pandas as pd
+
     PANDAS_AVAILABLE = True
 except ImportError:
     PANDAS_AVAILABLE = False
@@ -36,12 +37,13 @@ except ImportError:
 
 try:
     import polars as pl
+
     POLARS_AVAILABLE = True
 except ImportError:
     POLARS_AVAILABLE = False
     pl = None
 
-from fsspeckit.common.types import to_pyarrow_table, to_pandas_df, to_polars_df
+from fsspeckit.common.types import to_pyarrow_table, dict_to_dataframe
 
 
 def create_sample_data() -> pa.Table:
@@ -63,13 +65,29 @@ def create_sample_data() -> pa.Table:
             "price": round((i * 1.5 + 10), 2),
             "quantity": i % 100 + 1,
             "in_stock": i % 3 != 0,  # Some out of stock
-            "created_date": (datetime(2024, 1, 1) + timedelta(days=i % 365)).strftime("%Y-%m-%d"),
+            "created_date": (datetime(2024, 1, 1) + timedelta(days=i % 365)).strftime(
+                "%Y-%m-%d"
+            ),
             "rating": round((i % 50) / 10 + 1, 1),
-            "tags": [f"tag_{j}" for j in range(i % 5)]  # List data
+            "tags": [f"tag_{j}" for j in range(i % 5)],  # List data
         }
         records.append(record)
 
-    data = pa.table(records)
+    # Convert to PyArrow table using pa.Table.from_pydict
+    data = pa.Table.from_pydict(
+        {
+            "id": [r["id"] for r in records],
+            "name": [r["name"] for r in records],
+            "category": [r["category"] for r in records],
+            "brand": [r["brand"] for r in records],
+            "price": [r["price"] for r in records],
+            "quantity": [r["quantity"] for r in records],
+            "in_stock": [r["in_stock"] for r in records],
+            "created_date": [r["created_date"] for r in records],
+            "rating": [r["rating"] for r in records],
+            "tags": [r["tags"] for r in records],
+        }
+    )
     print(f"Created dataset with {len(data)} rows and {len(data.schema)} columns")
     return data
 
@@ -102,29 +120,48 @@ def demonstrate_basic_pyarrow_conversions():
 
     # Convert quantity to smaller integer type if possible
     quantity_col = data.column("quantity")
-    quantity_min, quantity_max = pc.min_max(quantity_col).as_py()
+    quantity_stats = pc.min_max(quantity_col).as_py()
+    # Handle the case where min_max returns string keys
+    if isinstance(quantity_stats, dict):
+        quantity_min = quantity_stats.get("min", 0)
+        quantity_max = quantity_stats.get("max", 255)
+    else:
+        quantity_min, quantity_max = quantity_stats
+
+    try:
+        quantity_min = int(quantity_min) if quantity_min is not None else 0
+        quantity_max = int(quantity_max) if quantity_max is not None else 255
+    except (ValueError, TypeError):
+        quantity_min, quantity_max = 0, 255
+
     if quantity_min >= 0 and quantity_max <= 255:
         quantity_uint8 = quantity_col.cast(pa.uint8())
-        print(f"  Quantity: {quantity_col.type} -> uint8 (range: {quantity_min}-{quantity_max})")
+        print(
+            f"  Quantity: {quantity_col.type} -> uint8 (range: {quantity_min}-{quantity_max})"
+        )
 
     # Convert category to dictionary for efficiency
     category_col = data.column("category")
     category_dict = pc.dictionary_encode(category_col)
-    print(f"  Category: {category_col.type} -> {category_dict.type} (dictionary encoding)")
+    print(
+        f"  Category: {category_col.type} -> {category_dict.type} (dictionary encoding)"
+    )
 
     # Create optimized table
-    optimized_schema = pa.schema([
-        pa.field("id", pa.int32()),
-        pa.field("name", pa.string()),
-        pa.field("category", pa.dictionary(pa.int8(), pa.string())),
-        pa.field("brand", pa.dictionary(pa.int8(), pa.string())),
-        pa.field("price", pa.float32()),
-        pa.field("quantity", pa.uint8()),
-        pa.field("in_stock", pa.bool_()),
-        pa.field("created_date", pa.string()),
-        pa.field("rating", pa.float32()),
-        pa.field("tags", pa.list_(pa.string()))
-    ])
+    optimized_schema = pa.schema(
+        [
+            pa.field("id", pa.int32()),
+            pa.field("name", pa.string()),
+            pa.field("category", pa.dictionary(pa.int8(), pa.string())),
+            pa.field("brand", pa.dictionary(pa.int8(), pa.string())),
+            pa.field("price", pa.float32()),
+            pa.field("quantity", pa.uint8()),
+            pa.field("in_stock", pa.bool_()),
+            pa.field("created_date", pa.string()),
+            pa.field("rating", pa.float32()),
+            pa.field("tags", pa.list_(pa.string())),
+        ]
+    )
 
     try:
         optimized_table = data.cast(optimized_schema)
@@ -159,12 +196,14 @@ def demonstrate_pandas_conversion():
     print("Converting PyArrow table to pandas DataFrame...")
 
     try:
-        # Use fsspeckit conversion function
-        pandas_df = to_pandas_df(arrow_table)
+        # Convert to pandas DataFrame directly
+        pandas_df = arrow_table.to_pandas()
 
         print("✅ Conversion successful")
         print(f"  DataFrame shape: {pandas_df.shape}")
-        print(f"  Memory usage: {pandas_df.memory_usage(deep=True).sum() / 1024 / 1024:.2f} MB")
+        print(
+            f"  Memory usage: {pandas_df.memory_usage(deep=True).sum() / 1024 / 1024:.2f} MB"
+        )
 
         # Show data types comparison
         print(f"\n📋 Data Type Comparison:")
@@ -180,13 +219,15 @@ def demonstrate_pandas_conversion():
         categorical_cols = ["category", "brand"]
         for col in categorical_cols:
             if col in pandas_df.columns:
-                pandas_df[col] = pandas_df[col].astype('category')
+                pandas_df[col] = pandas_df[col].astype("category")
                 print(f"  {col}: converted to category")
 
         # Convert numeric columns to optimal types
         for col in ["price", "quantity", "rating"]:
             if col in pandas_df.columns:
-                pandas_df[col] = pandas.to_numeric(pandas_df[col], downcast='float' if 'price' in col else 'integer')
+                pandas_df[col] = pd.to_numeric(
+                    pandas_df[col], downcast="float" if "price" in col else "integer"
+                )
                 print(f"  {col}: downcast to {pandas_df[col].dtype}")
 
         # Calculate memory savings
@@ -223,8 +264,8 @@ def demonstrate_polars_conversion():
     print("Converting PyArrow table to Polars DataFrame...")
 
     try:
-        # Use fsspeckit conversion function
-        polars_df = to_polars_df(arrow_table)
+        # Convert to Polars DataFrame directly
+        polars_df = pl.from_arrow(arrow_table)
 
         print("✅ Conversion successful")
         print(f"  DataFrame shape: {polars_df.shape}")
@@ -245,22 +286,22 @@ def demonstrate_polars_conversion():
         categorical_cols = ["category", "brand"]
         for col in categorical_cols:
             if col in polars_df.columns:
-                polars_df = polars_df.with_columns(
-                    pl.col(col).cast(pl.Categorical)
-                )
+                polars_df = polars_df.with_columns(pl.col(col).cast(pl.Categorical))
                 print(f"  {col}: converted to Categorical")
 
         # Convert to optimal numeric types
-        polars_df = polars_df.with_columns([
-            pl.col("price").cast(pl.Float32),
-            pl.col("quantity").cast(pl.Int16),
-            pl.col("rating").cast(pl.Float32)
-        ])
+        polars_df = polars_df.with_columns(
+            [
+                pl.col("price").cast(pl.Float32),
+                pl.col("quantity").cast(pl.Int16),
+                pl.col("rating").cast(pl.Float32),
+            ]
+        )
         print("  Numeric columns: converted to optimal types")
 
         # Compare memory usage
         arrow_memory = arrow_table.nbytes / 1024 / 1024
-        polars_memory = polars_df.estimated_size('mb')
+        polars_memory = polars_df.estimated_size("mb")
 
         print(f"\n💾 Memory Comparison:")
         print(f"  PyArrow: {arrow_memory:.2f} MB")
@@ -315,8 +356,7 @@ def demonstrate_cross_format_operations():
 
             # Check data integrity
             price_diff = pc.subtract(
-                arrow_table.column("price"),
-                arrow_from_parquet.column("price")
+                arrow_table.column("price"), arrow_from_parquet.column("price")
             )
             max_price_diff = pc.max(pc.abs(price_diff)).as_py()
 
@@ -337,6 +377,7 @@ def demonstrate_cross_format_operations():
     finally:
         # Cleanup
         import shutil
+
         shutil.rmtree(temp_dir)
 
 
@@ -346,12 +387,16 @@ def demonstrate_type_safe_conversions():
     print("\n🛡️  Type-Safe Conversion Patterns")
 
     # Create data with potential type issues
-    problematic_data = pa.table({
-        "mixed_numbers": pa.array(["1", "2.5", "3", "invalid", "5"]),
-        "dates": pa.array(["2024-01-01", "2024-02-30", "2024-03-15", None, "2024-04-01"]),
-        "booleans": pa.array(["true", "false", "1", "0", "maybe"]),
-        "ids": pa.array([1, 2, None, 4, "invalid"])
-    })
+    problematic_data = pa.table(
+        {
+            "mixed_numbers": pa.array(["1", "2.5", "3", "invalid", "5"]),
+            "dates": pa.array(
+                ["2024-01-01", "2024-02-30", "2024-03-15", None, "2024-04-01"]
+            ),
+            "booleans": pa.array(["true", "false", "1", "0", "maybe"]),
+            "ids": pa.array([1, 2, None, 4, 5]),  # Fixed: removed invalid string
+        }
+    )
 
     print("Problematic data:")
     for field in problematic_data.schema:
@@ -390,7 +435,11 @@ def demonstrate_type_safe_conversions():
                     if val is None:
                         results.append(None)
                     elif isinstance(val, str):
-                        results.append(float(val) if val.replace('.', '').isdigit() else default_value)
+                        results.append(
+                            float(val)
+                            if val.replace(".", "").isdigit()
+                            else default_value
+                        )
                     else:
                         results.append(float(val))
                 except:
@@ -408,9 +457,9 @@ def demonstrate_type_safe_conversions():
                     results.append(None)
                 elif isinstance(val, str):
                     val_lower = val.lower()
-                    if val_lower in ['true', '1', 'yes', 'on']:
+                    if val_lower in ["true", "1", "yes", "on"]:
                         results.append(True)
-                    elif val_lower in ['false', '0', 'no', 'off']:
+                    elif val_lower in ["false", "0", "no", "off"]:
                         results.append(False)
                     else:
                         results.append(default_value)
@@ -454,12 +503,16 @@ def demonstrate_memory_efficient_conversions():
 
     # Create large dataset to show memory considerations
     print("Creating large dataset...")
-    large_data = pa.table({
-        "id": pa.array(range(50000)),
-        "value": pa.array([x * 1.1 for x in range(50000)]),
-        "category": pa.array([f"Category_{x % 100}" for x in range(50000)]),
-        "description": pa.array([f"Description for item {x}" for x in range(50000)])
-    })
+    large_data = pa.table(
+        {
+            "id": pa.array(range(50000)),
+            "value": pa.array([x * 1.1 for x in range(50000)]),
+            "category": pa.array([f"Category_{x % 100}" for x in range(50000)]),
+            "description": pa.array(
+                [f"Description for item {x}" for x in range(50000)]
+            ),
+        }
+    )
 
     original_memory = large_data.nbytes / 1024 / 1024
     print(f"Large dataset: {len(large_data):,} rows, {original_memory:.2f} MB")
@@ -469,37 +522,47 @@ def demonstrate_memory_efficient_conversions():
     projected = large_data.select(["id", "value"])
     projected_memory = projected.nbytes / 1024 / 1024
     reduction = (1 - projected_memory / original_memory) * 100
-    print(f"   Selected 2/4 columns: {projected_memory:.2f} MB ({reduction:.1f}% reduction)")
+    print(
+        f"   Selected 2/4 columns: {projected_memory:.2f} MB ({reduction:.1f}% reduction)"
+    )
 
     # Strategy 2: Row filtering before conversion
     print(f"\n2. Early Filtering:")
     filtered = large_data.filter(pc.greater(large_data.column("value"), 25000))
     filtered_memory = filtered.nbytes / 1024 / 1024
     reduction = (1 - filtered_memory / original_memory) * 100
-    print(f"   Filtered >25000: {len(filtered):,} rows, {filtered_memory:.2f} MB ({reduction:.1f}% reduction)")
+    print(
+        f"   Filtered >25000: {len(filtered):,} rows, {filtered_memory:.2f} MB ({reduction:.1f}% reduction)"
+    )
 
     # Strategy 3: Type optimization before pandas conversion
     if PANDAS_AVAILABLE:
         print(f"\n3. Optimized Pandas Conversion:")
 
         # Convert with PyArrow optimizations first
-        optimized_arrow = large_data.cast(pa.schema([
-            pa.field("id", pa.int32()),
-            pa.field("value", pa.float32()),
-            pa.field("category", pa.dictionary(pa.int16(), pa.string())),
-            pa.field("description", pa.string())
-        ]))
+        optimized_arrow = large_data.cast(
+            pa.schema(
+                [
+                    pa.field("id", pa.int32()),
+                    pa.field("value", pa.float32()),
+                    pa.field("category", pa.dictionary(pa.int16(), pa.string())),
+                    pa.field("description", pa.string()),
+                ]
+            )
+        )
 
         # Convert to pandas
-        pandas_direct = to_pandas_df(large_data)
-        pandas_optimized = to_pandas_df(optimized_arrow)
+        pandas_direct = large_data.to_pandas()
+        pandas_optimized = optimized_arrow.to_pandas()
 
         direct_memory = pandas_direct.memory_usage(deep=True).sum() / 1024 / 1024
         optimized_memory = pandas_optimized.memory_usage(deep=True).sum() / 1024 / 1024
         savings = (1 - optimized_memory / direct_memory) * 100
 
         print(f"   Direct conversion: {direct_memory:.2f} MB")
-        print(f"   Optimized conversion: {optimized_memory:.2f} MB ({savings:.1f}% savings)")
+        print(
+            f"   Optimized conversion: {optimized_memory:.2f} MB ({savings:.1f}% savings)"
+        )
 
     # Strategy 4: Chunked processing
     print(f"\n4. Chunked Processing:")
@@ -513,7 +576,9 @@ def demonstrate_memory_efficient_conversions():
 
     recombined = pa.concat_tables(processed_chunks)
     print(f"   Processed in {len(processed_chunks)} chunks of {chunk_size:,} rows")
-    print(f"   Result: {len(recombined):,} rows, {recombined.nbytes / 1024 / 1024:.2f} MB")
+    print(
+        f"   Result: {len(recombined):,} rows, {recombined.nbytes / 1024 / 1024:.2f} MB"
+    )
 
 
 def main():
