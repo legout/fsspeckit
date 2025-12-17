@@ -186,13 +186,24 @@ class TestPyarrowDatasetHandlerAPISymmetry:
         assert hasattr(handler, "optimize_parquet_dataset")
         assert callable(handler.optimize_parquet_dataset)
 
-    def test_has_convenience_methods(self):
-        """Test that handler has all convenience methods."""
+    def test_has_modern_api_methods(self):
+        """Test that handler has modern dataset API methods."""
         handler = PyarrowDatasetHandler()
-        assert hasattr(handler, "insert_dataset")
-        assert hasattr(handler, "upsert_dataset")
-        assert hasattr(handler, "update_dataset")
-        assert hasattr(handler, "deduplicate_dataset")
+        assert hasattr(handler, "write_dataset")
+        assert hasattr(handler, "merge")
+        # Legacy convenience methods should be disabled
+        legacy_methods = [
+            "insert_dataset",
+            "upsert_dataset",
+            "update_dataset",
+            "deduplicate_dataset",
+        ]
+        for method in legacy_methods:
+            assert hasattr(
+                handler, method
+            )  # Method exists but should raise NotImplementedError
+            with pytest.raises(NotImplementedError, match="has been removed"):
+                getattr(handler, method)(None, "/tmp/test")
 
 
 class TestOptionalDependencyHandling:

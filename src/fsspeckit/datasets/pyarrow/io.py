@@ -377,20 +377,46 @@ class PyarrowDatasetIO:
             "write_parquet_dataset has been removed. Use write_dataset(...) for append/overwrite writes "
             "or merge(...) for insert/update/upsert."
         )
-            target = self._normalize_path(target)
+    def merge_parquet_dataset(
+        self,
+        sources: list[str],
+        output_path: str,
+        target: str | None = None,
+        strategy: str | MergeStrategy = "deduplicate",
+        key_columns: list[str] | str | None = None,
+        compression: str | None = None,
+        verbose: bool = False,
+        **kwargs: Any,
+    ) -> MergeStats:
+        """Merge multiple parquet datasets using PyArrow.
 
-        return merge_parquet_dataset_pyarrow(
-            sources=sources,
-            output_path=output_path,
-            target=target,
-            strategy=strategy,
-            key_columns=key_columns,
-            filesystem=self._filesystem,
-            compression=compression,
-            verbose=verbose,
-            **kwargs,
+        Args:
+            sources: List of source dataset paths
+            output_path: Path for merged output
+            target: Target dataset path (for upsert/update strategies)
+            strategy: Merge strategy to use (default: deduplicate)
+            key_columns: Key columns for merging
+            compression: Output compression codec
+            verbose: Print progress information
+            **kwargs: Additional arguments
+
+        Returns:
+            MergeStats with merge statistics
+
+        Example:
+            ```python
+            io = PyarrowDatasetIO()
+            stats = io.merge_parquet_dataset(
+                sources=["dataset1/", "dataset2/"],
+                output_path="merged/",
+                strategy="deduplicate",
+                key_columns=["id"],
+            )
+            ```
+        """
+        raise NotImplementedError(
+            "merge_parquet_dataset has been removed. Use merge(...) for incremental merges."
         )
-
     def compact_parquet_dataset(
         self,
         path: str,
@@ -509,16 +535,6 @@ class PyarrowDatasetIO:
         raise NotImplementedError(
             "insert_dataset has been removed. Use merge(..., strategy='insert') instead."
         )
-        if not key_columns:
-            raise ValueError("key_columns is required for insert_dataset")
-
-        self.write_parquet_dataset(
-            data=data,
-            path=path,
-            strategy="insert",
-            key_columns=key_columns,
-            **kwargs,
-        )
 
     def upsert_dataset(
         self,
@@ -542,18 +558,6 @@ class PyarrowDatasetIO:
         """
         raise NotImplementedError(
             "upsert_dataset has been removed. Use merge(..., strategy='upsert') instead."
-        )
-        if not key_columns:
-            raise ValueError("key_columns is required for upsert_dataset")
-
-        self.write_parquet_dataset(
-            data=data,
-            path=path,
-            strategy="upsert",
-            key_columns=key_columns,
-            **kwargs,
-        )
-
     def update_dataset(
         self,
         data: pa.Table | list[pa.Table],
@@ -576,18 +580,6 @@ class PyarrowDatasetIO:
         """
         raise NotImplementedError(
             "update_dataset has been removed. Use merge(..., strategy='update') instead."
-        )
-        if not key_columns:
-            raise ValueError("key_columns is required for update_dataset")
-
-        self.write_parquet_dataset(
-            data=data,
-            path=path,
-            strategy="update",
-            key_columns=key_columns,
-            **kwargs,
-        )
-
     def deduplicate_dataset(
         self,
         data: pa.Table | list[pa.Table],
@@ -607,15 +599,6 @@ class PyarrowDatasetIO:
         """
         raise NotImplementedError(
             "deduplicate_dataset has been removed. Use a dedicated dataset maintenance API instead."
-        )
-        self.write_parquet_dataset(
-            data=data,
-            path=path,
-            strategy="deduplicate",
-            key_columns=key_columns,
-            **kwargs,
-        )
-
     def _write_parquet_dataset_incremental(
         self,
         data: pa.Table | list[pa.Table],

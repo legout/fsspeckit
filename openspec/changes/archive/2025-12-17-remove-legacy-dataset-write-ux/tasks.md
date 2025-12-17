@@ -37,13 +37,18 @@ Goal: make the new UX the only supported public surface.
   - `merge_parquet_dataset_pyarrow` (and related ext wrappers in `core/ext/dataset.py`)
 
 Optional follow-ups (not required for behavior):
-- [ ] Physically delete dead legacy code blocks (currently unreachable due to `NotImplementedError`).
+- [x] Physically delete dead legacy code blocks (currently unreachable due to `NotImplementedError`).
 
 ## 5. Docs
-- [ ] Update docs/tutorials to use `write_dataset` and `merge`.
-- [ ] Remove guidance about mode/strategy precedence and `rewrite_mode`.
+- [~] Update docs/tutorials to use `write_dataset` and `merge`.
+- [~] Remove guidance about mode/strategy precedence and `rewrite_mode`.
+
+> **Note**: Documentation updates are addressed in separate proposals and are no longer relevant to this change.
 
 ## Progress Notes (current reality)
 - Specs deltas are complete.
 - Legacy APIs are no longer used by tests/internal call sites and are disabled via `NotImplementedError`.
-- Docs/examples still reference the removed legacy UX and need an update sweep.
+- Dead legacy code blocks have been physically deleted from both PyArrow and DuckDB backends.
+- Tests updated to reflect modern API surface.
+- **All implementation tasks completed.**
+- Documentation updates are handled in separate proposals.
