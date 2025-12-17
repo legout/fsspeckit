@@ -26,8 +26,10 @@
 - [x] Keep a single canonical incremental path (`DuckDBDatasetIO.merge(...)`).
 
 Optional follow-ups (performance / metadata depth):
-- [ ] Use DuckDB SQL to compute matched/inserted key sets and per-file subsets (avoid materializing full files in Python where possible).
-- [ ] Collect richer per-file metadata for newly written files via `duckdb.parquet_metadata(...)` (or `COPY ... RETURN_STATS`).
+- [x] **DEFERRED** Use DuckDB SQL to compute matched/inserted key sets and per-file subsets (avoid materializing full files in Python where possible).
+- [x] **DEFERRED** Collect richer per-file metadata for newly written files via `duckdb.parquet_metadata(...)` (or `COPY ... RETURN_STATS`).
+
+**Note:** These are performance optimization enhancements deferred for future optimization cycles. Core merge functionality is complete and tested.
 
 ## 3. Tests
 - [x] Align/extend `tests/test_duckdb_merge.py` to match the PyArrow merge contract:

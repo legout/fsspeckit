@@ -273,3 +273,152 @@ def plan_incremental_rewrite(
 - `core-maintenance`: Uses incremental rewrite for maintenance operations
 - `datasets-duckdb`: DuckDB merge implementation uses this core
 - `utils-pyarrow`: PyArrow merge implementation uses this core
+## Requirements
+### Requirement: Incremental Merge Planning Uses Partition and Statistics Pruning
+Merge planning SHALL reduce candidate files using partition information and parquet metadata statistics where available.
+
+#### Scenario: Partition pruning reduces candidate files
+- **GIVEN** a hive-partitioned dataset under `path` (e.g. `day=2025-01-01/`)
+- **AND** the source contains only rows for a single partition value
+- **WHEN** the system plans a merge for `key_columns=["id"]`
+- **THEN** the system SHALL consider only files within the matching partition(s) as candidates
+- **AND** SHALL treat files with unknown partition values conservatively (not pruned)
+
+#### Scenario: Statistics pruning excludes non-overlapping files
+- **GIVEN** parquet metadata contains exact min/max statistics for `key_columns`
+- **AND** a parquet file’s key range does not overlap the source key range
+- **WHEN** the system plans a merge
+- **THEN** that parquet file SHALL be excluded from rewrite candidates
+
+### Requirement: Conservative Pruning Preserves Correctness
+When file membership cannot be proven via partition info or metadata statistics, the system SHALL behave conservatively.
+
+#### Scenario: Missing or inexact stats treated as unknown membership
+- **WHEN** a parquet file has missing or inexact key statistics
+- **THEN** the system SHALL treat that file as a candidate (not pruned)
+
+### Requirement: Full Row Replacement Semantics
+For merge operations, matching keys SHALL be updated via full-row replacement.
+
+#### Scenario: Update replaces full rows
+- **GIVEN** a target dataset row with key `id=1` and columns `{id, a, b}`
+- **AND** the source provides a row for `id=1` with columns `{id, a, b}`
+- **WHEN** the system merges using `key_columns=["id"]`
+- **THEN** the resulting row for `id=1` SHALL equal the source row for all columns
+
+### Requirement: Partition Columns Cannot Change (Initial Implementation)
+For partitioned datasets, merge operations SHALL reject updates that would move existing keys between partitions.
+
+#### Scenario: Reject partition movement on update
+- **GIVEN** a dataset is partitioned by `["day"]`
+- **AND** the target contains key `id=1` in partition `day=2025-01-01`
+- **AND** the source provides key `id=1` with `day=2025-01-02`
+- **WHEN** the system merges using `key_columns=["id"]` and `partition_by=["day"]`
+- **THEN** the method SHALL raise `ValueError` indicating partition columns cannot change for existing keys
+
+### Requirement: `write_dataset` Supports Append and Overwrite
+The system SHALL provide `write_dataset(..., mode=...)` for parquet dataset writes with `mode in {"append","overwrite"}`.
+
+#### Scenario: Append writes new parquet files only
+- **GIVEN** a dataset directory already contains parquet files
+- **WHEN** user calls `write_dataset(table, path, mode="append")`
+- **THEN** the system SHALL write additional parquet file(s) under `path`
+- **AND** SHALL NOT delete or rewrite existing parquet files
+
+#### Scenario: Overwrite replaces parquet data files
+- **GIVEN** a dataset directory contains parquet files and non-parquet files (e.g. `README.txt`)
+- **WHEN** user calls `write_dataset(table, path, mode="overwrite")`
+- **THEN** the system SHALL remove existing parquet *data* files under `path`
+- **AND** MAY preserve non-parquet files
+- **AND** SHALL write the new dataset contents to fresh parquet file(s)
+
+### Requirement: Return File Metadata for Newly Written Files
+`write_dataset` SHALL return metadata entries for each parquet file it writes.
+
+#### Scenario: Append returns written file metadata
+- **WHEN** user calls `write_dataset(table, path, mode="append")`
+- **THEN** the result SHALL include metadata entries for each newly written file
+- **AND** each entry SHALL include at least file path and row count
+
+### Requirement: `merge` Supports Insert, Update, Upsert (DuckDB)
+The DuckDB dataset IO SHALL provide `merge(..., strategy=...)` with `strategy in {"insert","update","upsert"}`.
+
+#### Scenario: Insert appends only new keys
+- **GIVEN** a target dataset exists with key `id=1`
+- **WHEN** user calls `merge(source, path, strategy="insert", key_columns=["id"])` with keys `id=1` and `id=2`
+- **THEN** the system SHALL write parquet file(s) containing only rows for `id=2`
+- **AND** SHALL NOT rewrite existing parquet files
+
+#### Scenario: Update preserves unaffected rows
+- **GIVEN** a target dataset exists with rows for keys `id=1` and `id=2`
+- **AND** the source provides only key `id=2`
+- **WHEN** user calls `merge(source, path, strategy="update", key_columns=["id"])`
+- **THEN** the resulting dataset SHALL still contain the row for `id=1`
+- **AND** SHALL update the row for `id=2`
+
+#### Scenario: Composite keys work for upsert
+- **GIVEN** a target dataset exists with keys `(id=1, category="A")` and `(id=2, category="B")`
+- **WHEN** user calls `merge(source, path, strategy="upsert", key_columns=["id","category"])`
+- **THEN** the system SHALL treat the composite tuple as the key
+- **AND** SHALL update matching tuples and insert only non-matching tuples
+
+#### Scenario: Conservative pruning + key-scan confirmation
+- **GIVEN** a target dataset exists with many parquet files
+- **AND** the source keys touch only a subset of those files
+- **WHEN** user calls `merge(source, path, strategy="update", key_columns=[...])`
+- **THEN** the system SHALL prune candidate files conservatively (partition parsing + parquet stats when available)
+- **AND** SHALL confirm affected files by scanning only `key_columns`
+- **AND** SHALL rewrite only confirmed affected files
+
+### Requirement: Merge Returns File Metadata (DuckDB)
+`merge` SHALL return metadata for files it rewrites or writes.
+
+#### Scenario: Upsert returns metadata for rewritten and inserted files
+- **WHEN** user calls `merge(source, path, strategy="upsert", key_columns=["id"])`
+- **THEN** the result SHALL include metadata for each rewritten file
+- **AND** SHALL include metadata for each newly written insert file
+
+#### Scenario: Parquet metadata is the default metadata source
+- **WHEN** the system needs per-file row counts and size for `MergeFileMetadata`
+- **THEN** it SHOULD prefer parquet metadata (`duckdb.parquet_metadata(...)` or `pyarrow.parquet.read_metadata`)
+- **AND** MAY use `COPY ... RETURN_STATS` as an optimization but MUST NOT depend on it for correctness
+
+### Requirement: Single Canonical Incremental Merge Path (DuckDB)
+The DuckDB backend SHALL implement incremental merge semantics in one place and SHALL reuse it across APIs.
+
+#### Scenario: `write_parquet_dataset(rewrite_mode="incremental")` delegates to `merge`
+- **GIVEN** a DuckDB handler supports both `merge(...)` and `write_parquet_dataset(..., rewrite_mode="incremental")`
+- **WHEN** user calls `write_parquet_dataset(source, path, strategy="update"|"upsert", rewrite_mode="incremental")`
+- **THEN** the handler SHOULD delegate to the same incremental merge implementation used by `merge(...)`
+
+### Requirement: `merge` Supports Insert, Update, Upsert (PyArrow)
+The PyArrow dataset IO SHALL provide `merge(..., strategy=...)` with `strategy in {"insert","update","upsert"}`.
+
+#### Scenario: Insert appends only new keys
+- **GIVEN** a target dataset exists with key `id=1`
+- **WHEN** user calls `merge(source, path, strategy="insert", key_columns=["id"])` with keys `id=1` and `id=2`
+- **THEN** the system SHALL write parquet file(s) containing only rows for `id=2`
+- **AND** SHALL NOT rewrite existing parquet files
+
+#### Scenario: Update rewrites only affected files
+- **GIVEN** a target dataset exists with many parquet files
+- **WHEN** user calls `merge(source, path, strategy="update", key_columns=["id"])`
+- **THEN** the system SHALL rewrite only parquet files that actually contain keys present in `source`
+- **AND** SHALL preserve all other parquet files unchanged
+- **AND** SHALL NOT write inserts for keys not present in the target
+
+#### Scenario: Upsert rewrites affected files and appends inserts
+- **GIVEN** a target dataset exists with many parquet files
+- **WHEN** user calls `merge(source, path, strategy="upsert", key_columns=["id"])`
+- **THEN** the system SHALL rewrite only parquet files that actually contain keys present in `source`
+- **AND** SHALL write additional new parquet file(s) for keys not present in the target
+- **AND** SHALL preserve all other parquet files unchanged
+
+### Requirement: Merge Returns File Metadata (PyArrow)
+`merge` SHALL return metadata for files it rewrites or writes.
+
+#### Scenario: Upsert returns metadata for rewritten and inserted files
+- **WHEN** user calls `merge(source, path, strategy="upsert", key_columns=["id"])`
+- **THEN** the result SHALL include metadata for each rewritten file
+- **AND** SHALL include metadata for each newly written insert file
+

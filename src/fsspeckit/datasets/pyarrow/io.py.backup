@@ -1,0 +1,1813 @@
+"""PyArrow dataset I/O and maintenance operations.
+
+This module contains the PyarrowDatasetIO class for reading, writing, and
+maintaining parquet datasets using PyArrow's high-performance engine.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    import pyarrow as pa
+    from fsspec import AbstractFileSystem
+
+    from fsspeckit.core.incremental import MergeResult
+    from fsspeckit.core.merge import MergeStats
+
+from fsspec import filesystem as fsspec_filesystem
+
+from fsspeckit.common.logging import get_logger
+from fsspeckit.common.optional import _import_pyarrow
+from fsspeckit.core.merge import MergeStrategy
+
+logger = get_logger(__name__)
+
+
+class PyarrowDatasetIO:
+    """PyArrow-based dataset I/O operations.
+
+    This class provides methods for reading and writing parquet files and datasets
+    using PyArrow's high-performance parquet engine.
+
+    The class delegates to existing PyArrow functions while providing an interface
+    symmetric with DuckDBDatasetIO for easy backend switching.
+
+    Args:
+        filesystem: Optional fsspec filesystem instance. If None, uses local filesystem.
+
+    Example:
+        ```python
+        from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+
+        io = PyarrowDatasetIO()
+
+        # Read parquet
+        table = io.read_parquet("/path/to/data.parquet")
+
+        # Write dataset
+        io.write_dataset(table, "/path/to/dataset/", mode="append")
+
+        # Merge into dataset
+        io.merge(table, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
+        ```
+    """
+
+    def __init__(
+        self,
+        filesystem: AbstractFileSystem | None = None,
+    ) -> None:
+        """Initialize PyArrow dataset I/O.
+
+        Args:
+            filesystem: Optional fsspec filesystem. If None, uses local filesystem.
+        """
+        from fsspeckit.common import optional as optional_module
+
+        if not optional_module._PYARROW_AVAILABLE:
+            raise ImportError(
+                "pyarrow is required for PyarrowDatasetIO. "
+                "Install with: pip install fsspeckit[datasets]"
+            )
+
+        if filesystem is None:
+            filesystem = fsspec_filesystem("file")
+
+        self._filesystem = filesystem
+
+    def _normalize_path(self, path: str) -> str:
+        """Normalize path to absolute path to avoid filesystem working directory issues."""
+        import os
+
+        return os.path.abspath(path)
+
+    @property
+    def filesystem(self) -> AbstractFileSystem:
+        """Return the filesystem instance."""
+        return self._filesystem
+
+    def read_parquet(
+        self,
+        path: str,
+        columns: list[str] | None = None,
+        filters: Any | None = None,
+        use_threads: bool = True,
+    ) -> pa.Table:
+        """Read parquet file(s) using PyArrow.
+
+        Args:
+            path: Path to parquet file or directory
+            columns: Optional list of columns to read
+            filters: Optional row filter expression
+            use_threads: Whether to use parallel reading (default: True)
+
+        Returns:
+            PyArrow table containing the data
+
+        Example:
+            ```python
+            io = PyarrowDatasetIO()
+            table = io.read_parquet("/path/to/file.parquet")
+
+            # With column selection
+            table = io.read_parquet(
+                "/path/to/data/",
+                columns=["id", "name", "value"]
+            )
+            ```
+        """
+        pa = _import_pyarrow()
+        import pyarrow.dataset as ds
+        import pyarrow.parquet as pq
+
+        from fsspeckit.common.security import validate_path
+
+        path = self._normalize_path(path)
+        validate_path(path)
+
+        # Check if path is a single file or directory
+        if self._filesystem.isfile(path):
+            return pq.read_table(
+                path,
+                filesystem=self._filesystem,
+                columns=columns,
+                filters=filters,
+                use_threads=use_threads,
+            )
+        else:
+            # Dataset directory
+            dataset = ds.dataset(
+                path,
+                filesystem=self._filesystem,
+                format="parquet",
+            )
+            return dataset.to_table(
+                columns=columns,
+                filter=filters,
+            )
+
+    def write_parquet(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        compression: str | None = "snappy",
+        row_group_size: int | None = None,
+    ) -> None:
+        """Write parquet file using PyArrow.
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Output file path
+            compression: Compression codec to use (default: snappy)
+            row_group_size: Rows per row group
+
+        Example:
+            ```python
+            import pyarrow as pa
+
+            table = pa.table({'a': [1, 2, 3], 'b': ['x', 'y', 'z']})
+            io = PyarrowDatasetIO()
+            io.write_parquet(table, "/tmp/data.parquet")
+            ```
+        """
+        pa_mod = _import_pyarrow()
+        import pyarrow.parquet as pq
+
+        from fsspeckit.common.security import validate_compression_codec, validate_path
+
+        path = self._normalize_path(path)
+        validate_path(path)
+        validate_compression_codec(compression)
+
+        # Handle list of tables
+        if isinstance(data, list):
+            data = pa_mod.concat_tables(data, promote_options="permissive")
+
+        pq.write_table(
+            data,
+            path,
+            filesystem=self._filesystem,
+            compression=compression,
+            row_group_size=row_group_size,
+        )
+
+    def write_dataset(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        *,
+        mode: Literal["append", "overwrite"] = "append",
+        basename_template: str | None = None,
+        schema: pa.Schema | None = None,
+        partition_by: str | list[str] | None = None,
+        compression: str | None = "snappy",
+        max_rows_per_file: int | None = 5_000_000,
+        row_group_size: int | None = 500_000,
+    ) -> "WriteDatasetResult":
+        """Write a parquet dataset and return per-file metadata."""
+        import uuid
+
+        import pyarrow.dataset as pds
+        import pyarrow.parquet as pq
+
+        from fsspeckit.common.security import validate_compression_codec, validate_path
+        from fsspeckit.datasets.write_result import (
+            FileWriteMetadata,
+            WriteDatasetResult,
+        )
+
+        pa_mod = _import_pyarrow()
+
+        path = self._normalize_path(path)
+        validate_path(path)
+        validate_compression_codec(compression)
+
+        if mode not in ("append", "overwrite"):
+            raise ValueError(f"mode must be 'append' or 'overwrite', got: {mode}")
+        if max_rows_per_file is not None and max_rows_per_file <= 0:
+            raise ValueError("max_rows_per_file must be > 0")
+        if row_group_size is not None and row_group_size <= 0:
+            raise ValueError("row_group_size must be > 0")
+        if (
+            max_rows_per_file is not None
+            and row_group_size is not None
+            and row_group_size > max_rows_per_file
+        ):
+            row_group_size = max_rows_per_file
+
+        # Combine list input.
+        if isinstance(data, list):
+            table = pa_mod.concat_tables(data, promote_options="permissive")
+        else:
+            table = data
+
+        if schema is not None:
+            from fsspeckit.common.schema import cast_schema
+
+            table = cast_schema(table, schema)
+
+        # Ensure dataset directory exists.
+        self._filesystem.mkdirs(path, exist_ok=True)
+
+        if mode == "overwrite":
+            self._clear_dataset_parquet_only(path)
+
+        if mode == "append" and (
+            basename_template is None or basename_template == "part-{i}.parquet"
+        ):
+            unique_id = uuid.uuid4().hex[:16]
+            basename_template = f"part-{unique_id}-{{i}}.parquet"
+
+        if basename_template is None:
+            basename_template = "part-{i}.parquet"
+
+        written: list[pds.WrittenFile] = []
+        file_options = pds.ParquetFileFormat().make_write_options(
+            compression=compression
+        )
+
+        write_options: dict[str, object] = {
+            "basename_template": basename_template,
+            "max_rows_per_file": max_rows_per_file,
+            "max_rows_per_group": row_group_size,
+            "existing_data_behavior": "overwrite_or_ignore",
+        }
+        if partition_by is not None:
+            write_options["partitioning"] = partition_by
+
+        pds.write_dataset(
+            table,
+            base_dir=path,
+            filesystem=self._filesystem,
+            format="parquet",
+            file_options=file_options,
+            file_visitor=written.append,
+            **write_options,
+        )
+
+        files: list[FileWriteMetadata] = []
+        for wf in written:
+            row_count = 0
+            if wf.metadata is not None:
+                row_count = int(wf.metadata.num_rows)
+            else:
+                try:
+                    row_count = int(
+                        pq.read_metadata(wf.path, filesystem=self._filesystem).num_rows
+                    )
+                except Exception:
+                    row_count = 0
+
+            size_bytes = None
+            if wf.size is not None:
+                size_bytes = int(wf.size)
+            else:
+                try:
+                    size_bytes = int(self._filesystem.size(wf.path))
+                except Exception:
+                    size_bytes = None
+
+            files.append(
+                FileWriteMetadata(
+                    path=wf.path,
+                    row_count=row_count,
+                    size_bytes=size_bytes,
+                )
+            )
+
+        return WriteDatasetResult(
+            files=files,
+            total_rows=sum(f.row_count for f in files),
+            mode=mode,
+            backend="pyarrow",
+        )
+
+    def write_parquet_dataset(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        basename_template: str | None = None,
+        schema: pa.Schema | None = None,
+        partition_by: str | list[str] | None = None,
+        compression: str | None = "snappy",
+        max_rows_per_file: int | None = 5_000_000,
+        row_group_size: int | None = 500_000,
+        strategy: str | None = None,
+        key_columns: list[str] | str | None = None,
+        mode: Literal["append", "overwrite"] | None = "append",
+        rewrite_mode: Literal["full", "incremental"] | None = "full",
+    ) -> MergeStats | None:
+        """Write a parquet dataset using PyArrow with optional merge strategies.
+
+        When strategy is provided, the function performs an in-memory merge
+        and writes the result back to the dataset.
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Output directory path
+            basename_template: Template for file names (default: part-{i}.parquet)
+            schema: Optional schema to enforce
+            partition_by: Column(s) to partition by
+            compression: Compression codec (default: snappy)
+            max_rows_per_file: Maximum rows per file (default: 5,000,000)
+            row_group_size: Rows per row group (default: 500,000)
+            strategy: Optional merge strategy:
+                - 'insert': Only insert new records
+                - 'upsert': Insert or update existing records
+                - 'update': Only update existing records
+                - 'full_merge': Full replacement with source
+                - 'deduplicate': Remove duplicates
+            key_columns: Key columns for merge operations (required for relational strategies)
+            mode: Write mode:
+                - 'append': Add new files without deleting existing ones (default, safer)
+                - 'overwrite': Replace existing parquet files with new ones
+            rewrite_mode: Rewrite mode for merge strategies:
+                - 'full': Rewrite entire dataset (default, backward compatible)
+                - 'incremental': Only rewrite files affected by merge (requires strategy in {'upsert', 'update'})
+
+        Returns:
+            None (merge stats are not returned for PyArrow handler)
+
+        Note:
+            **Mode/Strategy Precedence**: When both mode and strategy are provided, strategy takes precedence
+            and mode is ignored. A warning is emitted when mode is explicitly provided alongside strategy.
+            For merge operations, the strategy semantics control the behavior regardless of the mode setting.
+        """
+        raise NotImplementedError(
+            "write_parquet_dataset has been removed. Use write_dataset(...) for append/overwrite writes "
+            "or merge(...) for insert/update/upsert."
+        )
+
+        # Validate rewrite_mode compatibility
+        from fsspeckit.core.merge import validate_rewrite_mode_compatibility
+
+        rewrite_mode_final = rewrite_mode or "full"  # Default to "full"
+        validate_rewrite_mode_compatibility(strategy_enum, rewrite_mode_final)
+
+        # Handle incremental rewrite
+        if rewrite_mode_final == "incremental" and target_exists:
+            if strategy_enum in [MergeStrategy.UPSERT, MergeStrategy.UPDATE]:
+                # Use incremental rewrite for UPSERT/UPDATE
+                return self._write_parquet_dataset_incremental(
+                    data=data,
+                    path=path,
+                    strategy=strategy_enum,
+                    key_columns=key_columns or [],
+                    basename_template=basename_template,
+                    schema=schema,
+                    partition_by=partition_by,
+                    compression=compression,
+                    max_rows_per_file=max_rows_per_file,
+                    row_group_size=row_group_size,
+                )
+            else:
+                # This should have been caught by validation, but double-check
+                raise ValueError(
+                    f"rewrite_mode='incremental' is not supported for strategy='{strategy_enum.value}'"
+                )
+
+        # For INSERT/UPSERT without existing target, do a simple write
+        if (
+            strategy_enum in [MergeStrategy.INSERT, MergeStrategy.UPSERT]
+            and not target_exists
+        ):
+            logger.info("Target doesn't exist, using simple write for %s", strategy)
+            self._write_dataset_standard(
+                data=data,
+                path=path,
+                basename_template=basename_template,
+                schema=schema,
+                partition_by=partition_by,
+                compression=compression,
+                max_rows_per_file=max_rows_per_file,
+                row_group_size=row_group_size,
+            )
+            return None
+
+        # For UPDATE without existing target, raise error
+        if strategy_enum == MergeStrategy.UPDATE and not target_exists:
+            raise ValueError("UPDATE strategy requires an existing target dataset")
+
+        # For DEDUPLICATE without existing target and no key_columns, just write
+        if (
+            strategy_enum == MergeStrategy.DEDUPLICATE
+            and not target_exists
+            and not key_columns
+        ):
+            self._write_dataset_standard(
+                data=data,
+                path=path,
+                basename_template=basename_template,
+                schema=schema,
+                partition_by=partition_by,
+                compression=compression,
+                max_rows_per_file=max_rows_per_file,
+                row_group_size=row_group_size,
+            )
+            return None
+
+        # Perform in-memory merge
+        self._perform_merge_in_memory(
+            data=data,
+            path=path,
+            strategy=strategy_enum,
+            key_columns=key_columns,
+            compression=compression,
+            max_rows_per_file=max_rows_per_file,
+            row_group_size=row_group_size,
+            partition_by=partition_by,
+        )
+
+        return None
+
+    def merge(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        strategy: Literal["insert", "update", "upsert"],
+        key_columns: list[str] | str,
+        *,
+        partition_columns: list[str] | str | None = None,
+        basename_template: str | None = None,
+        schema: pa.Schema | None = None,
+        partition_by: str | list[str] | None = None,
+        compression: str | None = "snappy",
+        max_rows_per_file: int | None = 5_000_000,
+        row_group_size: int | None = 500_000,
+    ) -> MergeResult:
+        """Merge data into an existing parquet dataset incrementally.
+
+        This method provides incremental, file-level merge behavior:
+        - `insert`: append only new keys as new file(s); never rewrites existing files.
+        - `update`: rewrite only files that actually contain keys being updated; never inserts.
+        - `upsert`: rewrite only affected files and append inserted keys as new file(s).
+
+        Invariants:
+        - Full-row replacement for matching keys.
+        - If `partition_columns` is provided, existing keys MUST NOT change those
+          column values.
+
+        Args:
+            data: Source data to merge.
+            path: Dataset directory.
+            strategy: Merge strategy ("insert", "update", "upsert").
+            key_columns: Key columns for matching.
+            partition_columns: Columns that must not change for existing keys.
+            basename_template: Basename template for new files (default: unique part-...-{i}.parquet).
+            schema: Optional schema to enforce for new files.
+            partition_by: Optional partitioning for newly written files (PyArrow write_dataset partitioning).
+            compression: Parquet compression codec.
+            max_rows_per_file: Max rows per newly written file.
+            row_group_size: Parquet row group size.
+
+        Returns:
+            MergeResult (from fsspeckit.core.incremental).
+        """
+        import uuid
+
+        import pyarrow.compute as pc
+        import pyarrow.dataset as pds
+        import pyarrow.parquet as pq
+
+        from fsspeckit.core.incremental import (
+            IncrementalFileManager,
+            MergeFileMetadata,
+            MergeResult,
+            confirm_affected_files,
+            extract_source_partition_values,
+            list_dataset_files,
+            plan_incremental_rewrite,
+            validate_no_null_keys,
+        )
+        from fsspeckit.core.merge import normalize_key_columns
+
+        pa_mod = _import_pyarrow()
+
+        path = self._normalize_path(path)
+
+        if strategy not in ("insert", "update", "upsert"):
+            raise ValueError("strategy must be one of: insert, update, upsert")
+
+        key_cols = normalize_key_columns(key_columns)
+
+        partition_cols: list[str] = []
+        if partition_columns is not None:
+            partition_cols = normalize_key_columns(partition_columns)
+
+        # Combine source input to a single table.
+        if isinstance(data, list):
+            source_table = pa_mod.concat_tables(data, promote_options="permissive")
+        else:
+            source_table = data
+
+        if schema is not None:
+            from fsspeckit.common.schema import cast_schema
+
+            source_table = cast_schema(source_table, schema)
+
+        validate_no_null_keys(source_table, key_cols)
+
+        for col in key_cols:
+            if col not in source_table.column_names:
+                raise ValueError(
+                    f"Key column '{col}' not found in source. "
+                    f"Available columns: {', '.join(source_table.column_names)}"
+                )
+
+        for col in partition_cols:
+            if col not in source_table.column_names:
+                raise ValueError(
+                    f"Partition column '{col}' not found in source. "
+                    f"Available columns: {', '.join(source_table.column_names)}"
+                )
+
+        # Build a unique-key version of the source (last-write-wins).
+        def _dedupe_source_last_wins(table: pa.Table) -> pa.Table:
+            if table.num_rows == 0:
+                return table
+
+            if len(key_cols) == 1:
+                keys = table.column(key_cols[0]).to_pylist()
+                last_index: dict[object, int] = {}
+                for idx, key in enumerate(keys):
+                    last_index[key] = idx
+                indices = sorted(last_index.values())
+            else:
+                key_arrays = [table.column(c).to_pylist() for c in key_cols]
+                last_index = {}
+                for idx, key in enumerate(zip(*key_arrays)):
+                    last_index[key] = idx
+                indices = sorted(last_index.values())
+
+            return table.take(pa_mod.array(indices, type=pa_mod.int64()))
+
+        source_table = _dedupe_source_last_wins(source_table)
+
+        # Extract source keys for planning.
+        if len(key_cols) == 1:
+            source_keys = source_table.column(key_cols[0]).to_pylist()
+            source_key_set = set(source_keys)
+        else:
+            arrays = [source_table.column(c).to_pylist() for c in key_cols]
+            source_keys = list(zip(*arrays))
+            source_key_set = set(source_keys)
+
+        # List existing parquet files in the dataset.
+        target_files = list_dataset_files(path, filesystem=self._filesystem)
+        target_exists = bool(target_files)
+
+        if not target_exists:
+            if strategy == "update":
+                raise ValueError("UPDATE strategy requires an existing target dataset")
+
+            # For INSERT/UPSERT into a non-existent dataset, just write all rows as inserts.
+            self._filesystem.mkdirs(path, exist_ok=True)
+            written: list[pds.WrittenFile] = []
+
+            unique_id = uuid.uuid4().hex[:16]
+            if basename_template is None:
+                basename_template = f"part-{unique_id}-{{i}}.parquet"
+
+            file_options = pds.ParquetFileFormat().make_write_options(
+                compression=compression
+            )
+
+            write_options: dict[str, object] = {
+                "basename_template": basename_template,
+                "max_rows_per_file": max_rows_per_file,
+                "max_rows_per_group": row_group_size,
+                "existing_data_behavior": "overwrite_or_ignore",
+            }
+            if partition_by is not None:
+                write_options["partitioning"] = partition_by
+
+            pds.write_dataset(
+                source_table,
+                base_dir=path,
+                filesystem=self._filesystem,
+                format="parquet",
+                file_options=file_options,
+                file_visitor=written.append,
+                **write_options,
+            )
+
+            inserted_files = [wf.path for wf in written]
+            files_meta = [
+                MergeFileMetadata(
+                    path=wf.path,
+                    row_count=int(wf.metadata.num_rows)
+                    if wf.metadata is not None
+                    else 0,
+                    operation="inserted",
+                    size_bytes=int(wf.size) if wf.size is not None else None,
+                )
+                for wf in written
+            ]
+
+            return MergeResult(
+                strategy=strategy,
+                source_count=source_table.num_rows,
+                target_count_before=0,
+                target_count_after=source_table.num_rows,
+                inserted=source_table.num_rows,
+                updated=0,
+                deleted=0,
+                files=files_meta,
+                rewritten_files=[],
+                inserted_files=inserted_files,
+                preserved_files=[],
+            )
+
+        # Existing dataset: plan incremental rewrite candidates using metadata.
+        source_partition_values: set[tuple[object, ...]] | None = None
+        if partition_cols:
+            source_partition_values = extract_source_partition_values(
+                source_table, partition_cols
+            )
+
+        rewrite_plan = plan_incremental_rewrite(
+            dataset_path=path,
+            source_keys=source_keys,
+            key_columns=key_cols,
+            filesystem=self._filesystem,
+            partition_columns=partition_cols or None,
+            source_partition_values=source_partition_values,
+        )
+
+        # Confirm actual affected files by scanning key columns.
+        candidate_files = rewrite_plan.affected_files
+        affected_files = confirm_affected_files(
+            candidate_files=candidate_files,
+            key_columns=key_cols,
+            source_keys=source_keys,
+            filesystem=self._filesystem,
+        )
+
+        # Compute per-file matched keys for accurate updates and insert determination.
+        matched_keys: set[object] = set()
+        matched_keys_by_file: dict[str, set[object]] = {}
+        for file_path in affected_files:
+            try:
+                key_table = pq.read_table(
+                    file_path, columns=key_cols, filesystem=self._filesystem
+                )
+                if len(key_cols) == 1:
+                    file_keys = set(key_table.column(key_cols[0]).to_pylist())
+                else:
+                    file_keys = set(
+                        zip(*[key_table.column(c).to_pylist() for c in key_cols])
+                    )
+                file_matched = source_key_set & file_keys
+                if file_matched:
+                    matched_keys_by_file[file_path] = set(file_matched)
+                    matched_keys |= set(file_matched)
+            except Exception:
+                # Conservative: assume all source keys might be present.
+                matched_keys_by_file[file_path] = set(source_key_set)
+                matched_keys |= set(source_key_set)
+
+        inserted_key_set = source_key_set - matched_keys
+
+        def _select_rows_by_keys(table: pa.Table, key_set: set[object]) -> pa.Table:
+            if not key_set:
+                return table.slice(0, 0)
+
+            if len(key_cols) == 1:
+                key_col = key_cols[0]
+                value_set = pa_mod.array(
+                    list(key_set), type=table.schema.field(key_col).type
+                )
+                mask = pc.is_in(table.column(key_col), value_set=value_set)
+                return table.filter(mask)
+
+            # Composite keys: use an inner join (struct is_in is not supported everywhere).
+            key_list = [tuple(k) for k in key_set]
+            key_columns_values = list(zip(*key_list))
+            value_arrays = [
+                pa_mod.array(list(values), type=table.schema.field(col).type)
+                for col, values in zip(key_cols, key_columns_values)
+            ]
+            keys_table = pa_mod.table(value_arrays, names=key_cols)
+            return table.join(
+                keys_table,
+                keys=key_cols,
+                join_type="inner",
+                coalesce_keys=True,
+            )
+
+        # Strategy semantics:
+        if strategy == "insert":
+            # Never rewrite existing files.
+            rewritten_files: list[str] = []
+            inserted_files: list[str] = []
+            preserved_files = list(target_files)
+
+            # If nothing to insert, return.
+            if not inserted_key_set:
+                target_count_before = sum(
+                    pq.read_metadata(f, filesystem=self._filesystem).num_rows
+                    for f in target_files
+                )
+                return MergeResult(
+                    strategy="insert",
+                    source_count=source_table.num_rows,
+                    target_count_before=target_count_before,
+                    target_count_after=target_count_before,
+                    inserted=0,
+                    updated=0,
+                    deleted=0,
+                    files=[
+                        MergeFileMetadata(path=f, row_count=0, operation="preserved")
+                        for f in preserved_files
+                    ],
+                    rewritten_files=rewritten_files,
+                    inserted_files=inserted_files,
+                    preserved_files=preserved_files,
+                )
+
+            # Write inserted rows as new file(s).
+            insert_table = _select_rows_by_keys(source_table, set(inserted_key_set))
+
+            written: list[pds.WrittenFile] = []
+            unique_id = uuid.uuid4().hex[:16]
+            insert_basename = (
+                basename_template
+                if basename_template is not None
+                else f"part-{unique_id}-{{i}}.parquet"
+            )
+
+            file_options = pds.ParquetFileFormat().make_write_options(
+                compression=compression
+            )
+            write_options = {
+                "basename_template": insert_basename,
+                "max_rows_per_file": max_rows_per_file,
+                "max_rows_per_group": row_group_size,
+                "existing_data_behavior": "overwrite_or_ignore",
+            }
+            if partition_by is not None:
+                write_options["partitioning"] = partition_by
+
+            pds.write_dataset(
+                insert_table,
+                base_dir=path,
+                filesystem=self._filesystem,
+                format="parquet",
+                file_options=file_options,
+                file_visitor=written.append,
+                **write_options,
+            )
+
+            inserted_files = [wf.path for wf in written]
+
+            target_count_before = sum(
+                pq.read_metadata(f, filesystem=self._filesystem).num_rows
+                for f in target_files
+            )
+            target_count_after = target_count_before + insert_table.num_rows
+
+            files_meta = [
+                MergeFileMetadata(path=f, row_count=0, operation="preserved")
+                for f in preserved_files
+            ] + [
+                MergeFileMetadata(
+                    path=wf.path,
+                    row_count=int(wf.metadata.num_rows)
+                    if wf.metadata is not None
+                    else 0,
+                    operation="inserted",
+                    size_bytes=int(wf.size) if wf.size is not None else None,
+                )
+                for wf in written
+            ]
+
+            return MergeResult(
+                strategy="insert",
+                source_count=source_table.num_rows,
+                target_count_before=target_count_before,
+                target_count_after=target_count_after,
+                inserted=insert_table.num_rows,
+                updated=0,
+                deleted=0,
+                files=files_meta,
+                rewritten_files=[],
+                inserted_files=inserted_files,
+                preserved_files=preserved_files,
+            )
+
+        file_manager = IncrementalFileManager()
+        staging_dir = file_manager.create_staging_directory(
+            path, filesystem=self._filesystem
+        )
+
+        rewritten_files: list[str] = []
+        rewritten_meta: list[MergeFileMetadata] = []
+        preserved_files = [f for f in target_files if f not in affected_files]
+
+        # Prepare a match marker for join-driven full-row replacement.
+        match_col_name = "__fsspeckit_match"
+        source_with_match = source_table
+        if match_col_name in source_with_match.column_names:
+            raise ValueError(f"Source contains reserved column: {match_col_name}")
+        source_with_match = source_with_match.append_column(
+            match_col_name, pa_mod.array([True] * source_with_match.num_rows)
+        )
+
+        try:
+            for file_path in affected_files:
+                file_matched = matched_keys_by_file.get(file_path, set())
+                if not file_matched:
+                    preserved_files.append(file_path)
+                    continue
+
+                target_table = pq.read_table(file_path, filesystem=self._filesystem)
+
+                source_for_file = _select_rows_by_keys(
+                    source_with_match, set(file_matched)
+                )
+
+                # Join target with source; use match marker to allow null overwrites.
+                joined = target_table.join(
+                    source_for_file,
+                    keys=key_cols,
+                    join_type="left outer",
+                    right_suffix="__src",
+                    coalesce_keys=True,
+                )
+
+                match_mask = pc.is_valid(joined.column(match_col_name))
+
+                # Enforce partition column immutability for existing keys.
+                if partition_cols:
+                    for col in partition_cols:
+                        if col in key_cols:
+                            continue
+                        src_name = f"{col}__src"
+                        if src_name not in joined.column_names:
+                            raise ValueError(
+                                f"Partition column '{col}' must be present in source for merge"
+                            )
+                        eq = pc.equal(joined.column(col), joined.column(src_name))
+                        neq = pc.invert(eq)
+                        violations = pc.and_(match_mask, pc.fill_null(neq, True))
+                        if pc.any(violations).as_py():
+                            raise ValueError(
+                                "Cannot merge: partition column values cannot change for existing keys"
+                            )
+
+                # Build updated output table in original target schema order.
+                out_arrays = []
+                out_names = []
+                for col in target_table.column_names:
+                    if col in key_cols:
+                        out_arrays.append(joined.column(col))
+                        out_names.append(col)
+                        continue
+
+                    src_name = f"{col}__src"
+                    if src_name in joined.column_names:
+                        out_arrays.append(
+                            pc.if_else(
+                                match_mask, joined.column(src_name), joined.column(col)
+                            )
+                        )
+                    else:
+                        out_arrays.append(joined.column(col))
+                    out_names.append(col)
+
+                updated_table = pa_mod.table(out_arrays, names=out_names)
+
+                # Write to staging file then replace original.
+                staging_file = f"{staging_dir}/{uuid.uuid4().hex[:16]}.parquet"
+                pq.write_table(
+                    updated_table,
+                    staging_file,
+                    filesystem=self._filesystem,
+                    compression=compression,
+                    row_group_size=row_group_size,
+                )
+
+                size_bytes = None
+                try:
+                    size_bytes = int(self._filesystem.size(staging_file))
+                except Exception:
+                    size_bytes = None
+
+                file_manager.atomic_replace_files(
+                    [staging_file], [file_path], filesystem=self._filesystem
+                )
+
+                rewritten_files.append(file_path)
+                rewritten_meta.append(
+                    MergeFileMetadata(
+                        path=file_path,
+                        row_count=updated_table.num_rows,
+                        operation="rewritten",
+                        size_bytes=size_bytes,
+                    )
+                )
+        finally:
+            file_manager.cleanup_staging_files(filesystem=self._filesystem)
+
+        # For UPDATE: never insert.
+        inserted_files: list[str] = []
+        inserted_meta: list[MergeFileMetadata] = []
+
+        if strategy == "upsert" and inserted_key_set:
+            # Append inserted rows as new file(s).
+            insert_table = _select_rows_by_keys(source_table, set(inserted_key_set))
+
+            written: list[pds.WrittenFile] = []
+            unique_id = uuid.uuid4().hex[:16]
+            insert_basename = (
+                basename_template
+                if basename_template is not None
+                else f"part-{unique_id}-{{i}}.parquet"
+            )
+
+            file_options = pds.ParquetFileFormat().make_write_options(
+                compression=compression
+            )
+            write_options = {
+                "basename_template": insert_basename,
+                "max_rows_per_file": max_rows_per_file,
+                "max_rows_per_group": row_group_size,
+                "existing_data_behavior": "overwrite_or_ignore",
+            }
+            if partition_by is not None:
+                write_options["partitioning"] = partition_by
+
+            pds.write_dataset(
+                insert_table,
+                base_dir=path,
+                filesystem=self._filesystem,
+                format="parquet",
+                file_options=file_options,
+                file_visitor=written.append,
+                **write_options,
+            )
+
+            inserted_files = [wf.path for wf in written]
+            inserted_meta = [
+                MergeFileMetadata(
+                    path=wf.path,
+                    row_count=int(wf.metadata.num_rows)
+                    if wf.metadata is not None
+                    else 0,
+                    operation="inserted",
+                    size_bytes=int(wf.size) if wf.size is not None else None,
+                )
+                for wf in written
+            ]
+
+        target_count_before = sum(
+            pq.read_metadata(f, filesystem=self._filesystem).num_rows
+            for f in target_files
+        )
+
+        inserted_rows = len(inserted_key_set) if strategy == "upsert" else 0
+        updated_rows = len(matched_keys)
+        if strategy == "update":
+            inserted_rows = 0
+
+        target_count_after = target_count_before + inserted_rows
+
+        files_meta = (
+            rewritten_meta
+            + inserted_meta
+            + [
+                MergeFileMetadata(path=f, row_count=0, operation="preserved")
+                for f in preserved_files
+            ]
+        )
+
+        return MergeResult(
+            strategy=strategy,
+            source_count=source_table.num_rows,
+            target_count_before=target_count_before,
+            target_count_after=target_count_after,
+            inserted=inserted_rows,
+            updated=updated_rows if strategy != "insert" else 0,
+            deleted=0,
+            files=files_meta,
+            rewritten_files=rewritten_files,
+            inserted_files=inserted_files,
+            preserved_files=preserved_files,
+        )
+
+    def _write_dataset_standard(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        basename_template: str | None = None,
+        schema: pa.Schema | None = None,
+        partition_by: str | list[str] | None = None,
+        compression: str | None = "snappy",
+        max_rows_per_file: int | None = 5_000_000,
+        row_group_size: int | None = 500_000,
+        mode: Literal["append", "overwrite"] | None = "append",
+    ) -> None:
+        """Internal: Write dataset using standard PyArrow dataset writer.
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Output directory path
+            basename_template: Template for file names
+            schema: Optional schema to enforce
+            partition_by: Column(s) to partition by
+            compression: Compression codec
+            max_rows_per_file: Maximum rows per file
+            row_group_size: Rows per row group
+            mode: Write mode - 'append' or 'overwrite'
+        """
+        import uuid
+
+        import pyarrow.dataset as pds
+
+        # Handle mode-specific behavior
+        if mode == "overwrite":
+            # Delete only parquet files, preserve other files
+            self._clear_dataset_parquet_only(path)
+        elif mode == "append":
+            # For append mode, ensure unique filenames by default to avoid collisions
+            if basename_template == "part-{i}.parquet" or basename_template is None:
+                # Generate a unique template to avoid collisions
+                unique_id = uuid.uuid4().hex[:16]
+                basename_template = f"part-{unique_id}-{{i}}.parquet"
+
+        # Set default basename if not provided and not set by append logic
+        if basename_template is None:
+            basename_template = "part-{i}.parquet"
+
+        # Prepare write options
+        write_options = {
+            "basename_template": basename_template,
+            "max_rows_per_file": max_rows_per_file,
+            "max_rows_per_group": row_group_size,
+            "existing_data_behavior": "overwrite_or_ignore",
+        }
+
+        # Add partition_by if specified
+        if partition_by is not None:
+            write_options["partitioning"] = partition_by
+
+        # Create file options for compression
+        file_options = pds.ParquetFileFormat().make_write_options(
+            compression=compression
+        )
+
+        # Write dataset
+        pds.write_dataset(
+            data,
+            base_dir=path,
+            filesystem=self._filesystem,
+            format="parquet",
+            file_options=file_options,
+            **write_options,
+        )
+
+    def _clear_dataset_parquet_only(self, path: str) -> None:
+        """Remove only parquet files in a dataset directory, preserving other files.
+
+        Args:
+            path: Dataset directory path
+        """
+        if self._filesystem.exists(path) and self._filesystem.isdir(path):
+            # Find and remove only parquet files
+            for file_info in self._filesystem.find(path, withdirs=False):
+                if file_info.endswith(".parquet"):
+                    self._filesystem.rm(file_info)
+
+    def _perform_merge_in_memory(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        strategy: MergeStrategy,
+        key_columns: list[str] | str | None = None,
+        compression: str | None = "snappy",
+        max_rows_per_file: int | None = 5_000_000,
+        row_group_size: int | None = 500_000,
+        partition_by: str | list[str] | None = None,
+    ) -> None:
+        """Internal: Perform merge operation in memory and write result."""
+        import tempfile
+
+        import pyarrow.dataset as pds
+
+        pa = _import_pyarrow()
+
+        # Read existing dataset
+        try:
+            existing_dataset = pds.dataset(
+                path,
+                filesystem=self._filesystem,
+                format="parquet",
+            )
+            existing_table = existing_dataset.to_table()
+        except Exception:
+            # Dataset doesn't exist or can't be read
+            existing_table = pa.table({})
+
+        # Normalize key columns
+        if key_columns is not None:
+            if isinstance(key_columns, str):
+                key_columns = [key_columns]
+        else:
+            key_columns = []
+
+        # Combine source data
+        if isinstance(data, list):
+            source_table = pa.concat_tables(data, promote_options="permissive")
+        else:
+            source_table = data
+
+        # Perform merge based on strategy
+        if strategy == MergeStrategy.INSERT:
+            # Only insert new records (not in existing)
+            merged_table = self._merge_insert(existing_table, source_table, key_columns)
+        elif strategy == MergeStrategy.UPSERT:
+            # Insert or update existing
+            merged_table = self._merge_upsert(existing_table, source_table, key_columns)
+        elif strategy == MergeStrategy.UPDATE:
+            # Only update existing (skip new)
+            merged_table = self._merge_update(existing_table, source_table, key_columns)
+        elif strategy == MergeStrategy.FULL_MERGE:
+            # Full replacement with source
+            merged_table = source_table
+        elif strategy == MergeStrategy.DEDUPLICATE:
+            # Remove duplicates
+            merged_table = self._merge_deduplicate(
+                existing_table, source_table, key_columns
+            )
+        else:
+            merged_table = source_table
+
+        # Write result back
+        self._write_dataset_standard(
+            data=merged_table,
+            path=path,
+            compression=compression,
+            max_rows_per_file=max_rows_per_file,
+            row_group_size=row_group_size,
+            partition_by=partition_by,
+        )
+
+    def _merge_insert(
+        self,
+        existing: pa.Table,
+        source: pa.Table,
+        key_columns: list[str],
+    ) -> pa.Table:
+        """Merge with INSERT strategy: only add new records."""
+        pa = _import_pyarrow()
+
+        if not key_columns or existing.num_rows == 0:
+            # No keys or no existing data, concatenate
+            return pa.concat_tables([existing, source], promote_options="permissive")
+
+        # Find keys that don't exist in existing
+        existing_keys = set(
+            tuple(row[col] for col in key_columns) for row in existing.to_pylist()
+        )
+        new_rows = [
+            row
+            for row in source.to_pylist()
+            if tuple(row[col] for col in key_columns) not in existing_keys
+        ]
+
+        if new_rows:
+            new_table = pa.Table.from_pylist(new_rows, schema=source.schema)
+            return pa.concat_tables([existing, new_table], promote_options="permissive")
+        else:
+            return existing
+
+    def _merge_upsert(
+        self,
+        existing: pa.Table,
+        source: pa.Table,
+        key_columns: list[str],
+    ) -> pa.Table:
+        """Merge with UPSERT strategy: insert or update existing records."""
+        pa = _import_pyarrow()
+
+        if not key_columns:
+            # No keys, just concatenate
+            return pa.concat_tables([existing, source], promote_options="permissive")
+
+        # Create lookup dict for existing data
+        existing_dict = {}
+        for row in existing.to_pylist():
+            key = tuple(row[col] for col in key_columns)
+            existing_dict[key] = row
+
+        # Build result
+        result_rows = []
+        source_keys_seen = set()
+
+        # Add existing rows, updating with source rows that match
+        for row in existing.to_pylist():
+            key = tuple(row[col] for col in key_columns)
+            source_keys_seen.add(key)
+
+            # Check if there's a matching source row
+            source_row = None
+            for s_row in source.to_pylist():
+                s_key = tuple(s_row[col] for col in key_columns)
+                if s_key == key:
+                    source_row = s_row
+                    break
+
+            if source_row:
+                result_rows.append(source_row)
+            else:
+                result_rows.append(row)
+
+        # Add source rows with new keys
+        for row in source.to_pylist():
+            key = tuple(row[col] for col in key_columns)
+            if key not in source_keys_seen:
+                result_rows.append(row)
+
+        return pa.Table.from_pylist(result_rows, schema=source.schema)
+
+    def _merge_update(
+        self,
+        existing: pa.Table,
+        source: pa.Table,
+        key_columns: list[str],
+    ) -> pa.Table:
+        """Merge with UPDATE strategy: only update existing records."""
+        pa = _import_pyarrow()
+
+        if not key_columns or existing.num_rows == 0:
+            # No keys or no existing data, return existing
+            return existing
+
+        # Create lookup dict for source data
+        source_dict = {}
+        for row in source.to_pylist():
+            key = tuple(row[col] for col in key_columns)
+            source_dict[key] = row
+
+        # Update existing rows with matching source rows
+        result_rows = []
+        for row in existing.to_pylist():
+            key = tuple(row[col] for col in key_columns)
+            if key in source_dict:
+                # Update with source row
+                result_rows.append(source_dict[key])
+            else:
+                # Keep existing row
+                result_rows.append(row)
+
+        return pa.Table.from_pylist(result_rows, schema=existing.schema)
+
+    def _merge_deduplicate(
+        self,
+        existing: pa.Table,
+        source: pa.Table,
+        key_columns: list[str] | None,
+    ) -> pa.Table:
+        """Merge with DEDUPLICATE strategy: remove duplicate records."""
+        pa = _import_pyarrow()
+
+        # Combine tables
+        combined = pa.concat_tables([existing, source], promote_options="permissive")
+
+        if not key_columns or combined.num_rows == 0:
+            return combined
+
+        # Remove duplicates based on key columns
+        seen = set()
+        unique_rows = []
+        for row in combined.to_pylist():
+            key = tuple(row[col] for col in key_columns)
+            if key not in seen:
+                seen.add(key)
+                unique_rows.append(row)
+
+        return pa.Table.from_pylist(unique_rows, schema=combined.schema)
+
+    def merge_parquet_dataset(
+        self,
+        sources: list[str],
+        output_path: str,
+        target: str | None = None,
+        strategy: str | MergeStrategy = "deduplicate",
+        key_columns: list[str] | str | None = None,
+        compression: str | None = None,
+        verbose: bool = False,
+        **kwargs: Any,
+    ) -> MergeStats:
+        """Merge multiple parquet datasets using PyArrow.
+
+        Args:
+            sources: List of source dataset paths
+            output_path: Path for merged output
+            target: Target dataset path (for upsert/update strategies)
+            strategy: Merge strategy to use (default: deduplicate)
+            key_columns: Key columns for merging
+            compression: Output compression codec
+            verbose: Print progress information
+            **kwargs: Additional arguments
+
+        Returns:
+            MergeStats with merge statistics
+
+        Example:
+            ```python
+            io = PyarrowDatasetIO()
+            stats = io.merge_parquet_dataset(
+                sources=["dataset1/", "dataset2/"],
+                output_path="merged/",
+                strategy="deduplicate",
+                key_columns=["id"],
+            )
+            ```
+        """
+        raise NotImplementedError(
+            "merge_parquet_dataset has been removed. Use merge(...) for incremental merges."
+        )
+        from fsspeckit.datasets.pyarrow.dataset import merge_parquet_dataset_pyarrow
+
+        # Normalize paths to absolute
+        sources = [self._normalize_path(s) for s in sources]
+        output_path = self._normalize_path(output_path)
+        if target is not None:
+            target = self._normalize_path(target)
+
+        return merge_parquet_dataset_pyarrow(
+            sources=sources,
+            output_path=output_path,
+            target=target,
+            strategy=strategy,
+            key_columns=key_columns,
+            filesystem=self._filesystem,
+            compression=compression,
+            verbose=verbose,
+            **kwargs,
+        )
+
+    def compact_parquet_dataset(
+        self,
+        path: str,
+        target_mb_per_file: int | None = None,
+        target_rows_per_file: int | None = None,
+        partition_filter: list[str] | None = None,
+        compression: str | None = None,
+        dry_run: bool = False,
+        verbose: bool = False,
+    ) -> dict[str, Any]:
+        """Compact a parquet dataset using PyArrow.
+
+        Args:
+            path: Dataset path
+            target_mb_per_file: Target size per file in MB
+            target_rows_per_file: Target rows per file
+            partition_filter: Optional partition filters
+            compression: Compression codec
+            dry_run: Whether to perform a dry run
+            verbose: Print progress information
+
+        Returns:
+            Compaction statistics
+
+        Example:
+            ```python
+            io = PyarrowDatasetIO()
+            stats = io.compact_parquet_dataset(
+                "/path/to/dataset/",
+                target_mb_per_file=64,
+                dry_run=True,
+            )
+            print(f"Files before: {stats['before_file_count']}")
+            ```
+        """
+        from fsspeckit.datasets.pyarrow.dataset import compact_parquet_dataset_pyarrow
+
+        path = self._normalize_path(path)
+
+        return compact_parquet_dataset_pyarrow(
+            path=path,
+            target_mb_per_file=target_mb_per_file,
+            target_rows_per_file=target_rows_per_file,
+            partition_filter=partition_filter,
+            compression=compression,
+            dry_run=dry_run,
+            filesystem=self._filesystem,
+        )
+
+    def optimize_parquet_dataset(
+        self,
+        path: str,
+        target_mb_per_file: int | None = None,
+        target_rows_per_file: int | None = None,
+        partition_filter: list[str] | None = None,
+        compression: str | None = None,
+        verbose: bool = False,
+    ) -> dict[str, Any]:
+        """Optimize a parquet dataset.
+
+        Args:
+            path: Dataset path
+            target_mb_per_file: Target size per file in MB
+            target_rows_per_file: Target rows per file
+            partition_filter: Optional partition filters
+            compression: Compression codec
+            verbose: Print progress information
+
+        Returns:
+            Optimization statistics
+
+        Example:
+            ```python
+            io = PyarrowDatasetIO()
+            stats = io.optimize_parquet_dataset(
+                "dataset/",
+                target_mb_per_file=64,
+                compression="zstd",
+            )
+            ```
+        """
+        from fsspeckit.datasets.pyarrow.dataset import optimize_parquet_dataset_pyarrow
+
+        path = self._normalize_path(path)
+
+        return optimize_parquet_dataset_pyarrow(
+            path=path,
+            target_mb_per_file=target_mb_per_file,
+            target_rows_per_file=target_rows_per_file,
+            partition_filter=partition_filter,
+            compression=compression,
+            filesystem=self._filesystem,
+            verbose=verbose,
+        )
+
+    def insert_dataset(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        key_columns: list[str] | str,
+        **kwargs: Any,
+    ) -> None:
+        """Insert-only dataset write.
+
+        Convenience method that calls write_parquet_dataset with strategy='insert'.
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Output directory path
+            key_columns: Key columns for merge (required)
+            **kwargs: Additional arguments passed to write_parquet_dataset
+
+        Raises:
+            ValueError: If key_columns is not provided
+        """
+        raise NotImplementedError(
+            "insert_dataset has been removed. Use merge(..., strategy='insert') instead."
+        )
+        if not key_columns:
+            raise ValueError("key_columns is required for insert_dataset")
+
+        self.write_parquet_dataset(
+            data=data,
+            path=path,
+            strategy="insert",
+            key_columns=key_columns,
+            **kwargs,
+        )
+
+    def upsert_dataset(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        key_columns: list[str] | str,
+        **kwargs: Any,
+    ) -> None:
+        """Insert-or-update dataset write.
+
+        Convenience method that calls write_parquet_dataset with strategy='upsert'.
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Output directory path
+            key_columns: Key columns for merge (required)
+            **kwargs: Additional arguments passed to write_parquet_dataset
+
+        Raises:
+            ValueError: If key_columns is not provided
+        """
+        raise NotImplementedError(
+            "upsert_dataset has been removed. Use merge(..., strategy='upsert') instead."
+        )
+        if not key_columns:
+            raise ValueError("key_columns is required for upsert_dataset")
+
+        self.write_parquet_dataset(
+            data=data,
+            path=path,
+            strategy="upsert",
+            key_columns=key_columns,
+            **kwargs,
+        )
+
+    def update_dataset(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        key_columns: list[str] | str,
+        **kwargs: Any,
+    ) -> None:
+        """Update-only dataset write.
+
+        Convenience method that calls write_parquet_dataset with strategy='update'.
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Output directory path
+            key_columns: Key columns for merge (required)
+            **kwargs: Additional arguments passed to write_parquet_dataset
+
+        Raises:
+            ValueError: If key_columns is not provided
+        """
+        raise NotImplementedError(
+            "update_dataset has been removed. Use merge(..., strategy='update') instead."
+        )
+        if not key_columns:
+            raise ValueError("key_columns is required for update_dataset")
+
+        self.write_parquet_dataset(
+            data=data,
+            path=path,
+            strategy="update",
+            key_columns=key_columns,
+            **kwargs,
+        )
+
+    def deduplicate_dataset(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        key_columns: list[str] | str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Deduplicate dataset write.
+
+        Convenience method that calls write_parquet_dataset with strategy='deduplicate'.
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Output directory path
+            key_columns: Key columns for deduplication (optional)
+            **kwargs: Additional arguments passed to write_parquet_dataset
+        """
+        raise NotImplementedError(
+            "deduplicate_dataset has been removed. Use a dedicated dataset maintenance API instead."
+        )
+        self.write_parquet_dataset(
+            data=data,
+            path=path,
+            strategy="deduplicate",
+            key_columns=key_columns,
+            **kwargs,
+        )
+
+    def _write_parquet_dataset_incremental(
+        self,
+        data: pa.Table | list[pa.Table],
+        path: str,
+        strategy: MergeStrategy,
+        key_columns: list[str] | str,
+        basename_template: str | None = None,
+        schema: pa.Schema | None = None,
+        partition_by: str | list[str] | None = None,
+        compression: str | None = "snappy",
+        max_rows_per_file: int | None = 5_000_000,
+        row_group_size: int | None = 500_000,
+    ) -> None:
+        """Internal: Incremental rewrite for UPSERT/UPDATE strategies using PyArrow.
+
+        Only rewrites files that might contain the keys being updated,
+        preserving other files unchanged.
+
+        Args:
+            data: Source data to merge
+            path: Target dataset path
+            strategy: Merge strategy (UPSERT or UPDATE)
+            key_columns: Key columns for matching
+            basename_template: Template for file names
+            schema: Optional schema to enforce
+            partition_by: Column(s) to partition by
+            compression: Compression codec
+            max_rows_per_file: Maximum rows per file
+            row_group_size: Rows per row group
+        """
+        import pyarrow.dataset as pds
+
+        from fsspeckit.core.incremental import plan_incremental_rewrite
+
+        # Convert data to single table if it's a list
+        if isinstance(data, list):
+            combined_data = pa.concat_tables(data, promote_options="permissive")
+        else:
+            combined_data = data
+
+        # Extract source keys for planning
+        if isinstance(key_columns, str):
+            key_columns = [key_columns]
+
+        # For now, use a simplified approach that reads all data
+        # In a full implementation, this would use metadata analysis
+        logger.info("Using PyArrow incremental rewrite (simplified implementation)")
+
+        # Read existing dataset
+        try:
+            existing_dataset = pds.dataset(
+                path,
+                filesystem=self._filesystem,
+                format="parquet",
+            )
+            existing_table = existing_dataset.to_table()
+
+            # Apply merge semantics
+            if strategy == MergeStrategy.UPSERT:
+                merged_table = self._merge_upsert_pyarrow(
+                    existing_table, combined_data, key_columns
+                )
+            else:  # UPDATE
+                merged_table = self._merge_update_pyarrow(
+                    existing_table, combined_data, key_columns
+                )
+
+            # Write result using standard writer
+            self._write_dataset_standard(
+                data=merged_table,
+                path=path,
+                basename_template=basename_template,
+                schema=schema,
+                partition_by=partition_by,
+                compression=compression,
+                max_rows_per_file=max_rows_per_file,
+                row_group_size=row_group_size,
+                mode="overwrite",
+            )
+
+        except Exception:
+            # If incremental fails, fall back to full merge
+            logger.warning("Incremental rewrite failed, falling back to full merge")
+            self._perform_merge_in_memory(
+                data=data,
+                path=path,
+                strategy=strategy,
+                key_columns=key_columns,
+                compression=compression,
+                max_rows_per_file=max_rows_per_file,
+                row_group_size=row_group_size,
+                partition_by=partition_by,
+            )
+
+    def _merge_upsert_pyarrow(
+        self,
+        existing: pa.Table,
+        source: pa.Table,
+        key_columns: list[str],
+    ) -> pa.Table:
+        """Perform UPSERT merge using PyArrow operations."""
+        pa = _import_pyarrow()
+
+        # Create lookup dictionary from source
+        source_lookup = {}
+        for row in source.to_pylist():
+            key = tuple(row[col] for col in key_columns)
+            source_lookup[key] = row
+
+        # Merge with existing data
+        result_rows = []
+        for row in existing.to_pylist():
+            key = tuple(row[col] for col in key_columns)
+            if key in source_lookup:
+                # Update with source data
+                result_rows.append(source_lookup[key])
+            else:
+                # Keep existing row
+                result_rows.append(row)
+
+        # Add new rows from source that don't exist in existing
+        existing_keys = {
+            tuple(row[col] for col in key_columns) for row in existing.to_pylist()
+        }
+        for row in source.to_pylist():
+            key = tuple(row[col] for col in key_columns)
+            if key not in existing_keys:
+                result_rows.append(row)
+
+        return pa.Table.from_pylist(result_rows, schema=existing.schema)
+
+    def _merge_update_pyarrow(
+        self,
+        existing: pa.Table,
+        source: pa.Table,
+        key_columns: list[str],
+    ) -> pa.Table:
+        """Perform UPDATE merge using PyArrow operations."""
+        pa = _import_pyarrow()
+
+        # Create lookup dictionary from source
+        source_lookup = {}
+        for row in source.to_pylist():
+            key = tuple(row[col] for col in key_columns)
+            source_lookup[key] = row
+
+        # Update existing rows with source data
+        result_rows = []
+        for row in existing.to_pylist():
+            key = tuple(row[col] for col in key_columns)
+            if key in source_lookup:
+                # Update with source data
+                result_rows.append(source_lookup[key])
+            else:
+                # Keep existing row unchanged
+                result_rows.append(row)
+
+        return pa.Table.from_pylist(result_rows, schema=existing.schema)
+
+
+class PyarrowDatasetHandler(PyarrowDatasetIO):
+    """Convenience wrapper for PyArrow dataset operations.
+
+    This class provides a familiar interface for users coming from DuckDBParquetHandler.
+    It inherits all methods from PyarrowDatasetIO.
+
+    Example:
+        ```python
+        from fsspeckit.datasets import PyarrowDatasetHandler
+
+        handler = PyarrowDatasetHandler()
+
+        # Read parquet
+        table = handler.read_parquet("/path/to/data.parquet")
+
+        # Merge into dataset
+        handler.merge(table, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
+        ```
+    """
+
+    def __init__(
+        self,
+        filesystem: AbstractFileSystem | None = None,
+    ) -> None:
+        """Initialize PyArrow dataset handler.
+
+        Args:
+            filesystem: Optional fsspec filesystem instance
+        """
+        super().__init__(filesystem=filesystem)
+
+    def __enter__(self) -> "PyarrowDatasetHandler":
+        """Enter context manager."""
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Exit context manager (no-op for PyArrow, kept for API symmetry)."""
+        pass
