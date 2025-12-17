@@ -12,23 +12,22 @@ All dataset handlers implement the `DatasetHandler` protocol, which defines the 
 
 ### Core Methods
 
-#### `write_parquet_dataset()`
-Write a parquet dataset with optional merge strategies.
+#### `write_dataset()`
+Write a parquet dataset with explicit mode configuration.
 
 **Signature:**
 ```python
-def write_parquet_dataset(
+def write_dataset(
     data: pa.Table | list[pa.Table],
     path: str,
     *,
+    mode: Literal["append"] | Literal["overwrite"] = "append",
     basename_template: str | None = None,
     schema: pa.Schema | None = None,
     partition_by: str | list[str] | None = None,
     compression: str | None = "snappy",
     max_rows_per_file: int | None = None,
     row_group_size: int | None = None,
-    strategy: MergeStrategy | None = None,
-    key_columns: list[str] | str | None = None,
     **kwargs: Any,
 ) -> Any
 ```
@@ -36,48 +35,52 @@ def write_parquet_dataset(
 **Parameters:**
 - `data`: PyArrow table or list of tables to write
 - `path`: Output directory path
+- `mode`: Write mode - `"append"` (default) or `"overwrite"`
 - `basename_template`: Template for file names
 - `schema`: Optional schema to enforce
 - `partition_by`: Column(s) to partition by
 - `compression`: Compression codec
 - `max_rows_per_file`: Maximum rows per file
 - `row_group_size`: Rows per row group
-- `strategy`: Optional merge strategy:
-  - `'insert'`: Only insert new records
-  - `'upsert'`: Insert or update existing records
-  - `'update'`: Only update existing records
-  - `'full_merge'`: Full replacement with source
-  - `'deduplicate'`: Remove duplicates
-- `key_columns`: Key columns for merge operations (required for relational strategies)
 
-**Returns:** Backend-specific result (e.g., MergeStats for merge operations)
-
-#### `merge_parquet_dataset()`
-Merge multiple parquet datasets.
+#### `merge()`
+Perform incremental merge operations on existing datasets.
 
 **Signature:**
 ```python
-def merge_parquet_dataset(
-    sources: list[str],
-    output_path: str,
+def merge(
+    data: pa.Table | list[pa.Table],
+    path: str,
     *,
-    target: str | None = None,
-    strategy: MergeStrategy = "deduplicate",
-    key_columns: list[str] | str | None = None,
-    compression: str | None = None,
-    verbose: bool = False,
+    strategy: Literal["insert"] | Literal["update"] | Literal["upsert"],
+    key_columns: list[str] | str,
+    basename_template: str | None = None,
+    schema: pa.Schema | None = None,
+    partition_by: str | list[str] | None = None,
+    compression: str | None = "snappy",
+    max_rows_per_file: int | None = None,
+    row_group_size: int | None = None,
     **kwargs: Any,
 ) -> Any
 ```
 
 **Parameters:**
-- `sources`: List of source dataset paths
-- `output_path`: Path for merged output
-- `target`: Target dataset path (for upsert/update strategies)
-- `strategy`: Merge strategy to use
-- `key_columns`: Key columns for merging
-- `compression`: Output compression codec
-- `verbose`: Print progress information
+- `data`: PyArrow table or list of tables to merge
+- `path`: Existing dataset directory path
+- `strategy`: Merge strategy:
+  - `'insert'`: Only insert new records
+  - `'update'`: Only update existing records  
+  - `'upsert'`: Insert or update existing records
+- `key_columns`: Column(s) used as merge keys
+- `basename_template`: Template for file names
+- `schema`: Optional schema to enforce
+- `partition_by`: Column(s) to partition by
+- `compression`: Compression codec
+- `max_rows_per_file`: Maximum rows per file
+- `row_group_size`: Rows per row group
+- `key_columns`: Key columns for merge operations (required for relational strategies)
+
+**Returns:** Backend-specific result (e.g., MergeStats for merge operations)
 
 **Returns:** Backend-specific result containing merge statistics
 
@@ -161,11 +164,14 @@ from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
 conn = create_duckdb_connection()
 io = DuckDBDatasetIO(conn)
 
-# Standard write
-io.write_parquet_dataset(data, "/path/to/dataset/")
+# Standard write (append mode by default)
+io.write_dataset(data, "/path/to/dataset/")
 
-# Merge-aware write
-stats = io.write_parquet_dataset(
+# Overwrite write
+io.write_dataset(data, "/path/to/dataset/", mode="overwrite")
+
+# Merge operation
+stats = io.merge(
     data,
     "/path/to/dataset/",
     strategy="upsert",
@@ -196,19 +202,19 @@ from fsspec import LocalFileSystem
 
 fs = LocalFileSystem()
 
-# Standard write
-fs.write_pyarrow_dataset(data, "/path/to/dataset/")
+# Standard write (append mode by default)
+fs.write_dataset(data, "/path/to/dataset/")
 
-# Merge-aware write
-fs.write_pyarrow_dataset(
+# Overwrite write
+fs.write_dataset(data, "/path/to/dataset/", mode="overwrite")
+
+# Merge operation
+fs.merge(
     data,
     "/path/to/dataset/",
     strategy="upsert",
     key_columns=["id"]
 )
-
-# Convenience methods
-fs.upsert_dataset(data, "/path/to/dataset/", key_columns=["id"])
 ```
 
 ### PyArrow Dataset Handler (Class-based)
@@ -234,11 +240,13 @@ from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
 
 # Class-based approach
 io = PyarrowDatasetIO()
-io.write_parquet_dataset(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
+io.write_dataset(data, "/path/to/dataset/")
+io.merge(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
 
 # Handler wrapper approach
 with PyarrowDatasetHandler() as handler:
-    handler.upsert_dataset(data, "/path/to/dataset/", key_columns=["id"])
+    handler.write_dataset(data, "/path/to/dataset/")
+    handler.merge(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
 
 # Read operations
 table = io.read_parquet("/path/to/dataset/", columns=["id", "name"])
@@ -248,14 +256,13 @@ stats = io.compact_parquet_dataset("/path/to/dataset/", target_mb_per_file=64)
 result = io.optimize_parquet_dataset("/path/to/dataset/", compression="zstd")
 ```
 
-## Convenience Methods
+## Merge Strategies
 
-Both backends provide convenience methods for common merge strategies:
+Use the explicit `merge()` method with defined strategies:
 
-- `insert_dataset()` - Insert-only operations
-- `upsert_dataset()` - Insert-or-update operations
-- `update_dataset()` - Update-only operations
-- `deduplicate_dataset()` - Deduplication operations
+- `'insert'` - Insert-only operations
+- `'upsert'` - Insert-or-update operations  
+- `'update'` - Update-only operations
 
 ## Backend-Specific Notes
 
@@ -309,12 +316,14 @@ Both backends provide convenience methods for common merge strategies:
 # Function-based approach
 from fsspec import LocalFileSystem
 fs = LocalFileSystem()
-fs.write_pyarrow_dataset(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
+fs.write_dataset(data, "/path/to/dataset/")
+fs.merge(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
 
 # Equivalent class-based approach
 from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
 io = PyarrowDatasetIO()
-io.write_parquet_dataset(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
+io.write_dataset(data, "/path/to/dataset/")
+io.merge(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
 ```
 
 **From Class-based to Function-based:**
@@ -345,8 +354,9 @@ from fsspeckit.datasets.interfaces import DatasetHandler
 from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 
 def process_dataset(handler: DatasetHandler, data: pa.Table) -> None:
-    # Static analysis knows handler has write_parquet_dataset method
-    handler.write_parquet_dataset(data, "output/")
+    # Static analysis knows handler has write_dataset and merge methods
+    handler.write_dataset(data, "output/")
+    handler.merge(data, "output/", strategy="upsert", key_columns=["id"])
 ```
 
 ## Protocol Definition

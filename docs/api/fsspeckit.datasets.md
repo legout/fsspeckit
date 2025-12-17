@@ -4,51 +4,57 @@
 
 ## DuckDB Dataset Operations
 
-### `DuckDBDatasetIO.write_parquet_dataset()`
+### `DuckDBDatasetIO.write_dataset()`
 
-Write a tabular data to a DuckDB-managed parquet dataset with optional merge strategies.
+Write tabular data to a DuckDB-managed parquet dataset with explicit mode configuration.
 
 | Parameter | Type | Description |
 | :-------- | :--- | :---------- |
 | `data` | `pl.DataFrame` or `pa.Table` or `pa.RecordBatch` or `pd.DataFrame` | Data to write. |
 | `path` | `str` | Path to write the data. |
+| `mode` | `"append"` or `"overwrite"` | Write mode. Defaults to `"append"`. |
 | `basename` | `str | None` | Basename of the files. Defaults to None. |
 | `schema` | `pa.Schema | None` | Schema of the data. Defaults to None. |
 | `partition_by` | `str` or `list[str]` | Partitioning of the data. Defaults to None. |
 | `partitioning_flavor` | `str` | Partitioning flavor. Defaults to 'hive'. |
-| `mode` | `str` | Write mode. Defaults to 'append'. |
 | `format` | `str | None` | Format of the data. Defaults to 'parquet'. |
 | `compression` | `str` | Compression algorithm. Defaults to 'zstd'. |
 | `max_rows_per_file` | `int | None` | Maximum number of rows per file. Defaults to 2,500,000. |
 | `row_group_size` | `int | None` | Row group size. Defaults to 250,000. |
 | `concat` | `bool` | If True, concatenate the DataFrames. Defaults to True. |
-| `unique` | `bool` or `str` or `list[str]` | If True, remove duplicates. Defaults to False. |
-| `strategy` | `str | None` | Optional merge strategy: 'insert', 'upsert', 'update', 'full_merge', 'deduplicate'. Defaults to None (standard write). |
-| `key_columns` | `str | list[str] | None` | Key columns for merge operations. Required for relational strategies. Defaults to None. |
+| `verbose` | `bool` | Print progress information. Defaults to False. |
+| `**kwargs` | `Any` | Additional keyword arguments. |
+
+| Returns | Type | Description |
+| :------ | :--- | :---------- |
+| `list[pq.FileMetaData]` | List of Parquet file metadata for the write operation. |
+
+### `DuckDBDatasetIO.merge()`
+
+Perform incremental merge operations on existing DuckDB-managed datasets.
+
+| Parameter | Type | Description |
+| :-------- | :--- | :---------- |
+| `data` | `pl.DataFrame` or `pa.Table` or `pa.RecordBatch` or `pd.DataFrame` | Data to merge. |
+| `path` | `str` | Path to the existing dataset. |
+| `strategy` | `"insert"` or `"update"` or `"upsert"` | Merge strategy to use. |
+| `key_columns` | `str` or `list[str]` | Key columns for merge (required). |
+| `basename` | `str | None` | Basename of the files. Defaults to None. |
+| `schema` | `pa.Schema | None` | Schema of the data. Defaults to None. |
+| `partition_by` | `str` or `list[str]` | Partitioning of the data. Defaults to None. |
+| `partitioning_flavor` | `str` | Partitioning flavor. Defaults to 'hive'. |
+| `format` | `str | None` | Format of the data. Defaults to 'parquet'. |
+| `compression` | `str` | Compression algorithm. Defaults to 'zstd'. |
+| `max_rows_per_file` | `int | None` | Maximum number of rows per file. Defaults to 2,500,000. |
+| `row_group_size` | `int | None` | Row group size. Defaults to 250,000. |
+| `concat` | `bool` | If True, concatenate the DataFrames. Defaults to True. |
 | `dedup_order_by` | `str | list[str] | None` | Columns to order by for deduplication. Defaults to key_columns. |
 | `verbose` | `bool` | Print progress information. Defaults to False. |
 | `**kwargs` | `Any` | Additional keyword arguments. |
 
 | Returns | Type | Description |
 | :------ | :--- | :---------- |
-| `list[pq.FileMetaData]` or `None` | List of Parquet file metadata for standard writes, or None for merge-aware writes. |
-
-### `DuckDBDatasetIO.insert_dataset()`
-
-Insert-only dataset write using DuckDB.
-
-Convenience method that calls `write_parquet_dataset` with `strategy='insert'`.
-
-| Parameter | Type | Description |
-| :-------- | :--- | :---------- |
-| `data` | `pl.DataFrame` or `pa.Table` or `pa.RecordBatch` or `pd.DataFrame` | Data to write. |
-| `path` | `str` | Path to write the dataset. |
-| `key_columns` | `str` or `list[str]` | Key columns for merge (required). |
-| `**kwargs` | `Any` | Additional arguments passed to `write_parquet_dataset`. |
-
-| Returns | Type | Description |
-| :------ | :--- | :---------- |
-| `list[pq.FileMetaData]` or `None` | List of Parquet file metadata or None. |
+| `MergeStats` | Statistics about the merge operation. |
 
 ### `DuckDBDatasetIO.upsert_dataset()`
 
@@ -104,102 +110,55 @@ Convenience method that calls `write_parquet_dataset` with `strategy='deduplicat
 
 ### `DuckDBParquetHandler`
 
-High-level interface for DuckDB dataset operations that re-exports convenience methods.
+High-level interface for DuckDB dataset operations that provides the core methods.
 
 | Method | Description |
 | :------ | :---------- |
-| `write_parquet_dataset()` | Write data with optional merge strategies |
-| `insert_dataset()` | Insert-only convenience method |
-| `upsert_dataset()` | Insert-or-update convenience method |
-| `update_dataset()` | Update-only convenience method |
-| `deduplicate_dataset()` | Deduplicate convenience method |
+| `write_dataset()` | Write data with explicit mode (append/overwrite) |
+| `merge()` | Perform merge operations with defined strategies |
 
 ## PyArrow Dataset Operations
 
-### `PyarrowDatasetIO.write_parquet_dataset()`
+### `PyarrowDatasetIO.write_dataset()`
 
-Write a PyArrow table to a parquet dataset with optional merge strategies.
+Write a PyArrow table to a parquet dataset with explicit mode configuration.
 
 | Parameter | Type | Description |
 | :-------- | :--- | :---------- |
 | `data` | `pa.Table` or `list[pa.Table]` | PyArrow table or list of tables to write. |
 | `path` | `str` | Output directory path. |
+| `mode` | `"append"` or `"overwrite"` | Write mode. Defaults to `"append"`. |
 | `basename_template` | `str | None` | Template for file names (default: part-{i}.parquet). |
 | `schema` | `pa.Schema | None` | Optional schema to enforce. |
 | `partition_by` | `str` or `list[str]` | Column(s) to partition by. |
 | `compression` | `str | None` | Compression codec (default: snappy). |
 | `max_rows_per_file` | `int | None` | Maximum rows per file (default: 5,000,000). |
 | `row_group_size` | `int | None` | Rows per row group (default: 500,000). |
-| `strategy` | `str | None` | Optional merge strategy: 'insert', 'upsert', 'update', 'full_merge', 'deduplicate'. |
-| `key_columns` | `list[str] | str | None` | Key columns for merge operations (required for relational strategies). |
 
 | Returns | Type | Description |
 | :------ | :--- | :---------- |
-| `MergeStats | None` | MergeStats for merge operations, None for standard writes. |
+| `MergeStats | None` | File metadata for the write operation. |
 
-### `PyarrowDatasetIO.insert_dataset()`
+### `PyarrowDatasetIO.merge()`
 
-Insert-only dataset write using PyArrow.
-
-Convenience method that calls `write_parquet_dataset` with `strategy='insert'`.
+Perform incremental merge operations on existing PyArrow datasets.
 
 | Parameter | Type | Description |
 | :-------- | :--- | :---------- |
-| `data` | `pa.Table` or `list[pa.Table]` | PyArrow table or list of tables to write. |
-| `path` | `str` | Output directory path. |
+| `data` | `pa.Table` or `list[pa.Table]` | PyArrow table or list of tables to merge. |
+| `path` | `str` | Path to the existing dataset. |
+| `strategy` | `"insert"` or `"update"` or `"upsert"` | Merge strategy to use. |
 | `key_columns` | `list[str] | str` | Key columns for merge (required). |
-| `**kwargs` | `Any` | Additional arguments passed to `write_parquet_dataset`. |
+| `basename_template` | `str | None` | Template for file names (default: part-{i}.parquet). |
+| `schema` | `pa.Schema | None` | Optional schema to enforce. |
+| `partition_by` | `str` or `list[str]` | Column(s) to partition by. |
+| `compression` | `str | None` | Compression codec (default: snappy). |
+| `max_rows_per_file` | `int | None` | Maximum rows per file (default: 5,000,000). |
+| `row_group_size` | `int | None` | Rows per row group (default: 500,000). |
 
-### `PyarrowDatasetIO.upsert_dataset()`
-
-Insert-or-update dataset write using PyArrow.
-
-Convenience method that calls `write_parquet_dataset` with `strategy='upsert'`.
-
-| Parameter | Type | Description |
-| :-------- | :--- | :---------- |
-| `data` | `pa.Table` or `list[pa.Table]` | PyArrow table or list of tables to write. |
-| `path` | `str` | Output directory path. |
-| `key_columns` | `list[str] | str` | Key columns for merge (required). |
-| `**kwargs` | `Any` | Additional arguments passed to `write_parquet_dataset`. |
-
-### `PyarrowDatasetIO.update_dataset()`
-
-Update-only dataset write using PyArrow.
-
-Convenience method that calls `write_parquet_dataset` with `strategy='update'`.
-
-| Parameter | Type | Description |
-| :-------- | :--- | :---------- |
-| `data` | `pa.Table` or `list[pa.Table]` | PyArrow table or list of tables to write. |
-| `path` | `str` | Output directory path. |
-| `key_columns` | `list[str] | str` | Key columns for merge (required). |
-| `**kwargs` | `Any` | Additional arguments passed to `write_parquet_dataset`. |
-
-### `PyarrowDatasetIO.deduplicate_dataset()`
-
-Deduplicate dataset write using PyArrow.
-
-Convenience method that calls `write_parquet_dataset` with `strategy='deduplicate'`.
-
-| Parameter | Type | Description |
-| :-------- | :--- | :---------- |
-| `data` | `pa.Table` or `list[pa.Table]` | PyArrow table or list of tables to write. |
-| `path` | `str` | Output directory path. |
-| `key_columns` | `list[str] | str | None` | Optional key columns for deduplication. |
-| `**kwargs` | `Any` | Additional arguments passed to `write_parquet_dataset`. |
-
-### `PyarrowDatasetIO.merge_parquet_dataset()`
-
-Merge multiple parquet datasets using PyArrow.
-
-| Parameter | Type | Description |
-| :-------- | :--- | :---------- |
-| `sources` | `list[str]` | List of source dataset paths. |
-| `output_path` | `str` | Path for merged output. |
-| `target` | `str | None` | Target dataset path (for upsert/update strategies). |
-| `strategy` | `str | MergeStrategy` | Merge strategy to use (default: deduplicate). |
-| `key_columns` | `list[str] | str | None` | Key columns for merging. |
+| Returns | Type | Description |
+| :------ | :--- | :---------- |
+| `MergeStats` | Statistics about the merge operation. |
 | `compression` | `str | None` | Output compression codec. |
 | `verbose` | `bool` | Print progress information. |
 | `**kwargs` | `Any` | Additional arguments. |

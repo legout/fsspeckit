@@ -17,3 +17,8 @@ test_imports.py
 update_joblib_functions.py
 misc_replacement.py
 **/__marimo__/
+.gemini/
+.opencode/
+.claude/
+.factory/
+.github/prompts/
