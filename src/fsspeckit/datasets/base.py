@@ -497,12 +497,8 @@ class BaseDatasetHandler(ABC):
             return table.filter(pa.array(mask, type=pa.bool_()))
 
         key_list = [tuple(k) if isinstance(k, (list, tuple)) else (k,) for k in key_set]
-        table_keys = []
-        if len(key_columns) == 1:
-            table_keys = table.column(key_columns[0]).to_pylist()
-        else:
-            arrays = [table.column(c).to_pylist() for c in key_columns]
-            table_keys = list(zip(*arrays))
+        arrays = [table.column(c).to_pylist() for c in key_columns]
+        table_keys = list(zip(*arrays))
 
         mask = [key in key_list for key in table_keys]
         return table.filter(pa.array(mask, type=pa.bool_()))

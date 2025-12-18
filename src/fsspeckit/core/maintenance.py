@@ -845,11 +845,15 @@ def execute_deduplication_template(
         Dictionary with execution results
     """
     if not groups:
-        return planned_stats.to_dict()
+        result = planned_stats.to_dict()
+        result["execution_results"] = []
+        return result
 
     if dry_run:
         result = planned_stats.to_dict()
-        result["planned_groups"] = [group.file_paths() for group in groups]
+        result["execution_results"] = [
+            {"planned_groups": [group.file_paths() for group in groups]}
+        ]
         return result
 
     # Execute deduplication for each group

@@ -95,15 +95,16 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         self,
         path: str,
         columns: list[str] | None = None,
-        filter: str | None = None,
+        filters: Any = None,
+        use_threads: bool = True,
     ) -> pa.Table:
         """Read parquet file(s) using DuckDB.
 
         Args:
             path: Path to parquet file or directory
             columns: Optional list of columns to read
-            filter: Optional SQL WHERE clause
-            use_threads: Whether to use parallel reading
+            filters: Optional row filter expression (SQL WHERE clause for DuckDB)
+            use_threads: Whether to use parallel reading (DuckDB ignores this)
 
         Returns:
             PyArrow table containing the data
@@ -133,14 +134,14 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             select_list = ", ".join(quoted_cols)
             query = f"SELECT {select_list} FROM parquet_scan(?)"
 
-        if filter:
-            query += f" WHERE {filter}"
+        if filters:
+            query += f" WHERE {filters}"
+
+        # DuckDB ignores use_threads parameter, but we accept it for interface compatibility
+        _ = use_threads
 
         try:
             # Execute query
-            # if use_threads:
-            result = conn.execute(query, params).fetch_arrow_table()
-            # else:
             result = conn.execute(query, params).fetch_arrow_table()
 
             return result
