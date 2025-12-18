@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
@@ -754,3 +754,125 @@ def plan_deduplication_groups(
         "planned_stats": planned_stats,
         "planned_groups": planned_groups,
     }
+
+
+def validate_deduplication_inputs(
+    key_columns: list[str] | None = None,
+    dedup_order_by: list[str] | None = None,
+) -> tuple[list[str] | None, list[str] | None]:
+    """
+    Validate and normalize deduplication input parameters.
+
+    Args:
+        key_columns: Optional key columns for deduplication
+        dedup_order_by: Optional ordering columns for deduplication
+
+    Returns:
+        Tuple of (normalized_key_columns, normalized_dedup_order_by)
+
+    Raises:
+        ValueError: If parameters are invalid
+    """
+    from fsspeckit.core.merge import normalize_key_columns
+
+    # Validate key columns
+    normalized_key_columns = None
+    if key_columns is not None:
+        if not key_columns:
+            raise ValueError("key_columns cannot be empty when provided")
+        normalized_key_columns = normalize_key_columns(key_columns)
+
+    # Normalize dedup order by
+    normalized_dedup_order_by = None
+    if dedup_order_by is not None:
+        normalized_dedup_order_by = normalize_key_columns(dedup_order_by)
+    elif normalized_key_columns is not None:
+        normalized_dedup_order_by = normalized_key_columns
+
+    return normalized_key_columns, normalized_dedup_order_by
+
+
+def prepare_deduplication_stats(
+    planned_stats: MaintenanceStats,
+    compression: str | None,
+    dry_run: bool,
+) -> MaintenanceStats:
+    """
+    Prepare maintenance stats for deduplication operation.
+
+    Args:
+        planned_stats: Initial planned stats
+        compression: Compression codec to use
+        dry_run: Whether this is a dry run
+
+    Returns:
+        Updated MaintenanceStats object
+    """
+    updated_stats = MaintenanceStats(
+        before_file_count=planned_stats.before_file_count,
+        after_file_count=planned_stats.after_file_count,
+        before_total_bytes=planned_stats.before_total_bytes,
+        after_total_bytes=planned_stats.after_total_bytes,
+        compacted_file_count=planned_stats.compacted_file_count,
+        rewritten_bytes=planned_stats.rewritten_bytes,
+        compression_codec=compression,
+        dry_run=dry_run,
+        key_columns=planned_stats.key_columns,
+        dedup_order_by=planned_stats.dedup_order_by,
+        deduplicated_rows=None,  # Will be set during execution
+        planned_groups=planned_stats.planned_groups,
+    )
+
+    return updated_stats
+
+
+def execute_deduplication_template(
+    groups: list[CompactionGroup],
+    planned_stats: MaintenanceStats,
+    backend_executor: Callable[[CompactionGroup], tuple[int, dict[str, Any]]],
+    dry_run: bool,
+) -> dict[str, Any]:
+    """
+    Template method for executing deduplication across groups.
+
+    Args:
+        groups: List of compaction groups to process
+        planned_stats: Planned statistics
+        backend_executor: Backend-specific execution function
+        dry_run: Whether this is a dry run
+
+    Returns:
+        Dictionary with execution results
+    """
+    if not groups:
+        return planned_stats.to_dict()
+
+    if dry_run:
+        result = planned_stats.to_dict()
+        result["planned_groups"] = [group.file_paths() for group in groups]
+        return result
+
+    # Execute deduplication for each group
+    total_deduplicated_rows = 0
+    execution_results = []
+
+    for group in groups:
+        group_result = backend_executor(group)
+        deduplicated_rows = group_result[0] if isinstance(group_result, tuple) else 0
+        group_stats = group_result[1] if isinstance(group_result, tuple) else {}
+
+        total_deduplicated_rows += deduplicated_rows
+        execution_results.append(
+            {
+                "group": group.file_paths(),
+                "deduplicated_rows": deduplicated_rows,
+                "stats": group_stats,
+            }
+        )
+
+    # Update final statistics
+    final_stats = planned_stats.to_dict()
+    final_stats["deduplicated_rows"] = total_deduplicated_rows
+    final_stats["execution_results"] = execution_results
+
+    return final_stats

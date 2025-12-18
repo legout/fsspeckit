@@ -96,7 +96,6 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         path: str,
         columns: list[str] | None = None,
         filter: str | None = None,
-        use_threads: bool = False,
     ) -> pa.Table:
         """Read parquet file(s) using DuckDB.
 
@@ -1364,8 +1363,13 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                 deleted=0,
             )
 
-        except Exception:
+        except Exception as e:
             # Clean up on error
+            logger.error(
+                "Error during incremental merge operation, cleaning up staging files",
+                error=str(e),
+                operation="merge_incremental",
+            )
             file_manager.cleanup_staging_files(filesystem=fs)
             raise
 

@@ -24,3 +24,4 @@ misc_replacement.py
 .github/prompts/
 examples/var/
 examples/temp_multicloud_data/
+openspec/pyarrow-optimization-implementation-plan.md
