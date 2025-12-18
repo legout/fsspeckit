@@ -7,7 +7,7 @@ This guide covers how to create and use filesystems with fsspeckit, including pa
 ### Basic Local Filesystem
 
 ```python
-from fsspeckit.core.filesystem import filesystem
+from fsspeckit import filesystem
 
 # Create local filesystem
 fs = filesystem("file")
@@ -32,7 +32,7 @@ s3_fs = filesystem("s3", storage_options={"region": "us-east-1"})
 ### With Storage Options
 
 ```python
-from fsspeckit.storage_options import AwsStorageOptions
+from fsspeckit import AwsStorageOptions
 
 aws_options = AwsStorageOptions(
     region="us-east-1",
@@ -50,7 +50,8 @@ fsspeckit wraps filesystems in `DirFileSystem` by default for enhanced security.
 ### Basic Path Safety
 
 ```python
-from fsspeckit.core.filesystem import filesystem, DirFileSystem
+from fsspeckit import filesystem
+from fsspeckit.core.filesystem import DirFileSystem
 
 # Default behavior: wrapped in DirFileSystem
 fs = filesystem("/data", dirfs=True)
@@ -325,7 +326,7 @@ fs.write_pyarrow_dataset(
 Always wrap filesystem operations in try-except blocks:
 
 ```python
-from fsspeckit.storage_options import AwsStorageOptions
+from fsspeckit import AwsStorageOptions
 
 try:
     # Try to create filesystem

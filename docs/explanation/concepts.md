@@ -2,7 +2,48 @@
 
 This page explains key concepts that help you understand how and why fsspeckit's APIs are designed the way they are.
 
-> **Package Structure Note:** fsspeckit has been refactored to use a package-based structure. The preferred import paths are now `from fsspeckit.core import filesystem` and `from fsspeckit.datasets.pyarrow import ...`, though legacy imports still work for backward compatibility.
+## Import Patterns
+
+fsspeckit provides a hierarchical import system designed for clarity and convenience. Understanding these import patterns helps you write clean, maintainable code.
+
+### Three-Level Import Hierarchy
+
+**Top-Level Imports**: For core symbols and common operations
+```python
+from fsspeckit import filesystem, AwsStorageOptions, GcsStorageOptions
+```
+
+Use top-level imports when working with frequently-used core functionality. These symbols are re-exported at the package level for convenience.
+
+**Package-Level Imports**: For domain-specific features
+```python
+from fsspeckit.datasets import PyarrowDatasetIO, DuckDBParquetHandler
+from fsspeckit.storage_options import storage_options_from_env
+from fsspeckit.sql.filters import sql2pyarrow_filter, sql2polars_filter
+```
+
+Use package-level imports when working with specialized features within a specific domain (datasets, storage, SQL, etc.).
+
+**Module-Level Imports**: For accessing specific implementations
+```python
+from fsspeckit.core.filesystem import filesystem, DirFileSystem
+from fsspeckit.core.merge import MergeStrategy
+from fsspeckit.common.security import scrub_credentials
+```
+
+Use module-level imports when you need explicit control over which implementation you're using, or when accessing internal utilities.
+
+### Import Guidelines
+
+**Prefer simpler imports**: Start with top-level imports for core features, move to package-level for domain features, and use module-level only when necessary.
+
+**Be consistent**: Within a single module or project, stick to one import style.
+
+**Consider IDE support**: Top-level and package-level imports often provide better autocomplete support.
+
+### Backwards Compatibility
+
+All import paths continue to work for backward compatibility. Legacy code using older import patterns will function without modification.
 
 ## Path Safety and DirFileSystem
 
@@ -16,10 +57,8 @@ import os
 os.open("../../../etc/passwd", os.O_RDONLY)  # Can access system files
 
 # Safe: Path-constrained access
-from fsspeckit.core import DirFileSystem, filesystem
-
-# Legacy import (still works but deprecated)
-# from fsspeckit.core.filesystem import DirFileSystem, filesystem
+from fsspeckit import filesystem
+from fsspeckit.core.filesystem import DirFileSystem
 
 # Automatic path safety (default)
 safe_fs = filesystem("/data/allowed", dirfs=True)
@@ -71,7 +110,7 @@ for file_path in glob.glob("data/*.parquet"):
 combined_df = pd.concat(dataframes, ignore_index=True)
 
 # Dataset-level: Automatic and optimized
-from fsspeckit.datasets.pyarrow import process_dataset_in_batches
+from fsspeckit.datasets import process_dataset_in_batches
 
 for batch in process_dataset_in_batches(
     dataset_path="data/",
@@ -221,22 +260,21 @@ pip install fsspeckit duckdb pyarrow polars sqlglot orjson pandas
 **Lightweight Installation**: Core functionality works without heavy dependencies
 ```python
 # This works with minimal installation
-from fsspeckit.core.filesystem import filesystem
-from fsspeckit.storage_options import AwsStorageOptions
+from fsspeckit import filesystem, AwsStorageOptions
 
 fs = filesystem("s3", storage_options=options.to_dict())
 ```
 
 **On-Demand Loading**: Dependencies loaded only when features are used
 ```python
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 
 # Import succeeds even without duckdb
-handler = DuckDBParquetHandler()
+io = DuckDBDatasetIO()
 
 # duckdb is loaded only when actually used
 try:
-    handler.write_parquet_dataset(data, "path/")
+    io.write_dataset(data, "path/", mode="append")
 except ImportError as e:
     print(f"Install with: pip install duckdb")
 ```
@@ -294,12 +332,8 @@ azure_config = {
 
 **Unified Interface**: Same pattern across all providers
 ```python
-from fsspeckit.storage_options import (
-    AwsStorageOptions,
-    GcsStorageOptions,
-    AzureStorageOptions,
-    storage_options_from_env
-)
+from fsspeckit import AwsStorageOptions, GcsStorageOptions, AzureStorageOptions
+from fsspeckit.storage_options import storage_options_from_env
 
 # Same pattern for all providers
 aws_opts = AwsStorageOptions(region="us-east-1", ...)
@@ -322,6 +356,8 @@ azure_options = storage_options_from_env("az")  # Reads AZURE_* env vars
 
 **Type Safety**: Structured configuration with validation
 ```python
+from fsspeckit import AwsStorageOptions
+
 # Type-safe configuration
 aws_options = AwsStorageOptions(
     region="us-east-1",  # Validated
@@ -367,9 +403,9 @@ from fsspeckit.utils import (
 **Discoverability**: Clear organization by functionality
 ```python
 # Clear what you're importing
-from fsspeckit.datasets import DuckDBParquetHandler    # Obvious: datasets
+from fsspeckit.datasets import DuckDBParquetHandler  # Obvious: datasets
 from fsspeckit.sql.filters import sql2pyarrow_filter  # Obvious: SQL
-from fsspeckit.common.misc import run_parallel         # Obvious: utilities
+from fsspeckit.common.misc import run_parallel  # Obvious: utilities
 ```
 
 **Maintainability**: Changes to one domain don't affect others
@@ -394,30 +430,30 @@ Domains communicate through well-defined interfaces:
 
 ```python
 # Storage Options → Core Filesystem
-from fsspeckit.storage_options import AwsStorageOptions
-from fsspeckit.core.filesystem import filesystem
+from fsspeckit import filesystem, AwsStorageOptions
 
 options = AwsStorageOptions(region="us-east-1")
 fs = filesystem("s3", storage_options=options.to_dict())
 
-# Datasets → Core Merge Logic
-from fsspeckit.datasets.pyarrow import merge_parquet_dataset_pyarrow
-from fsspeckit.core.merge import MergeStrategy
+# Datasets → Core Incremental Merge Logic
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+import pyarrow as pa
 
-# Both use shared merge planning
-merge_parquet_dataset_pyarrow(
-    dataset_paths=["part1/", "part2/"],
-    merge_strategy=MergeStrategy.SCHEMA_EVOLUTION
-)
+io = PyarrowDatasetIO()
+data = pa.table({"id": [1, 2], "value": ["a", "b"]})
+
+# Write and merge operations share core merge planning
+result = io.write_dataset(data, "dataset/", mode="append")
+merge_result = io.merge(data, "dataset/", strategy="upsert", key_columns=["id"])
 ```
 
 ### Configuration Flow
 
 ```python
 # Environment → Storage Options → Filesystem → Operations
+from fsspeckit import filesystem
 from fsspeckit.storage_options import storage_options_from_env
-from fsspeckit.core.filesystem import filesystem
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 
 # 1. Load configuration
 options = storage_options_from_env("s3")
@@ -426,7 +462,7 @@ options = storage_options_from_env("s3")
 fs = filesystem("s3", storage_options=options.to_dict())
 
 # 3. Use in operations
-handler = DuckDBParquetHandler(storage_options=options.to_dict())
+io = DuckDBDatasetIO(storage_options=options.to_dict())
 ```
 
 ## Performance Architecture

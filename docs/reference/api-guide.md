@@ -31,10 +31,15 @@ Structured configuration for cloud and Git providers.
 High-performance dataset operations with DuckDB and PyArrow.
 
 **Capability**: Process datasets  
-**Classes**: `DuckDBParquetHandler`, `PyarrowDatasetHandler`, `DuckDBDatasetIO`, `PyarrowDatasetIO`  
-**Functions**: `optimize_parquet_dataset_pyarrow`, `compact_parquet_dataset_pyarrow`  
+**Classes**: `DuckDBDatasetIO`, `PyarrowDatasetIO`, `DuckDBDatasetHandler`, `PyarrowDatasetHandler`  
+**Methods**: 
+- `write_dataset(mode='append'|'overwrite')` - Write datasets with metadata tracking
+- `merge(strategy='insert'|'update'|'upsert', key_columns=...)` - Incremental merge operations
+- `compact_parquet_dataset()`, `optimize_parquet_dataset()` - Dataset maintenance
+
+**Return Types**: `WriteDatasetResult`, `MergeResult`  
 **API Reference**: [fsspeckit.datasets](../api/fsspeckit.datasets.md)  
-**How-to Guides**: [Read and Write Datasets](../how-to/read-and-write-datasets.md)
+**How-to Guides**: [Read and Write Datasets](../how-to/read-and-write-datasets.md), [Merge Datasets](../how-to/merge-datasets.md)
 
 ### Extended I/O
 
@@ -109,8 +114,9 @@ Configuration layer for cloud and Git providers.
 Data processing layer for large-scale operations.
 
 - **DuckDB Handler**: High-performance parquet operations with SQL integration
-- **PyArrow Handler**: Class-based and function-based PyArrow operations with full merge support
-- **Schema Management**: Type conversion and schema evolution
+- **PyArrow Handler**: Memory-efficient PyArrow operations with merge support
+- **Write Operations**: `write_dataset()` for append/overwrite with `WriteDatasetResult` tracking
+- **Merge Operations**: `merge()` for incremental updates with `MergeResult` tracking
 - **Schema Management**: Type conversion and schema evolution
 
 ### SQL (`fsspeckit.sql`)
@@ -136,28 +142,61 @@ Shared utilities layer used across all domains.
 
 ```python
 # 1. Configure storage
+from fsspeckit import filesystem
 from fsspeckit.storage_options import storage_options_from_env
-from fsspeckit.core.filesystem import filesystem
 
 options = storage_options_from_env("s3")
 fs = filesystem("s3", storage_options=options.to_dict())
 
 # 2. Process data (DuckDB)
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO, DuckDBDatasetHandler
+import polars as pl
 
-handler = DuckDBParquetHandler(storage_options=options.to_dict())
-result = handler.execute_sql("SELECT * FROM parquet_scan('data/') WHERE category = 'A'")
+io = DuckDBDatasetIO()
+data = pl.DataFrame({"id": [1, 2], "value": ["a", "b"]})
+
+# Write dataset
+result = io.write_dataset(data, "s3://bucket/dataset/", mode="append")
+print(f"Wrote {result.total_rows} rows")
+
+# Merge data
+updates = pl.DataFrame({"id": [2, 3], "value": ["updated", "c"]})
+merge_result = io.merge(
+    data=updates,
+    path="s3://bucket/dataset/",
+    strategy="upsert",
+    key_columns=["id"]
+)
+print(f"Inserted: {merge_result.inserted}, Updated: {merge_result.updated}")
+
+# SQL operations with handler
+handler = DuckDBDatasetHandler()
+result = handler.execute_sql("SELECT * FROM parquet_scan('s3://bucket/dataset/')")
 
 # 2. Process data (PyArrow)
 from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
+import pyarrow as pa
 
-# Class-based approach
 io = PyarrowDatasetIO()
-result = io.write_parquet_dataset(data, "dataset/", strategy="upsert", key_columns=["id"])
+data = pa.table({"id": [1, 2], "value": ["a", "b"]})
 
-# Handler wrapper approach
+# Write dataset
+result = io.write_dataset(data, "s3://bucket/dataset/", mode="append")
+print(f"Wrote {result.total_rows} rows across {len(result.files)} files")
+
+# Merge data
+updates = pa.table({"id": [2, 3], "value": ["updated", "c"]})
+merge_result = io.merge(
+    data=updates,
+    path="s3://bucket/dataset/",
+    strategy="upsert",
+    key_columns=["id"]
+)
+print(f"Inserted: {merge_result.inserted}, Updated: {merge_result.updated}")
+
+# Maintenance operations with handler
 with PyarrowDatasetHandler() as handler:
-    result = handler.upsert_dataset(data, "dataset/", key_columns=["id"])
+    stats = handler.compact_parquet_dataset("s3://bucket/dataset/", target_mb_per_file=64)
 
 # 3. Optimize performance
 from fsspeckit.common.misc import run_parallel
@@ -169,7 +208,7 @@ results = run_parallel(process_file, file_list, max_workers=4)
 
 ```python
 # 1. Multi-cloud configuration
-from fsspeckit.storage_options import AwsStorageOptions, GcsStorageOptions
+from fsspeckit import AwsStorageOptions, GcsStorageOptions
 
 aws_fs = AwsStorageOptions(region="us-east-1").to_filesystem()
 gcs_fs = GcsStorageOptions(project="my-project").to_filesystem()
@@ -181,7 +220,7 @@ pyarrow_filter = sql2pyarrow_filter("value > 100", schema)
 polars_filter = sql2polars_filter("value > 100", schema)
 
 # 3. Dataset optimization
-from fsspeckit.datasets.pyarrow import optimize_parquet_dataset_pyarrow
+from fsspeckit.datasets import optimize_parquet_dataset_pyarrow
 
 optimize_parquet_dataset_pyarrow(
     dataset_path="s3://bucket/data/",
@@ -216,8 +255,7 @@ fsspeckit uses consistent exception types:
 ### Error Handling Pattern
 
 ```python
-from fsspeckit.storage_options import AwsStorageOptions
-from fsspeckit.core.filesystem import filesystem
+from fsspeckit import AwsStorageOptions, filesystem
 
 try:
     # Configure storage

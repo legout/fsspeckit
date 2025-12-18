@@ -14,6 +14,8 @@ nav:
       - Configure Cloud Storage: how-to/configure-cloud-storage.md
       - Work with Filesystems: how-to/work-with-filesystems.md
       - Read and Write Datasets: how-to/read-and-write-datasets.md
+      - Merge Datasets: how-to/merge-datasets.md
+      - Merge Datasets: how-to/merge-datasets.md
       - Use SQL Filters: how-to/use-sql-filters.md
       - Sync and Manage Files: how-to/sync-and-manage-files.md
       - Optimize Performance: how-to/optimize-performance.md

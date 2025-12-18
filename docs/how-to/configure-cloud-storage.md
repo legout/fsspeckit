@@ -9,8 +9,8 @@ The recommended approach for production deployments is to load configuration fro
 ### AWS S3
 
 ```python
+from fsspeckit import filesystem
 from fsspeckit.storage_options import storage_options_from_env
-from fsspeckit.core.filesystem import filesystem
 
 # Set environment variables
 import os
@@ -56,7 +56,7 @@ For more control, use the structured storage options classes.
 ### AWS S3 Configuration
 
 ```python
-from fsspeckit.storage_options import AwsStorageOptions
+from fsspeckit import AwsStorageOptions
 
 # Configure AWS S3
 aws_options = AwsStorageOptions(
@@ -75,7 +75,7 @@ fs = aws_options.to_filesystem()
 ### Google Cloud Storage Configuration
 
 ```python
-from fsspeckit.storage_options import GcsStorageOptions
+from fsspeckit import GcsStorageOptions
 
 gcs_options = GcsStorageOptions(
     project="your-gcp-project",
@@ -89,7 +89,7 @@ fs = gcs_options.to_filesystem()
 ### Azure Blob Storage Configuration
 
 ```python
-from fsspeckit.storage_options import AzureStorageOptions
+from fsspeckit import AzureStorageOptions
 
 azure_options = AzureStorageOptions(
     account_name="yourstorageaccount",
@@ -104,7 +104,7 @@ fs = azure_options.to_filesystem()
 ### GitHub Repository Configuration
 
 ```python
-from fsspeckit.storage_options import GitHubStorageOptions
+from fsspeckit import GitHubStorageOptions
 
 github_options = GitHubStorageOptions(
     token="github_pat_YOUR_TOKEN",
@@ -117,7 +117,7 @@ fs = github_options.to_filesystem()
 ### GitLab Repository Configuration
 
 ```python
-from fsspeckit.storage_options import GitLabStorageOptions
+from fsspeckit import GitLabStorageOptions
 
 gitlab_options = GitLabStorageOptions(
     project_id=12345,
@@ -139,8 +139,8 @@ The GitLab filesystem now includes hardened features:
 You can extract storage options directly from URIs, which is useful for configuration files or command-line arguments.
 
 ```python
+from fsspeckit import filesystem
 from fsspeckit.storage_options import storage_options_from_uri
-from fsspeckit.core.filesystem import filesystem
 
 # Extract storage options from URIs
 uris = [
@@ -163,7 +163,7 @@ for uri in uris:
 You can configure multiple cloud providers simultaneously:
 
 ```python
-from fsspeckit.storage_options import (
+from fsspeckit import (
     AwsStorageOptions,
     GcsStorageOptions,
     AzureStorageOptions
@@ -262,7 +262,7 @@ aws_options = AwsStorageOptions(
 For testing, use local filesystem or mock services:
 
 ```python
-from fsspeckit.storage_options import LocalStorageOptions
+from fsspeckit import LocalStorageOptions
 
 # Use local filesystem for testing
 local_options = LocalStorageOptions(auto_mkdir=True)

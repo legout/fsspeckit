@@ -93,11 +93,11 @@ The following imports are supported for backwards compatibility:
 **Implementation Pattern**:
 ```python
 # Protocol-agnostic approach
+from fsspeckit import filesystem
 from fsspeckit.storage_options import storage_options_from_env
 options = storage_options_from_env("s3")
 
 # URI-based inference
-from fsspeckit.core.filesystem import filesystem
 fs = filesystem("s3://bucket/path")  # Auto-detects protocol
 ```
 
@@ -164,14 +164,23 @@ High-performance dataset operations for large-scale data processing:
 
 **DuckDB Implementation:**
 ```python
-class DuckDBParquetHandler:
-    """High-performance parquet operations with atomic guarantees."""
+class DuckDBDatasetIO:
+    """High-performance dataset operations with atomic guarantees."""
 
     def __init__(self, storage_options=None):
         self.storage_options = storage_options
 
-    def write_parquet_dataset(self, table, path, **kwargs):
-        """Atomic dataset writing with backup-and-restore."""
+    def write_dataset(self, data, path, mode="append", **kwargs) -> WriteDatasetResult:
+        """Write datasets with metadata tracking."""
+
+    def merge(self, data, path, strategy, key_columns, **kwargs) -> MergeResult:
+        """Incremental merge operations with file-level rewrite."""
+```
+
+**DuckDB Handler for SQL:**
+```python
+class DuckDBDatasetHandler:
+    """SQL execution and advanced operations."""
 
     def execute_sql(self, query, **kwargs):
         """Parameterized SQL execution with fsspec integration."""
@@ -179,12 +188,24 @@ class DuckDBParquetHandler:
 
 **PyArrow Implementation:**
 ```python
-# Optimization and compaction functions
-def optimize_parquet_dataset_pyarrow(dataset_path, **kwargs):
-    """Z-ordering and file size optimization."""
+class PyarrowDatasetIO:
+    """PyArrow dataset operations with merge support."""
 
-def compact_parquet_dataset_pyarrow(dataset_path, **kwargs):
-    """Dataset compaction with atomic operations."""
+    def write_dataset(self, data, path, mode="append", **kwargs) -> WriteDatasetResult:
+        """Write datasets with metadata tracking."""
+
+    def merge(self, data, path, strategy, key_columns, **kwargs) -> MergeResult:
+        """Incremental merge operations with partition pruning."""
+
+# Handler wrapper for maintenance operations
+class PyarrowDatasetHandler:
+    """Context manager for dataset operations and maintenance."""
+    
+    def compact_parquet_dataset(self, path, **kwargs):
+        """Dataset compaction with atomic operations."""
+        
+    def optimize_parquet_dataset(self, path, **kwargs):
+        """Z-ordering and file size optimization."""
 ```
 
 **Backend Integration:**
@@ -276,12 +297,13 @@ from fsspeckit.core.merge import (
 )
 
 # Storage Options → Core Filesystem
-from fsspeckit.core.filesystem import filesystem
+from fsspeckit import filesystem
 ```
 
 **Configuration Flow:**
 ```python
 # Environment-based configuration
+from fsspeckit import filesystem
 from fsspeckit.storage_options import storage_options_from_env
 options = storage_options_from_env("s3")
 fs = filesystem("s3", storage_options=options.to_dict())
@@ -357,18 +379,24 @@ These security measures are particularly important for:
 **Typical Data Processing Pipeline:**
 ```python
 # 1. Configuration Setup
+from fsspeckit import filesystem
 from fsspeckit.storage_options import storage_options_from_env
-from fsspeckit.core.filesystem import filesystem
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets import DuckDBDatasetIO, DuckDBDatasetHandler
+import polars as pl
 
 storage_options = storage_options_from_env("s3")
 fs = filesystem("s3", storage_options=storage_options.to_dict())
 
 # 2. Data Processing
-handler = DuckDBParquetHandler(storage_options=storage_options.to_dict())
+io = DuckDBDatasetIO(storage_options=storage_options.to_dict())
 
-# Data ingestion and processing
-handler.write_parquet_dataset(data, "s3://bucket/raw/")
+# Data ingestion
+data = pl.DataFrame({"region": ["US", "EU"], "amount": [100, 200]})
+result = io.write_dataset(data, "s3://bucket/raw/", mode="append")
+print(f"Wrote {result.total_rows} rows")
+
+# SQL analytics
+handler = DuckDBDatasetHandler()
 result = handler.execute_sql("""
     SELECT region, SUM(amount) as total
     FROM parquet_scan('s3://bucket/raw/')
@@ -376,13 +404,13 @@ result = handler.execute_sql("""
 """)
 
 # Output
-handler.write_parquet_dataset(result, "s3://bucket/processed/")
+output_result = io.write_dataset(result, "s3://bucket/processed/", mode="overwrite")
 ```
 
 **Cross-Storage Operations:**
 ```python
 # Sync between cloud providers
-from fsspeckit.core.filesystem import filesystem
+from fsspeckit import filesystem
 from fsspeckit.common import sync_dir
 
 src_fs = filesystem("s3", storage_options=s3_options)
@@ -493,7 +521,7 @@ from fsspeckit.common import run_parallel
 storage_options = {"key": "value", "secret": "secret"}
 
 # New configuration style
-from fsspeckit.storage_options import AwsStorageOptions
+from fsspeckit import AwsStorageOptions
 storage_options = AwsStorageOptions(
     access_key="key",
     secret_key="secret"
@@ -506,7 +534,7 @@ storage_options = AwsStorageOptions(
 fs = fsspec.filesystem("s3", **storage_options)
 
 # New method
-from fsspeckit.core.filesystem import filesystem
+from fsspeckit import filesystem
 fs = filesystem("s3", storage_options=storage_options.to_dict())
 ```
 

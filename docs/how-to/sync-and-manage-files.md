@@ -7,8 +7,8 @@ This guide covers how to synchronize files and directories between different sto
 ### Basic File Sync
 
 ```python
+from fsspeckit import filesystem
 from fsspeckit.common.misc import sync_files
-from fsspeckit.core.filesystem import filesystem
 
 # Create source and destination filesystems
 src_fs = filesystem("file")

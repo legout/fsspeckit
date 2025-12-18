@@ -2,8 +2,6 @@
 
 This tutorial will walk you through your first steps with `fsspeckit`. You'll learn how to install the library, work with local and cloud storage, and perform basic dataset operations.
 
-> **Package Structure Note:** fsspeckit has been refactored to use a package-based structure. While legacy import paths still work for backward compatibility, the new structure provides better organization and discoverability. See the [Architecture Guide](../explanation/architecture.md) for details.
-
 ## Prerequisites
 
 - Python 3.11 or higher
@@ -31,12 +29,8 @@ For detailed installation instructions, see the [Installation Guide](../installa
 Let's start by creating a local filesystem and performing basic operations:
 
 ```python
-# New preferred import path
-from fsspeckit.core import filesystem
+from fsspeckit import filesystem
 import os
-
-# Legacy import (still works but deprecated)
-# from fsspeckit.core.filesystem import filesystem
 
 # Create a local filesystem
 # Note: filesystem() wraps the filesystem in DirFileSystem by default (dirfs=True)
@@ -68,11 +62,8 @@ print(f"Files: {files}")
 Now let's configure cloud storage. We'll use environment variables for credentials:
 
 ```python
+from fsspeckit import filesystem
 from fsspeckit.storage_options import storage_options_from_env
-from fsspeckit.core import filesystem
-
-# Legacy import (still works but deprecated)
-# from fsspeckit.core.filesystem import filesystem
 
 # Set environment variables (or set them in your environment)
 import os
@@ -90,7 +81,7 @@ print(f"Created S3 filesystem in region: {aws_options.region}")
 You can also configure storage manually:
 
 ```python
-from fsspeckit.storage_options import AwsStorageOptions
+from fsspeckit import AwsStorageOptions
 
 # Configure AWS S3
 aws_options = AwsStorageOptions(
@@ -130,12 +121,11 @@ Let's perform basic dataset operations using both DuckDB and PyArrow handlers:
 ### DuckDB Approach
 
 ```python
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO, DuckDBDatasetHandler
 import polars as pl
 
-# Initialize handler with storage options
-storage_options = {"key": "value", "secret": "secret"}
-handler = DuckDBParquetHandler(storage_options=storage_options)
+# Initialize I/O handler
+io = DuckDBDatasetIO()
 
 # Create sample data
 data = pl.DataFrame({
@@ -145,16 +135,18 @@ data = pl.DataFrame({
 })
 
 # Write dataset
-handler.write_parquet_dataset(data, "s3://bucket/my-dataset/")
+result = io.write_dataset(data, "s3://bucket/my-dataset/", mode="append")
+print(f"Wrote {result.total_rows} rows using {result.backend} backend")
 
-# Execute SQL queries
-result = handler.execute_sql("""
+# Use handler wrapper for SQL operations
+handler = DuckDBDatasetHandler()
+query_result = handler.execute_sql("""
     SELECT category, COUNT(*) as count, AVG(value) as avg_value
     FROM parquet_scan('s3://bucket/my-dataset/')
     GROUP BY category
 """)
 
-print(result)
+print(query_result)
 ```
 
 ### PyArrow Approach
@@ -163,28 +155,44 @@ print(result)
 from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
 import pyarrow as pa
 
-# Class-based approach
+# Initialize I/O handler
 io = PyarrowDatasetIO()
 
-# Handler wrapper approach with context manager
+# Create sample data
+data = pa.table({
+    "id": [1, 2, 3, 4],
+    "category": ["A", "B", "A", "B"],
+    "value": [10.5, 20.3, 15.7, 25.1]
+})
+
+# Write dataset
+result = io.write_dataset(data, "s3://bucket/my-dataset/", mode="append")
+print(f"Wrote {result.total_rows} rows across {len(result.files)} files")
+print(f"Backend: {result.backend}, Mode: {result.mode}")
+
+# Update existing records using merge
+updates = pa.table({
+    "id": [2, 4],
+    "category": ["B", "B"],
+    "value": [99.9, 88.8]
+})
+merge_result = io.merge(
+    data=updates,
+    path="s3://bucket/my-dataset/",
+    strategy="upsert",
+    key_columns=["id"]
+)
+print(f"Inserted: {merge_result.inserted}, Updated: {merge_result.updated}")
+
+# Handler wrapper approach for reading and maintenance
 with PyarrowDatasetHandler() as handler:
-    # Create sample data
-    data = pa.table({
-        "id": [1, 2, 3, 4],
-        "category": ["A", "B", "A", "B"],
-        "value": [10.5, 20.3, 15.7, 25.1]
-    })
-
-    # Write dataset with merge strategy
-    handler.write_parquet_dataset(data, "s3://bucket/my-dataset/", strategy="upsert", key_columns=["id"])
-
-    # Read dataset
+    # Read dataset with column selection
     table = handler.read_parquet("s3://bucket/my-dataset/", columns=["category", "value"])
     print(f"Read {table.num_rows} rows with columns: {table.column_names}")
-
-# Direct class usage for maintenance operations
-stats = io.compact_parquet_dataset("s3://bucket/my-dataset/", target_mb_per_file=64)
-print(f"Compaction stats: {stats}")
+    
+    # Compact dataset
+    stats = handler.compact_parquet_dataset("s3://bucket/my-dataset/", target_mb_per_file=64)
+    print(f"Compaction stats: {stats}")
 ```
 
 ## Domain Package Structure
@@ -193,15 +201,15 @@ print(f"Compaction stats: {stats}")
 
 ```python
 # Filesystem creation and core functionality
-from fsspeckit.core.filesystem import filesystem
+from fsspeckit import filesystem
 
 # Storage configuration
-from fsspeckit.storage_options import AwsStorageOptions, storage_options_from_env
+from fsspeckit import AwsStorageOptions, GcsStorageOptions
+from fsspeckit.storage_options import storage_options_from_env
 
-# Dataset operations
-from fsspeckit.datasets import DuckDBParquetHandler, PyarrowDatasetHandler
-from fsspeckit.datasets.duckdb import DuckDBDatasetIO
-from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+# Dataset operations - I/O handlers
+from fsspeckit.datasets import DuckDBDatasetIO, DuckDBDatasetHandler
+from fsspeckit.datasets import PyarrowDatasetIO, PyarrowDatasetHandler
 
 # SQL filter translation
 from fsspeckit.sql.filters import sql2pyarrow_filter, sql2polars_filter
@@ -209,9 +217,6 @@ from fsspeckit.sql.filters import sql2pyarrow_filter, sql2polars_filter
 # Common utilities
 from fsspeckit.common.misc import run_parallel
 from fsspeckit.common.types import dict_to_dataframe
-
-# Backwards compatibility (legacy)
-from fsspeckit.utils import DuckDBParquetHandler  # Still works
 ```
 
 ## Next Steps
@@ -227,10 +232,11 @@ Congratulations! You've completed the basic fsspeckit tutorial. Here are some re
 ### Common Use Cases
 
 1. **Cloud Data Processing**: Use `storage_options_from_env()` for production deployments
-2. **Dataset Operations**: Use `DuckDBParquetHandler` for SQL-based operations or `PyarrowDatasetHandler` for memory-efficient PyArrow operations
-3. **SQL Filtering**: Use `sql2pyarrow_filter()` and `sql2polars_filter()` for cross-framework compatibility
-4. **Safe Operations**: Use `DirFileSystem` for security-critical applications
-5. **Performance**: Use `run_parallel()` for concurrent file processing
+2. **Dataset Operations**: Use `DuckDBDatasetIO` for SQL-based operations or `PyarrowDatasetIO` for PyArrow operations
+3. **Merge Operations**: Use `merge()` for incremental updates with `insert`, `update`, or `upsert` strategies
+4. **SQL Filtering**: Use `sql2pyarrow_filter()` and `sql2polars_filter()` for cross-framework compatibility
+5. **Safe Operations**: Use `DirFileSystem` for security-critical applications
+6. **Performance**: Use `run_parallel()` for concurrent file processing
 
 ### Production Tips
 

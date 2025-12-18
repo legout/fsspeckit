@@ -7,7 +7,7 @@ This guide covers performance optimization techniques for fsspeckit, including c
 ### Filesystem Caching
 
 ```python
-from fsspeckit.core.filesystem import filesystem
+from fsspeckit import filesystem
 
 # Enable caching for remote filesystems
 fs = filesystem("s3://bucket/", cached=True)

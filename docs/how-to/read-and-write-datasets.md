@@ -2,19 +2,14 @@
 
 This guide covers how to read and write datasets in various formats using fsspeckit's extended I/O helpers and dataset operations.
 
-> **Package Structure Note:** fsspeckit has been refactored to use a package-based structure. While legacy import paths still work for backward compatibility, the new structure provides better organization. The examples below show the new preferred import paths.
-
 ## Reading JSON Data
 
 ### Single JSON Files
 
 ```python
-from fsspeckit.core import filesystem
+from fsspeckit import filesystem
 
 fs = filesystem(".")
-
-# Legacy import (still works but deprecated)
-# from fsspeckit.core.filesystem import filesystem
 
 # Read JSON file as dictionary
 data = fs.read_json_file("data.json")
@@ -335,75 +330,111 @@ fs.write_pyarrow_dataset(
 )
 ```
 
-## Merge-Aware Dataset Writes
+## Dataset Write Operations
 
-fsspeckit provides merge-aware write functionality for both PyArrow and DuckDB backends, allowing you to perform sophisticated merge operations directly when writing datasets. This eliminates the need for separate staging and merge steps.
+fsspeckit provides explicit write and merge operations for managing datasets. Use `write_dataset()` for simple append/overwrite operations and `merge()` for sophisticated merge logic.
 
-### Merge Strategies Overview
+### Writing Datasets
 
-| Strategy | Use Case | Behavior |
-| :-------- | :-------- | :-------- |
-| **INSERT** | Append-only scenarios (event logs, audit trails) | Only inserts new records, ignores existing keys |
-| **UPSERT** | Change Data Capture (CDC), customer data sync | Inserts new records, updates existing ones |
-| **UPDATE** | Dimension table updates, product catalog changes | Only updates existing records, ignores new keys |
-| **FULL_MERGE** | Complete synchronization, inventory snapshots | Replaces entire dataset with source data |
-| **DEDUPLICATE** | Data deduplication, transaction log cleanup | Removes duplicates based on keys or exact rows |
-
-### PyArrow Merge-Aware Writes
+Use `write_dataset()` to append or overwrite datasets with detailed metadata tracking:
 
 ```python
-from fsspec.implementations.local import LocalFileSystem
+from fsspeckit.datasets import PyarrowDatasetIO
 import pyarrow as pa
 
-fs = LocalFileSystem()
+# Initialize dataset handler
+io = PyarrowDatasetIO()
 
-# Create initial dataset
-initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
-fs.write_pyarrow_dataset(data=initial, path="dataset/")
+# Create sample data
+data = pa.table({
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "value": [10.5, 20.3, 15.7]
+})
 
-# UPSERT new and updated data
-upsert_data = pa.table({"id": [2, 3], "value": ["updated", "c"]})
-fs.write_pyarrow_dataset(
-    data=upsert_data,
-    path="dataset/",
-    strategy="upsert",
-    key_columns="id"
-)
+# Append to dataset (default mode)
+result = io.write_dataset(data, "dataset/", mode="append")
+print(f"Wrote {result.total_rows} rows across {len(result.files)} files")
+print(f"Backend: {result.backend}, Mode: {result.mode}")
 
-# Convenience helpers (equivalent to above)
-fs.insert_dataset(data, "events/", key_columns="event_id")     # Insert-only
-fs.upsert_dataset(data, "customers/", key_columns="customer_id")  # Insert-or-update
-fs.update_dataset(data, "products/", key_columns="product_id")   # Update-only
-fs.deduplicate_dataset(data, "transactions/", key_columns="transaction_id")  # Deduplicate
+# Access file-level metadata
+for file_info in result.files:
+    print(f"File: {file_info.path}, Rows: {file_info.row_count}, Size: {file_info.size_bytes}")
+
+# Overwrite existing dataset
+result = io.write_dataset(data, "dataset/", mode="overwrite")
 ```
 
-### DuckDB Merge-Aware Writes
+**WriteDatasetResult fields:**
+- `files`: List of `FileWriteMetadata` (path, row_count, size_bytes, metadata)
+- `total_rows`: Total rows written across all files
+- `mode`: Write mode used ('append' or 'overwrite')
+- `backend`: Backend that performed the write ('pyarrow' or 'duckdb')
+
+### Merge Operations
+
+Use `merge()` for sophisticated incremental updates that only rewrite affected files:
 
 ```python
-from fsspeckit.datasets import DuckDBParquetHandler
-import polars as pl
-
-# Initialize handler
-handler = DuckDBParquetHandler(storage_options=storage_options)
-
 # Create initial dataset
-initial = pl.DataFrame({"id": [1, 2], "value": ["a", "b"]})
-handler.write_parquet_dataset(data=initial, path="dataset/")
+initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
+io.write_dataset(initial, "dataset/", mode="overwrite")
 
-# UPSERT with merge strategy
-upsert_data = pl.DataFrame({"id": [2, 3], "value": ["updated", "c"]})
-handler.write_parquet_dataset(
-    data=upsert_data,
+# Merge strategies
+new_data = pa.table({"id": [2, 3], "value": ["updated", "c"]})
+
+# UPSERT: Insert new records, update existing ones
+result = io.merge(
+    data=new_data,
     path="dataset/",
     strategy="upsert",
     key_columns=["id"]
 )
 
-# Convenience helpers (equivalent to above)
-handler.insert_dataset(data, "events/", key_columns=["event_id"])     # Insert-only
-handler.upsert_dataset(data, "customers/", key_columns=["customer_id"])  # Insert-or-update
-handler.update_dataset(data, "products/", key_columns=["product_id"])   # Update-only
-handler.deduplicate_dataset(data, "transactions/", key_columns=["transaction_id"])  # Deduplicate
+# INSERT: Only insert new records (ignore existing keys)
+result = io.merge(
+    data=new_data,
+    path="dataset/",
+    strategy="insert",
+    key_columns=["id"]
+)
+
+# UPDATE: Only update existing records (ignore new keys)
+result = io.merge(
+    data=new_data,
+    path="dataset/",
+    strategy="update",
+    key_columns=["id"]
+)
+```
+
+**MergeResult fields:**
+- `strategy`: Merge strategy used ('insert', 'update', 'upsert')
+- `source_count`: Rows in source data
+- `target_count_before`, `target_count_after`: Dataset row counts
+- `inserted`, `updated`, `deleted`: Operation counts
+- `files`: List of `MergeFileMetadata`
+- `rewritten_files`, `inserted_files`, `preserved_files`: Affected file paths
+
+### Using Merge Results
+
+```python
+# Track merge operation details
+result = io.merge(data, "dataset/", strategy="upsert", key_columns=["id"])
+
+# Log operation summary
+print(f"Strategy: {result.strategy}")
+print(f"Inserted: {result.inserted}, Updated: {result.updated}")
+print(f"Dataset rows: {result.target_count_before} -> {result.target_count_after}")
+
+# Monitor affected files
+print(f"Rewritten: {len(result.rewritten_files)} files")
+print(f"Inserted: {len(result.inserted_files)} files")
+print(f"Preserved: {len(result.preserved_files)} files")
+
+# Access detailed file metadata
+for file_meta in result.files:
+    print(f"{file_meta.operation}: {file_meta.path} ({file_meta.row_count} rows)")
 ```
 
 ### Advanced Merge Features
@@ -411,108 +442,79 @@ handler.deduplicate_dataset(data, "transactions/", key_columns=["transaction_id"
 #### Composite Keys
 ```python
 # Use multiple columns as keys
-fs.write_pyarrow_dataset(
+result = io.merge(
     data=data,
     path="dataset/",
     strategy="upsert",
-    key_columns=["customer_id", "order_date"]  # Composite key
+    key_columns=["customer_id", "order_date"]
 )
 ```
 
-#### Custom Deduplication Ordering
+#### Partition-Aware Merges
 ```python
-# Control which record to keep during deduplication
-fs.deduplicate_dataset(
+# Merge only affects partitions present in source data
+result = io.merge(
     data=data,
     path="dataset/",
-    key_columns="user_id",
-    dedup_order_by=["timestamp", "version"]  # Keep latest record
+    strategy="upsert",
+    key_columns=["id"],
+    partition_columns=["year", "month"]
 )
 ```
 
-#### Backend Selection Guidance
-- **PyArrow**: Best for in-memory operations, schema flexibility, cloud storage
-- **DuckDB**: Best for large datasets, complex analytics, SQL integration
+### Write vs Merge: When to Use Each
 
-### Error Handling
+**Use `write_dataset()` when:**
+- Appending new data without deduplication
+- Overwriting entire datasets
+- Simple ETL pipelines without merge logic
+- No key-based matching required
+
+**Use `merge()` when:**
+- Updating existing records based on keys
+- Implementing CDC (Change Data Capture) patterns
+- Deduplicating data during ingestion
+- Only rewriting affected partitions/files for efficiency
+
+### DuckDB Dataset Operations
+
 ```python
-try:
-    fs.upsert_dataset(data, "dataset/", key_columns=["id"])
-except ValueError as e:
-    if "key_columns is required" in str(e):
-        print("Key columns are required for upsert operations")
-    else:
-        raise
-```
+from fsspeckit.datasets import DuckDBDatasetIO
+import polars as pl
 
-### PyArrow Class-Based Dataset Operations
+# Initialize DuckDB handler
+io = DuckDBDatasetIO()
 
-```python
-from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
-import pyarrow as pa
+# Write dataset
+data = pl.DataFrame({"id": [1, 2, 3], "value": ["a", "b", "c"]})
+result = io.write_dataset(data, "dataset/", mode="append")
+print(f"Wrote {result.total_rows} rows using {result.backend} backend")
 
-# Class-based approach
-io = PyarrowDatasetIO()
-
-# Create initial dataset
-initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
-io.write_parquet_dataset(data=initial, path="dataset/")
-
-# UPSERT new and updated data
-upsert_data = pa.table({"id": [2, 3], "value": ["updated", "c"]})
-io.write_parquet_dataset(
-    data=upsert_data,
+# Merge with DuckDB
+new_data = pl.DataFrame({"id": [2, 3, 4], "value": ["updated", "c", "d"]})
+result = io.merge(
+    data=new_data,
     path="dataset/",
     strategy="upsert",
-    key_columns="id"
+    key_columns=["id"]
 )
-
-# Handler wrapper approach with context manager
-with PyarrowDatasetHandler() as handler:
-    # Read with column selection
-    table = handler.read_parquet("dataset/", columns=["id", "value"])
-    
-    # Compact dataset
-    stats = handler.compact_parquet_dataset("dataset/", target_mb_per_file=64)
-    
-    # Optimize dataset
-    result = handler.optimize_parquet_dataset("dataset/", compression="zstd")
+print(f"Inserted: {result.inserted}, Updated: {result.updated}")
 ```
 
-#### Comparison: Function-based vs Class-based PyArrow
-
-**Function-based approach:**
-```python
-from fsspec import LocalFileSystem
-fs = LocalFileSystem()
-fs.write_pyarrow_dataset(data, "dataset/", strategy="upsert", key_columns=["id"])
-```
-
-**Class-based approach:**
-```python
-from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
-io = PyarrowDatasetIO()
-io.write_parquet_dataset(data, "dataset/", strategy="upsert", key_columns=["id"])
-```
-
-**When to use each:**
-- **Function-based**: Simple scripts, existing fsspec workflows, minimal setup
-- **Class-based**: Larger applications, need context management, want API consistency with DuckDB
-
-#### Backend Selection Guidance
+### Backend Selection Guidance
 - **PyArrow**: Best for in-memory operations, schema flexibility, cloud storage
 - **DuckDB**: Best for large datasets, complex analytics, SQL integration
 
-## DuckDB Dataset Operations
+## DuckDB Dataset Operations with SQL
 
 ### Basic Dataset Operations
 
 ```python
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets import DuckDBDatasetIO
 import polars as pl
 
 # Initialize handler
-handler = DuckDBParquetHandler(storage_options=storage_options)
+io = DuckDBDatasetIO()
 
 # Create sample data
 data = pl.DataFrame({
@@ -523,16 +525,22 @@ data = pl.DataFrame({
 })
 
 # Write dataset
-handler.write_parquet_dataset(data, "s3://bucket/my-dataset/")
+result = io.write_dataset(data, "s3://bucket/my-dataset/", mode="append")
+print(f"Wrote {result.total_rows} rows")
 
 # Read dataset back
-result = handler.read_parquet_dataset("s3://bucket/my-dataset/")
-print(result)
+result_df = io.read_parquet("s3://bucket/my-dataset/")
+print(result_df)
 ```
 
 ### SQL Analytics
 
 ```python
+from fsspeckit.datasets import DuckDBDatasetHandler
+
+# Initialize handler with SQL capabilities
+handler = DuckDBDatasetHandler()
+
 # Execute SQL queries on datasets
 result = handler.execute_sql("""
     SELECT 
