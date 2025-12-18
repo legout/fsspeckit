@@ -22,6 +22,7 @@ from fsspec import filesystem as fsspec_filesystem
 from fsspeckit.common.logging import get_logger
 from fsspeckit.common.optional import _import_pyarrow
 from fsspeckit.core.merge import MergeStrategy
+from fsspeckit.datasets.base import BaseDatasetHandler
 from fsspeckit.datasets.exceptions import (
     DatasetFileError,
     DatasetOperationError,
@@ -32,14 +33,14 @@ from fsspeckit.datasets.path_utils import normalize_path, validate_dataset_path
 logger = get_logger(__name__)
 
 
-class PyarrowDatasetIO:
+class PyarrowDatasetIO(BaseDatasetHandler):
     """PyArrow-based dataset I/O operations.
 
     This class provides methods for reading and writing parquet files and datasets
     using PyArrow's high-performance parquet engine.
 
-    The class delegates to existing PyArrow functions while providing an interface
-    symmetric with DuckDBDatasetIO for easy backend switching.
+    The class inherits from BaseDatasetHandler to leverage shared implementations
+    while providing PyArrow-specific optimizations.
 
     Args:
         filesystem: Optional fsspec filesystem instance. If None, uses local filesystem.
@@ -83,16 +84,16 @@ class PyarrowDatasetIO:
 
         self._filesystem = filesystem
 
+    @property
+    def filesystem(self) -> AbstractFileSystem:
+        """Return the filesystem instance."""
+        return self._filesystem
+
     def _normalize_path(self, path: str, operation: str = "other") -> str:
         """Normalize path based on filesystem type and validate it."""
         normalized = normalize_path(path, self._filesystem)
         validate_dataset_path(normalized, self._filesystem, operation)
         return normalized
-
-    @property
-    def filesystem(self) -> AbstractFileSystem:
-        """Return the filesystem instance."""
-        return self._filesystem
 
     def _clear_dataset_parquet_only(self, path: str) -> None:
         if self._filesystem.exists(path) and self._filesystem.isdir(path):
