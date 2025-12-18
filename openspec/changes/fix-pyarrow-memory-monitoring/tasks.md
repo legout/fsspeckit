@@ -13,9 +13,9 @@
 - [x] 2.4 Test cross-platform compatibility (Linux, macOS, Windows)
 
 ## 3. Documentation
-- [ ] 3.1 Document new memory monitoring capabilities
-- [ ] 3.2 Add examples for memory-constrained environments
-- [ ] 3.3 Update API reference with new parameters
+- [x] 3.1 Document new memory monitoring capabilities
+- [x] 3.2 Add examples for memory-constrained environments
+- [x] 3.3 Update API reference with new parameters
 
 ## Implementation Notes
 
@@ -43,3 +43,10 @@
 - `pyproject.toml` (UPDATED)
 - `tests/test_pyarrow_memory_monitoring_basic.py` (NEW)
 - `validate_fixes.py` (NEW)
+
+### Documentation Added
+- `docs/api/fsspeckit.datasets.pyarrow.memory.md` (NEW) - Comprehensive API documentation
+- `docs/how-to/memory-constrained-environments.md` (NEW) - How-to guide with examples
+- `docs/migration/enhanced-memory-monitoring.md` (NEW) - Migration guide for existing users
+- `docs/how-to/optimize-memory-monitoring-performance.md` (NEW) - Performance tuning guide
+- `docs/api/index.md` (UPDATED) - Added memory monitoring to API index

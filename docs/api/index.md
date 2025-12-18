@@ -8,6 +8,7 @@ Welcome to the `fsspeckit` API reference documentation. This section provides de
 
 ### Dataset Operations
 *   [`fsspeckit.datasets`](fsspeckit.datasets.md) - Dataset-level operations (DuckDB & PyArrow helpers)
+*   [`fsspeckit.datasets.pyarrow.memory`](fsspeckit.datasets.pyarrow.memory.md) - Enhanced PyArrow memory monitoring
 
 ### SQL Utilities
 *   [`fsspeckit.sql.filters`](fsspeckit.sql.filters.md) - SQL-to-filter translation helpers
