@@ -14,6 +14,8 @@
 - [Use SQL Filters](how-to/use-sql-filters.md) - Cross-framework filtering
 - [Sync and Manage Files](how-to/sync-and-manage-files.md) - File synchronization
 - [Optimize Performance](how-to/optimize-performance.md) - Caching and parallel processing
+- [Multi-Key Usage Examples](how-to/multi-key-examples.md) - Composite key operations with 10-100x performance gains
+- [Multi-Key Performance Guide](how-to/multi-key-performance.md) - Performance characteristics and optimization
 
 ## Key Features
 
@@ -40,6 +42,7 @@
 
 - **[Installation](installation.md)** - Setup and dependency management
 - **[API Reference](reference/api-guide.md)** - Complete API documentation
+- **[Multi-Key API Reference](reference/multi-key-api.md)** - PyArrow vectorized multi-key functions
 - **[Utils Reference](reference/utils.md)** - Backwards compatibility guide
 
 ## Architecture Overview

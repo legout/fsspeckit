@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from fsspeckit.core.incremental import MergeResult
     from fsspeckit.core.merge import MergeStats
     from fsspeckit.datasets.pyarrow.memory import MemoryMonitor
+    from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
     from fsspeckit.datasets.write_result import WriteDatasetResult
 
 from fsspec import filesystem as fsspec_filesystem
@@ -409,8 +410,14 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         from fsspeckit.common.security import validate_compression_codec, validate_path
         from fsspeckit.datasets.pyarrow.dataset import (
             PerformanceMonitor,
+            _create_composite_key_array,
+            _create_string_key_array,
+            _filter_by_key_membership,
+            _make_struct_safe,
+            _table_drop_duplicates,
             process_in_chunks,
         )
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
 
         monitor = PerformanceMonitor(
             max_pyarrow_mb=merge_max_memory_mb,
@@ -420,6 +427,10 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         monitor.start_op("initialization")
 
         pa_mod = _import_pyarrow()
+        import pyarrow as pa
+        import pyarrow.compute as pc
+        import pyarrow.dataset as ds
+        import pyarrow.parquet as pq
 
         if isinstance(key_columns, str):
             key_columns = [key_columns]
@@ -477,18 +488,22 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         source_table = _dedupe_source_last_wins(source_table)
         monitor.end_op()
 
-        # Keep source keys as PyArrow arrays for vectorized operations
+        # Keep source keys as PyArrow Table/Array for vectorized operations
+        source_key_table = source_table.select(key_cols)
+        # Deduplicate keys
+        source_key_table = _table_drop_duplicates(source_key_table, subset=key_cols)
+
+        source_key_tracker = AdaptiveKeyTracker()
         if len(key_cols) == 1:
             # For single column, keep as PyArrow array for vectorized operations
-            source_key_array = source_table.column(key_cols[0])
-            # Convert to set only when needed for Python set operations
-            source_key_set: set[object] = set(source_key_array.to_pylist())
+            source_key_array = source_key_table.column(0)
+            for key in source_key_array.to_pylist():
+                source_key_tracker.add(key)
         else:
-            # For multi-column keys, keep as list of tuples for now
-            # This will be optimized when we process file matching
-            arrays = [source_table.column(c).to_pylist() for c in key_cols]
-            source_keys = list(zip(*arrays))
-            source_key_set = set(source_keys)
+            # For multi-column keys, use vectorized conversion
+            source_key_array = None
+            for d in _make_struct_safe(source_key_table, key_cols).to_pylist():
+                source_key_tracker.add(tuple(d.values()))
 
         target_files = list_dataset_files(path, filesystem=self._filesystem)
         target_exists = bool(target_files)
@@ -557,9 +572,39 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 preserved_files=[],
             )
 
-        def _select_rows_by_keys(table: pa.Table, key_set: set[object]) -> pa.Table:
-            if not key_set:
+        def _select_rows_by_keys(
+            table: pa.Table, keys: set[object] | AdaptiveKeyTracker
+        ) -> pa.Table:
+            is_tracker = isinstance(keys, AdaptiveKeyTracker)
+            if is_tracker:
+                if keys.get_metrics()["unique_keys_estimate"] == 0:
+                    return table.slice(0, 0)
+            elif not keys:
                 return table.slice(0, 0)
+
+            if is_tracker:
+                # If tracker has exact keys, use them for efficiency
+                if (
+                    hasattr(keys, "_tier")
+                    and keys._tier == "EXACT"
+                    and keys._exact_keys is not None
+                ):
+                    key_set = keys._exact_keys
+                else:
+                    # Probabilistic or LRU: must filter manually
+                    mask = []
+                    if len(key_cols) == 1:
+                        col_values = table.column(key_cols[0]).to_pylist()
+                        for val in col_values:
+                            mask.append(val in keys)
+                    else:
+                        struct_keys = _make_struct_safe(table, key_cols).to_pylist()
+                        for d in struct_keys:
+                            mask.append(tuple(d.values()) in keys)
+                    return table.filter(pa.array(mask))
+            else:
+                key_set = keys
+
             if len(key_cols) == 1:
                 key_col = key_cols[0]
                 value_set = pa_mod.array(
@@ -587,9 +632,19 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 source_table, partition_cols
             )
 
+        # Prepare keys for planning (using lists for now as the planning utilities expect sequences)
+        # TODO: Update planning utilities to support trackers or PyArrow tables directly
+        if len(key_cols) == 1:
+            source_keys_seq = source_key_table.column(0).to_pylist()
+        else:
+            source_keys_seq = [
+                tuple(d.values())
+                for d in _make_struct_safe(source_key_table, key_cols).to_pylist()
+            ]
+
         rewrite_plan = plan_incremental_rewrite(
             dataset_path=path,
-            source_keys=source_keys,
+            source_keys=source_keys_seq,
             key_columns=key_cols,
             filesystem=self._filesystem,
             partition_columns=partition_cols or None,
@@ -599,51 +654,36 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         affected_files = confirm_affected_files(
             candidate_files=rewrite_plan.affected_files,
             key_columns=key_cols,
-            source_keys=source_keys,
+            source_keys=source_keys_seq,
             filesystem=self._filesystem,
         )
 
-        matched_keys: set[object] = set()
-        matched_keys_by_file: dict[str, set[object]] = {}
+        matched_keys = AdaptiveKeyTracker()
+        matched_keys_by_file: dict[str, AdaptiveKeyTracker] = {}
         for file_path in affected_files:
             try:
                 key_table = pq.read_table(
                     file_path, columns=key_cols, filesystem=self._filesystem
                 )
 
-                if len(key_cols) == 1:
-                    # Use vectorized is_in for single column matching
-                    mask = pc.is_in(
-                        key_table.column(key_cols[0]), value_set=source_key_array
-                    )
-                    matched_rows = key_table.filter(mask)
-                    if matched_rows.num_rows > 0:
+                # Use vectorized matching helper
+                matched_rows = _filter_by_key_membership(
+                    key_table, key_cols, source_key_table, keep_matches=True
+                )
+                if matched_rows.num_rows > 0:
+                    file_matched = AdaptiveKeyTracker()
+                    if len(key_cols) == 1:
                         # Get the actual matched keys
-                        file_matched = set(matched_rows.column(key_cols[0]).to_pylist())
-                        matched_keys_by_file[file_path] = set(file_matched)
-                        matched_keys |= set(file_matched)
-                else:
-                    # For multi-column: convert source keys to table and use join
-                    source_list = list(source_key_set)
-                    source_keys_table = pa.table(
-                        {
-                            col: [k[i] for k in source_list]
-                            for i, col in enumerate(key_cols)
-                        }
-                    )
-                    joined = key_table.join(
-                        source_keys_table, keys=key_cols, join_type="inner"
-                    )
-                    if joined.num_rows > 0:
-                        # Extract matched keys as tuples
-                        file_matched = set()
-                        for i in range(joined.num_rows):
-                            key_tuple = tuple(
-                                joined.column(col)[i].as_py() for col in key_cols
-                            )
-                            file_matched.add(key_tuple)
-                        matched_keys_by_file[file_path] = set(file_matched)
-                        matched_keys |= set(file_matched)
+                        for key in matched_rows.column(0).to_pylist():
+                            file_matched.add(key)
+                            matched_keys.add(key)
+                    else:
+                        # Use struct array for vectorized multi-key extraction
+                        for d in _make_struct_safe(matched_rows, key_cols).to_pylist():
+                            key = tuple(d.values())
+                            file_matched.add(key)
+                            matched_keys.add(key)
+                    matched_keys_by_file[file_path] = file_matched
             except (IOError, RuntimeError, ValueError) as e:
                 logger.error(
                     "failed_to_check_file_for_matching_keys",
@@ -653,14 +693,29 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                     exc_info=True,
                 )
                 # Conservative: if we can't confirm, treat all source keys as matched
-                matched_keys_by_file[file_path] = set(source_key_set)
-                matched_keys |= set(source_key_set)
+                matched_keys_by_file[file_path] = source_key_tracker
+                if len(key_cols) == 1:
+                    for key in source_key_array.to_pylist():
+                        matched_keys.add(key)
+                else:
+                    for d in _make_struct_safe(source_key_table, key_cols).to_pylist():
+                        matched_keys.add(tuple(d.values()))
 
-        inserted_key_set = source_key_set - matched_keys
+        # Calculate inserted keys using trackers
+        inserted_key_tracker = AdaptiveKeyTracker()
+        if len(key_cols) == 1:
+            for key in source_key_array.to_pylist():
+                if key not in matched_keys:
+                    inserted_key_tracker.add(key)
+        else:
+            for d in _make_struct_safe(source_key_table, key_cols).to_pylist():
+                key = tuple(d.values())
+                if key not in matched_keys:
+                    inserted_key_tracker.add(key)
 
         if strategy == "insert":
             preserved_files = list(target_files)
-            if not inserted_key_set:
+            if inserted_key_tracker.get_metrics()["unique_keys_estimate"] == 0:
                 return MergeResult(
                     strategy="insert",
                     source_count=source_table.num_rows,
@@ -677,7 +732,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                     inserted_files=[],
                     preserved_files=preserved_files,
                 )
-            insert_table = _select_rows_by_keys(source_table, set(inserted_key_set))
+            insert_table = _select_rows_by_keys(source_table, inserted_key_tracker)
             write_res = self.write_dataset(
                 insert_table,
                 path,
@@ -727,14 +782,14 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         try:
             for file_path in affected_files:
                 monitor.start_op("file_processing")
-                file_matched = matched_keys_by_file.get(file_path, set())
+                file_matched = matched_keys_by_file.get(file_path)
                 if not file_matched:
                     preserved_files.append(file_path)
                     monitor.end_op()
                     continue
 
                 # Load only source rows relevant to this file
-                source_for_file = _select_rows_by_keys(source_table, set(file_matched))
+                source_for_file = _select_rows_by_keys(source_table, file_matched)
                 staging_file = f"{staging_dir}/{uuid.uuid4().hex[:16]}.parquet"
 
                 if enable_streaming_merge:
@@ -834,8 +889,11 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         inserted_meta: list[MergeFileMetadata] = []
         inserted_rows = 0
 
-        if strategy == "upsert" and inserted_key_set:
-            insert_table = _select_rows_by_keys(source_table, set(inserted_key_set))
+        if (
+            strategy == "upsert"
+            and inserted_key_tracker.get_metrics()["unique_keys_estimate"] > 0
+        ):
+            insert_table = _select_rows_by_keys(source_table, inserted_key_tracker)
             inserted_rows = insert_table.num_rows
             write_res = self.write_dataset(
                 insert_table,
@@ -856,7 +914,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 for m in write_res.files
             ]
 
-        updated_rows = len(matched_keys)
+        updated_rows = matched_keys.get_metrics()["unique_keys_estimate"]
         files_meta = (
             rewritten_meta
             + inserted_meta
@@ -874,6 +932,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 f.size_bytes for f in files_meta if f.size_bytes is not None
             ),
         )
+        # Add tracker metrics
+        metrics["key_tracker"] = matched_keys.get_metrics()
         logger.info("Merge operation completed", strategy=strategy, metrics=metrics)
 
         return MergeResult(
@@ -888,6 +948,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             rewritten_files=rewritten_files,
             inserted_files=inserted_files,
             preserved_files=preserved_files,
+            metrics=metrics,
         )
 
     def write_parquet_dataset(
@@ -1319,25 +1380,28 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         )
 
         # Prepare source keys for filtering
+        use_string_fallback = False
         if len(key_columns) == 1:
             source_keys = source_aligned.column(key_columns[0])
         else:
-            source_keys = pc.binary_join_element_wise(
-                *[
-                    pc.cast(source_aligned.column(c), pa_mod.string())
-                    for c in key_columns
-                ],
-                "||",
-            )
+            try:
+                # Primary approach: StructArray for vectorized matching
+                source_keys = _create_composite_key_array(source_aligned, key_columns)
+                # Test if is_in works with this StructArray
+                if source_keys.length() > 0:
+                    pc.is_in(source_keys.slice(0, 1), value_set=source_keys.slice(0, 1))
+            except Exception:
+                use_string_fallback = True
+                source_keys = _create_string_key_array(source_aligned, key_columns)
 
         def _process_chunk(chunk: pa.Table) -> pa.Table:
             if len(key_columns) == 1:
                 chunk_keys = chunk.column(key_columns[0])
+            elif use_string_fallback:
+                chunk_keys = _create_string_key_array(chunk, key_columns)
             else:
-                chunk_keys = pc.binary_join_element_wise(
-                    *[pc.cast(chunk.column(c), pa_mod.string()) for c in key_columns],
-                    "||",
-                )
+                chunk_keys = _create_composite_key_array(chunk, key_columns)
+
             mask = pc.invert(pc.is_in(chunk_keys, source_keys))
             return chunk.filter(mask)
 
@@ -1406,7 +1470,9 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         import pyarrow.compute as pc
 
         from fsspeckit.datasets.pyarrow.dataset import (
+            _filter_by_key_membership,
             _make_struct_safe,
+            _table_drop_duplicates,
             process_in_chunks,
         )
 
@@ -1423,7 +1489,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         )
 
         # Pass 1: find which source rows are in existing
-        all_existing_keys = set()
+        existing_keys_table = None
         for chunk in process_in_chunks(
             existing,
             chunk_size,
@@ -1431,62 +1497,35 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             progress_callback=progress_callback,
             memory_monitor=memory_monitor,
         ):
-            if len(key_columns) == 1:
-                chunk_keys = chunk.column(key_columns[0]).to_pylist()
+            chunk_keys = chunk.select(key_columns)
+            # Deduplicate within chunk to keep existing_keys_table smaller
+            chunk_keys = _table_drop_duplicates(chunk_keys, subset=key_columns)
+
+            if existing_keys_table is None:
+                existing_keys_table = chunk_keys
             else:
-                chunk_keys = [
-                    tuple(d.values())
-                    for d in _make_struct_safe(chunk, key_columns).to_pylist()
-                ]
-            all_existing_keys.update(chunk_keys)
+                # Only add keys we haven't seen yet
+                new_keys = _filter_by_key_membership(
+                    chunk_keys, key_columns, existing_keys_table, keep_matches=False
+                )
+                if new_keys.num_rows > 0:
+                    existing_keys_table = pa_mod.concat_tables(
+                        [existing_keys_table, new_keys]
+                    )
 
-        # Now filter source
-        if len(key_columns) == 1:
-            source_in_existing_mask = pc.is_in(
-                source_aligned.column(key_columns[0]),
-                value_set=pa_mod.array(
-                    list(all_existing_keys),
-                    type=existing_schema.field(key_columns[0]).type,
-                ),
-            )
+        # Now filter source to keep only rows that exist in 'existing'
+        if existing_keys_table is None:
+            source_in_existing = source_aligned.schema.empty_table()
         else:
-            # For multi-key, we'll use a slower path for now
-            source_list = source_aligned.to_pylist()
-            keep_indices = []
-            for i, row in enumerate(source_list):
-                key = tuple(row[c] for c in key_columns)
-                if key in all_existing_keys:
-                    keep_indices.append(i)
-            source_in_existing_mask = pa_mod.array(
-                [i in keep_indices for i in range(len(source_aligned))],
-                type=pa_mod.bool_(),
-            )
-
-        source_in_existing = source_aligned.filter(source_in_existing_mask)
-
-        # Prepare source keys for Pass 2 filtering
-        if len(key_columns) == 1:
-            source_keys = source_aligned.column(key_columns[0])
-        else:
-            source_keys = pc.binary_join_element_wise(
-                *[
-                    pc.cast(source_aligned.column(c), pa_mod.string())
-                    for c in key_columns
-                ],
-                "||",
+            source_in_existing = _filter_by_key_membership(
+                source_aligned, key_columns, existing_keys_table, keep_matches=True
             )
 
         def _process_chunk_existing(chunk: pa.Table) -> pa.Table:
-            if len(key_columns) == 1:
-                chunk_keys = chunk.column(key_columns[0])
-            else:
-                chunk_keys = pc.binary_join_element_wise(
-                    *[pc.cast(chunk.column(c), pa_mod.string()) for c in key_columns],
-                    "||",
-                )
             # Rows in existing NOT in source
-            not_in_source_mask = pc.invert(pc.is_in(chunk_keys, source_keys))
-            return chunk.filter(not_in_source_mask)
+            return _filter_by_key_membership(
+                chunk, key_columns, source_aligned, keep_matches=False
+            )
 
         if writer:
             # Pass 2: Streaming output

@@ -42,6 +42,7 @@ from fsspeckit.core.merge import (
     MergeStrategy as CoreMergeStrategy,
 )
 from fsspeckit.datasets.pyarrow.memory import MemoryMonitor, MemoryPressureLevel
+from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
 
 logger = get_logger(__name__)
 
@@ -197,6 +198,213 @@ def _make_struct_safe(table: pa.Table, columns: list[str]) -> pa.Array:
     """
     arrays = [table[c].combine_chunks() for c in columns]
     return pa.StructArray.from_arrays(arrays, names=columns)
+
+
+def _create_composite_key_array(table: pa.Table, key_columns: list[str]) -> pa.Array:
+    """Create a StructArray representing composite keys for efficient comparison.
+
+    Handles ChunkedArrays by combining them. Uses pa.StructArray.from_arrays()
+    to stay in Arrow space.
+
+    Args:
+        table: PyArrow table containing the key columns.
+        key_columns: List of column names to include in the composite key.
+
+    Returns:
+        A StructArray where each element represents a composite key.
+    """
+    if not key_columns:
+        raise ValueError("key_columns cannot be empty")
+
+    # Ensure all key columns exist
+    missing = [c for c in key_columns if c not in table.column_names]
+    if missing:
+        raise KeyError(f"Key columns not found in table: {missing}")
+
+    # Combine chunks for each key column and create StructArray
+    # This keeps operations in Arrow space for efficient comparison
+    try:
+        if len(key_columns) == 1:
+            return table[key_columns[0]].combine_chunks()
+
+        arrays = [table[c].combine_chunks() for c in key_columns]
+        return pa.StructArray.from_arrays(arrays, names=key_columns)
+    except Exception as e:
+        logger.error("Failed to create composite key array: %s", e)
+        raise TypeError(
+            f"Failed to create composite key from columns {key_columns}. "
+            f"Ensure columns have compatible types for StructArray creation. "
+            f"Error: {e}"
+        )
+
+
+def _create_fallback_key_array(table: pa.Table, key_columns: list[str]) -> pa.Array:
+    """Create an efficient representation of composite keys as a fallback.
+
+    This is used when StructArray or Join operations fail. It prefers
+    memory-efficient binary views to avoid expensive string conversions.
+
+    Args:
+        table: PyArrow table containing the key columns.
+        key_columns: List of column names to include in the composite key.
+
+    Returns:
+        An array where each element represents a composite key.
+    """
+    if not key_columns:
+        raise ValueError("key_columns cannot be empty")
+
+    binary_cols = []
+    for col_name in key_columns:
+        col = table.column(col_name).combine_chunks()
+        t = col.type
+
+        # Performance optimization: Use zero-copy binary view for fixed-width types
+        # instead of casting to strings.
+        try:
+            if (
+                hasattr(t, "bit_width")
+                and t.bit_width > 0
+                and (
+                    pa.types.is_integer(t)
+                    or pa.types.is_floating(t)
+                    or pa.types.is_timestamp(t)
+                    or pa.types.is_duration(t)
+                    or pa.types.is_date(t)
+                )
+            ):
+                # zero-copy view as binary, then cast to variable binary for join compatibility
+                bin_col = pc.cast(col.view(pa.binary(t.bit_width // 8)), pa.binary())
+            else:
+                # Fallback to binary cast for others (e.g. strings are already binary-compatible)
+                bin_col = pc.cast(col, pa.binary())
+        except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowNotImplementedError):
+            # Last resort: cast to string then binary
+            bin_col = pc.cast(pc.cast(col, pa.string()), pa.binary())
+
+        # Fill nulls with a fixed binary marker to ensure they are tracked
+        bin_col = pc.fill_null(bin_col, b"__NULL__")
+        binary_cols.append(bin_col)
+
+    if len(binary_cols) == 1:
+        return binary_cols[0]
+
+    # Join multiple binary keys with a delimiter
+    return pc.binary_join_element_wise(*binary_cols, b"\x1f")
+
+
+def _filter_by_key_membership(
+    table: pa.Table,
+    key_columns: list[str],
+    reference_keys: pa.Table,
+    keep_matches: bool = True,
+) -> pa.Table:
+    """Filter table rows based on key membership using PyArrow joins.
+
+    Uses pa.Table.join() with join_type="semi" for matches, "anti" for non-matches.
+    Avoids to_pylist() and stays in Arrow space for multi-column keys.
+    Falls back to efficient binary keys if native join fails.
+
+    Args:
+        table: Table to filter.
+        key_columns: List of column names to use as keys.
+        reference_keys: Table containing the keys to match against.
+        keep_matches: If True, keep rows present in reference_keys (semi-join).
+            If False, keep rows NOT present in reference_keys (anti-join).
+
+    Returns:
+        Filtered PyArrow Table.
+    """
+    if not key_columns:
+        return table
+
+    try:
+        # We only need the key columns from reference_keys for the join
+        ref_keys_only = reference_keys.select(key_columns)
+
+        # Perform the join. PyArrow joins handle multi-column keys natively.
+        join_type = "left semi" if keep_matches else "left anti"
+        return table.join(ref_keys_only, keys=key_columns, join_type=join_type)
+    except (pa.ArrowInvalid, pa.ArrowTypeError, pa.ArrowKeyError) as e:
+        logger.warning(
+            "Primary join approach failed, falling back to efficient binary keys. "
+            "This can happen with heterogeneous type combinations. Error: %s",
+            e,
+        )
+
+        # Fallback mechanism using efficient binary keys
+        table_keys = _create_fallback_key_array(table, key_columns)
+        ref_keys = _create_fallback_key_array(reference_keys, key_columns)
+
+        # Use is_in for filtering. value_set must be an array or chunked array.
+        mask = pc.is_in(table_keys, value_set=ref_keys)
+        if not keep_matches:
+            mask = pc.invert(mask)
+
+        return table.filter(mask)
+
+
+def _vectorized_multi_key_deduplication(
+    table: pa.Table, key_columns: list[str]
+) -> tuple[pa.Table, dict[str, Any]]:
+    """Implement streaming deduplication using AdaptiveKeyTracker for memory-bounded key tracking.
+
+    Args:
+        table: Table to deduplicate.
+        key_columns: List of column names to use as keys.
+
+    Returns:
+        Tuple of (Deduplicated PyArrow Table, Quality Metrics).
+    """
+    if not key_columns:
+        # If no keys specified, use all columns
+        key_columns = table.column_names
+
+    tracker = AdaptiveKeyTracker()
+    result_batches = []
+
+    logger.debug("Starting vectorized deduplication on %d columns", len(key_columns))
+
+    # Process each batch (chunk) of the table
+    for batch_idx, batch in enumerate(table.to_batches()):
+        chunk_table = pa.Table.from_batches([batch])
+
+        # 1. Deduplicate within the chunk itself first
+        if hasattr(chunk_table, "drop_duplicates"):
+            chunk_unique = chunk_table.drop_duplicates(subset=key_columns)
+        else:
+            chunk_unique = _table_drop_duplicates(chunk_table, subset=key_columns)
+
+        # 2. Extract keys for checking using efficient representation
+        # This avoids materializing large tuples of strings/objects.
+        key_array = _create_fallback_key_array(chunk_unique, key_columns)
+        keys = key_array.to_pylist()
+
+        keep_indices = []
+        for i, key in enumerate(keys):
+            if key not in tracker:
+                tracker.add(key)
+                keep_indices.append(i)
+
+        if keep_indices:
+            if len(keep_indices) == chunk_unique.num_rows:
+                result_batches.extend(chunk_unique.to_batches())
+            else:
+                # Take only new rows
+                new_rows = chunk_unique.take(pa.array(keep_indices))
+                result_batches.extend(new_rows.to_batches())
+
+        if (batch_idx + 1) % 10 == 0:
+            logger.debug(
+                "Processed %d batches, tracker stats: %s",
+                batch_idx + 1,
+                tracker.get_metrics(),
+            )
+
+    if not result_batches:
+        return table.schema.empty_table(), tracker.get_metrics()
+
+    return pa.Table.from_batches(result_batches), tracker.get_metrics()
 
 
 def collect_dataset_stats_pyarrow(
@@ -560,12 +768,24 @@ def deduplicate_parquet_dataset_pyarrow(
 
     # Execute deduplication
     if not groups:
+        logger.info("No files found to deduplicate in %s", path)
         return planned_stats.to_dict()
+
+    logger.info(
+        "Starting deduplication of %d files in %d groups", len(files), len(groups)
+    )
 
     # Process each group
     total_deduplicated_rows = 0
 
-    for group in groups:
+    for group_idx, group in enumerate(groups):
+        logger.debug(
+            "Processing group %d/%d (%d files, %d rows)",
+            group_idx + 1,
+            len(groups),
+            len(group.files),
+            group.total_rows,
+        )
         monitor.files_processed += len(group.files)
         group_total_rows = group.total_rows
         group_size_bytes = group.total_size_bytes
@@ -658,7 +878,10 @@ def deduplicate_parquet_dataset_pyarrow(
             ):
                 # One-pass streaming deduplication (keep first seen)
                 monitor.start_op("streaming_deduplication")
-                seen_keys = set()
+                logger.debug(
+                    "One-pass streaming deduplication for group %d", group_idx + 1
+                )
+                seen_keys = None  # Will be a pa.Table
                 rows_written = 0
                 with pq.ParquetWriter(
                     temp_path,
@@ -686,28 +909,21 @@ def deduplicate_parquet_dataset_pyarrow(
                             if normalized_key_columns is not None
                             else chunk_deduped.column_names
                         )
-                        if len(k_cols) == 1:
-                            keys = chunk_deduped[k_cols[0]].to_pylist()
+
+                        # Use vectorized deduplication against already seen keys
+                        if seen_keys is None:
+                            final_chunk = chunk_deduped
+                            seen_keys = chunk_deduped.select(k_cols)
                         else:
-                            # Use StructArray for multi-column keys
-                            keys = [
-                                tuple(d.values())
-                                for d in _make_struct_safe(
-                                    chunk_deduped, k_cols
-                                ).to_pylist()
-                            ]
+                            final_chunk = _filter_by_key_membership(
+                                chunk_deduped, k_cols, seen_keys, keep_matches=False
+                            )
+                            if final_chunk.num_rows > 0:
+                                # Update seen keys with new unique keys from this chunk
+                                seen_keys = pa.concat_tables(
+                                    [seen_keys, final_chunk.select(k_cols)]
+                                )
 
-                        mask = []
-                        for k in keys:
-                            if k in seen_keys:
-                                mask.append(False)
-                            else:
-                                mask.append(True)
-                                seen_keys.add(k)
-
-                        final_chunk = chunk_deduped.filter(
-                            pa.array(mask, type=pa.bool_())
-                        )
                         if final_chunk.num_rows > 0:
                             writer.write_table(final_chunk)
                             rows_written += final_chunk.num_rows
@@ -746,13 +962,11 @@ def deduplicate_parquet_dataset_pyarrow(
                         best_values_table = chunk_best
                     else:
                         # Combine with previous bests and re-aggregate
-                        best_values_table = pa.concat_tables(
-                            [best_values_table, chunk_best]
+                        combined = pa.concat_tables([best_values_table, chunk_best])
+                        agg_table = combined.group_by(normalized_key_columns).aggregate(
+                            aggs
                         )
-                        best_values_table = best_values_table.group_by(
-                            normalized_key_columns
-                        ).aggregate(aggs)
-                        best_values_table = best_values_table.rename_columns(
+                        best_values_table = agg_table.rename_columns(
                             k_cols + order_cols
                         )
 
@@ -761,7 +975,11 @@ def deduplicate_parquet_dataset_pyarrow(
 
                 # Pass 2: Write rows that match best values
                 monitor.start_op("chunked_pass2_filter_and_write")
-                seen_keys = set()
+                # best_values_table is guaranteed not None here due to check above
+                assert best_values_table is not None
+
+                assert best_values_table is not None
+                seen_keys = None  # Will be a pa.Table
                 rows_written = 0
                 with pq.ParquetWriter(
                     temp_path,
@@ -788,27 +1006,23 @@ def deduplicate_parquet_dataset_pyarrow(
                         # Handle potential duplicates within 'best' rows and across chunks
                         curr_k_cols = k_cols if k_cols else filtered_chunk.column_names
 
-                        if len(curr_k_cols) == 1:
-                            keys = filtered_chunk[curr_k_cols[0]].to_pylist()
+                        # Use vectorized deduplication against already seen keys
+                        if seen_keys is None:
+                            final_chunk = filtered_chunk
+                            seen_keys = filtered_chunk.select(curr_k_cols)
                         else:
-                            keys = [
-                                tuple(d.values())
-                                for d in _make_struct_safe(
-                                    filtered_chunk, curr_k_cols
-                                ).to_pylist()
-                            ]
+                            final_chunk = _filter_by_key_membership(
+                                filtered_chunk,
+                                curr_k_cols,
+                                seen_keys,
+                                keep_matches=False,
+                            )
+                            if final_chunk.num_rows > 0:
+                                # Update seen keys with new unique keys from this chunk
+                                seen_keys = pa.concat_tables(
+                                    [seen_keys, final_chunk.select(curr_k_cols)]
+                                )
 
-                        mask = []
-                        for k in keys:
-                            if k in seen_keys:
-                                mask.append(False)
-                            else:
-                                mask.append(True)
-                                seen_keys.add(k)
-
-                        final_chunk = filtered_chunk.filter(
-                            pa.array(mask, type=pa.bool_())
-                        )
                         if final_chunk.num_rows > 0:
                             writer.write_table(final_chunk)
                             rows_written += final_chunk.num_rows
@@ -825,8 +1039,10 @@ def deduplicate_parquet_dataset_pyarrow(
     # Update final statistics
     final_stats = planned_stats.to_dict()
     final_stats["deduplicated_rows"] = total_deduplicated_rows
+    final_stats["total_rows_before"] = total_rows_before
+    final_stats["total_rows_after"] = total_rows_before - total_deduplicated_rows
 
-    total_rows_after = total_rows_before - total_deduplicated_rows
+    total_rows_after = final_stats["total_rows_after"]
     final_stats["performance_metrics"] = monitor.get_metrics(
         total_rows_before, total_rows_after, total_bytes_before
     )

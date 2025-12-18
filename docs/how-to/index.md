@@ -9,4 +9,7 @@ Use these guides when you know what you want to achieve and need a concrete reci
 - [Use SQL Filters](use-sql-filters.md) – Cross-framework filtering
 - [Sync and Manage Files](sync-and-manage-files.md) – File synchronization
 - [Optimize Performance](optimize-performance.md) – Caching, parallelism, and memory usage
+- [Adaptive Key Tracking](adaptive-key-tracking.md) – Memory-bounded deduplication for high-cardinality data
+- [Multi-Key Usage Examples](multi-key-examples.md) – Practical examples for composite key operations
+- [Multi-Key Performance Guide](multi-key-performance.md) – Performance characteristics and optimization
 

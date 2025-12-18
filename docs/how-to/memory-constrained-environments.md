@@ -1,6 +1,6 @@
 # Working with Memory-Constrained Environments
 
-When working with large datasets in memory-constrained environments, proper memory management becomes crucial. This guide provides practical strategies and examples for using fsspeckit's enhanced PyArrow memory monitoring to prevent out-of-memory errors.
+When working with large datasets in memory-constrained environments, proper memory management becomes crucial. This guide provides practical strategies and examples for using fsspeckit's enhanced PyArrow memory monitoring and AdaptiveKeyTracker to prevent out-of-memory errors while maintaining efficient deduplication.
 
 ## Understanding Memory Constraints
 
@@ -319,6 +319,315 @@ def adaptive_chunked_processing(dataset, initial_chunk_size=100_000):
 for chunk in adaptive_chunked_processing(large_dataset):
     process_chunk(chunk)
 ```
+
+## Memory-Bounded Deduplication with AdaptiveKeyTracker
+
+The AdaptiveKeyTracker provides sophisticated memory management for deduplication operations, automatically transitioning between three tiers based on cardinality and memory constraints.
+
+### Configuration for Memory-Constrained Environments
+
+```python
+from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+# Very memory-constrained configuration (< 100MB)
+constrained_tracker = AdaptiveKeyTracker(
+    max_exact_keys=5_000,       # Small exact tier
+    max_lru_keys=50_000,         # Small LRU cache  
+    false_positive_rate=0.01     # Higher FP rate for smaller memory
+)
+
+# Conservative configuration (< 200MB)
+conservative_tracker = AdaptiveKeyTracker(
+    max_exact_keys=25_000,      # Medium exact tier
+    max_lru_keys=250_000,        # Medium LRU cache
+    false_positive_rate=0.005    # Moderate FP rate
+)
+
+# Balanced configuration (< 500MB)
+balanced_tracker = AdaptiveKeyTracker(
+    max_exact_keys=100_000,      # Larger exact tier
+    max_lru_keys=1_000_000,      # Larger LRU cache
+    false_positive_rate=0.001     # Standard FP rate
+)
+```
+
+### Memory Usage Estimation
+
+```python
+def estimate_tracker_memory(num_keys, config):
+    """Estimate memory usage for different configurations."""
+    
+    # Exact tier: ~72 bytes per key
+    exact_memory = min(num_keys, config['max_exact_keys']) * 72
+    
+    # LRU tier: ~72 bytes per key (bounded)
+    lru_keys = min(max(0, num_keys - config['max_exact_keys']), config['max_lru_keys'])
+    lru_memory = lru_keys * 72
+    
+    # Bloom tier: ~1.25-2.5 bytes per key (fixed)
+    if num_keys > config['max_exact_keys'] + config['max_lru_keys']:
+        bloom_memory = num_keys * 2.0  # Average 2 bytes per key
+    else:
+        bloom_memory = 0
+    
+    total_memory_mb = (exact_memory + lru_memory + bloom_memory) / 1024 / 1024
+    return total_memory_mb
+
+# Example: Estimate memory for 10M keys
+configs = {
+    'constrained': {'max_exact_keys': 5000, 'max_lru_keys': 50000, 'false_positive_rate': 0.01},
+    'conservative': {'max_exact_keys': 25000, 'max_lru_keys': 250000, 'false_positive_rate': 0.005},
+    'balanced': {'max_exact_keys': 100000, 'max_lru_keys': 1000000, 'false_positive_rate': 0.001}
+}
+
+for name, config in configs.items():
+    memory_mb = estimate_tracker_memory(10_000_000, config)
+    print(f"{name.title()} config for 10M keys: {memory_mb:.1f}MB")
+```
+
+### Memory-Aware Deduplication Pipeline
+
+```python
+import psutil
+import os
+from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+class MemoryAwareDeduplicator:
+    """Deduplicator that actively monitors and manages memory usage."""
+    
+    def __init__(self, memory_limit_mb=100):
+        self.memory_limit_bytes = memory_limit_mb * 1024 * 1024
+        self.process = psutil.Process(os.getpid())
+        
+        # Start with very conservative configuration
+        self.tracker = AdaptiveKeyTracker(
+            max_exact_keys=1_000,
+            max_lru_keys=10_000,
+            false_positive_rate=0.01
+        )
+        
+        self.add_count = 0
+        self.check_interval = 1000
+    
+    def add_with_monitoring(self, key):
+        """Add key with continuous memory monitoring."""
+        
+        # Add key first
+        self.tracker.add(key)
+        self.add_count += 1
+        
+        # Periodic memory check
+        if self.add_count % self.check_interval == 0:
+            self.check_memory_pressure()
+    
+    def check_memory_pressure(self):
+        """Check memory and adjust configuration if needed."""
+        current_memory = self.process.memory_info().rss
+        
+        if current_memory > self.memory_limit_bytes:
+            print(f"Memory pressure detected: {current_memory / 1024 / 1024:.1f}MB")
+            self.handle_memory_pressure()
+    
+    def handle_memory_pressure(self):
+        """Handle memory pressure by aggressive configuration changes."""
+        metrics = self.tracker.get_metrics()
+        
+        if metrics['tier'] == 'EXACT':
+            print("Forcing transition to LRU tier to free memory")
+            self.tracker._transition_to_lru()
+            
+        elif metrics['tier'] == 'LRU':
+            if metrics['has_bloom_dependency']:
+                print("Forcing transition to Bloom tier")
+                self.tracker._transition_to_bloom()
+            else:
+                print("Reducing LRU capacity and forcing GC")
+                # Would need to recreate tracker with smaller limits
+                # This is a simplified example
+                
+        import gc
+        gc.collect()
+        
+        # Check again after cleanup
+        new_memory = self.process.memory_info().rss
+        print(f"Memory after cleanup: {new_memory / 1024 / 1024:.1f}MB")
+    
+    def process_stream(self, data_stream):
+        """Process data stream with memory monitoring."""
+        processed_count = 0
+        
+        for record in data_stream:
+            key = record['id']  # Or composite key
+            
+            if key not in self.tracker:
+                self.add_with_monitoring(key)
+                processed_count += 1
+                yield record
+        
+        metrics = self.tracker.get_metrics()
+        print(f"\nDeduplication Summary:")
+        print(f"  - Records processed: {processed_count}")
+        print(f"  - Total keys added: {metrics['total_add_calls']}")
+        print(f"  - Unique keys: {metrics['unique_keys_estimate']}")
+        print(f"  - Final tier: {metrics['tier']}")
+        print(f"  - Memory used: {self.process.memory_info().rss / 1024 / 1024:.1f}MB")
+
+# Usage
+deduplicator = MemoryAwareDeduplicator(memory_limit_mb=100)
+
+for unique_record in deduplicator.process_stream(large_data_stream):
+    process_record(unique_record)
+```
+
+### Integration with Memory Monitor
+
+```python
+from fsspeckit.datasets.pyarrow.memory import MemoryMonitor
+from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+class IntegratedMemoryManager:
+    """Combines memory monitoring with adaptive deduplication."""
+    
+    def __init__(self, memory_limit_mb=200):
+        self.memory_monitor = MemoryMonitor(
+            max_pyarrow_mb=memory_limit_mb // 2,
+            max_process_memory_mb=memory_limit_mb,
+            min_system_available_mb=100
+        )
+        
+        # Configure tracker based on available memory
+        available_mb = self.memory_monitor.get_memory_status().get('system_available_mb', 1000)
+        self.tracker = self.configure_tracker_for_memory(available_mb)
+    
+    def configure_tracker_for_memory(self, available_mb):
+        """Configure tracker based on available system memory."""
+        
+        if available_mb < 1000:  # < 1GB available
+            return AdaptiveKeyTracker(
+                max_exact_keys=5_000,
+                max_lru_keys=50_000,
+                false_positive_rate=0.01
+            )
+        elif available_mb < 2000:  # < 2GB available
+            return AdaptiveKeyTracker(
+                max_exact_keys=25_000,
+                max_lru_keys=250_000,
+                false_positive_rate=0.005
+            )
+        else:  # 2GB+ available
+            return AdaptiveKeyTracker(
+                max_exact_keys=100_000,
+                max_lru_keys=1_000_000,
+                false_positive_rate=0.001
+            )
+    
+    def process_with_monitoring(self, data_stream):
+        """Process data with comprehensive memory monitoring."""
+        
+        for batch in data_stream:
+            # Check memory pressure before processing batch
+            pressure = self.memory_monitor.check_memory_pressure()
+            
+            if pressure.value in ['critical', 'emergency']:
+                print(f"Memory pressure: {pressure.value} - adjusting strategy")
+                
+                if pressure == MemoryPressureLevel.EMERGENCY:
+                    # Emergency: force Bloom transition
+                    if self.tracker.get_metrics()['tier'] != 'BLOOM':
+                        self.tracker._transition_to_bloom()
+                        print("Emergency: Forced Bloom filter transition")
+                
+                # Trigger garbage collection
+                import gc
+                gc.collect()
+            
+            # Process batch with deduplication
+            for record in batch:
+                key = record.get('composite_key', record['id'])
+                
+                if key not in self.tracker:
+                    self.tracker.add(key)
+                    yield record
+            
+            # Check memory after batch
+            final_pressure = self.memory_monitor.check_memory_pressure()
+            if final_pressure == MemoryPressureLevel.EMERGENCY:
+                print("Emergency memory condition - stopping processing")
+                break
+
+# Usage
+memory_manager = IntegratedMemoryManager(memory_limit_mb=200)
+
+for unique_record in memory_manager.process_with_monitoring(data_stream):
+    process_record(unique_record)
+```
+
+### Benchmarking Memory Performance
+
+```python
+def benchmark_memory_usage(data_stream, configurations):
+    """Benchmark different configurations for memory efficiency."""
+    
+    results = {}
+    
+    for config_name, config in configurations.items():
+        print(f"\nTesting {config_name} configuration...")
+        
+        tracker = AdaptiveKeyTracker(**config)
+        process = psutil.Process(os.getpid())
+        
+        start_memory = process.memory_info().rss
+        start_time = time.time()
+        
+        processed_count = 0
+        for record in data_stream:
+            key = record['id']
+            
+            if key not in tracker:
+                tracker.add(key)
+                processed_count += 1
+        
+        end_time = time.time()
+        end_memory = process.memory_info().rss
+        
+        metrics = tracker.get_metrics()
+        
+        results[config_name] = {
+            'processed_count': processed_count,
+            'final_tier': metrics['tier'],
+            'unique_keys': metrics['unique_keys_estimate'],
+            'transitions': metrics['transitions'],
+            'duration': end_time - start_time,
+            'memory_used_mb': (end_memory - start_memory) / 1024 / 1024,
+            'memory_per_key_bytes': (end_memory - start_memory) / processed_count if processed_count > 0 else 0
+        }
+        
+        print(f"  - Final tier: {metrics['tier']}")
+        print(f"  - Memory used: {results[config_name]['memory_used_mb']:.1f}MB")
+        print(f"  - Memory/key: {results[config_name]['memory_per_key_bytes']:.1f} bytes")
+        print(f"  - Processing time: {results[config_name]['duration']:.2f}s")
+    
+    return results
+
+# Test configurations
+test_configs = {
+    'minimal': {'max_exact_keys': 1000, 'max_lru_keys': 10000, 'false_positive_rate': 0.01},
+    'conservative': {'max_exact_keys': 10000, 'max_lru_keys': 100000, 'false_positive_rate': 0.005},
+    'balanced': {'max_exact_keys': 50000, 'max_lru_keys': 500000, 'false_positive_rate': 0.001}
+}
+
+# Run benchmark
+results = benchmark_memory_usage(large_test_stream, test_configs)
+```
+
+### Best Practices for Memory-Constrained Deduplication
+
+1. **Start Conservative**: Begin with small exact and LRU tiers
+2. **Monitor Actively**: Use process memory monitoring to detect pressure
+3. **Install Dependencies**: Ensure `pybloom-live` is available for Bloom tier
+4. **Choose Right Accuracy**: Higher false positive rates use less memory
+5. **Test with Sample Data**: Benchmark with your actual data patterns
+6. **Plan for Growth**: Consider how cardinality will change over time
 
 ### Memory-Aware Data Pipeline
 

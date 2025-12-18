@@ -33,11 +33,12 @@ from .dataset import (
     optimize_parquet_dataset_pyarrow,
 )
 
-# Re-export memory monitoring utilities
+# Re-export memory monitoring and tracking utilities
 from .memory import (
     MemoryMonitor,
     MemoryPressureLevel,
 )
+from .adaptive_tracker import AdaptiveKeyTracker
 
 # Re-export dataset I/O classes
 from .io import (
@@ -60,9 +61,10 @@ __all__ = [
     "standardize_schema_timezones",
     "standardize_schema_timezones_by_majority",
     "unify_schemas",
-    # Memory monitoring
+    # Memory monitoring and tracking
     "MemoryMonitor",
     "MemoryPressureLevel",
+    "AdaptiveKeyTracker",
     # Dataset I/O classes
     "PyarrowDatasetIO",
     "PyarrowDatasetHandler",

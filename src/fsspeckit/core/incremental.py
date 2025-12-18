@@ -269,6 +269,7 @@ class MergeResult:
     rewritten_files: list[str]
     inserted_files: list[str]
     preserved_files: list[str]
+    metrics: dict[str, Any] | None = None
 
 
 @dataclass
