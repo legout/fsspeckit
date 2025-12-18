@@ -11,12 +11,14 @@ import concurrent.futures
 import random
 import re
 import time
+import uuid
 from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal
 
 import numpy as np
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
@@ -41,6 +43,111 @@ from fsspeckit.core.merge import (
 )
 
 logger = get_logger(__name__)
+
+
+class PerformanceMonitor:
+    """Comprehensive performance monitoring and metrics collection.
+
+    This class tracks various performance metrics including processing time,
+    memory usage, throughput, and operation-specific metrics.
+    """
+
+    def __init__(self):
+        self.start_time = time.perf_counter()
+        self.operation_breakdown = defaultdict(float)
+        self.memory_peak_mb = 0.0
+        self.files_processed = 0
+        self.chunks_processed = 0
+        self.total_rows_processed = 0
+        self.total_bytes_processed = 0
+        self.current_op = None
+        self.op_start_time = 0.0
+
+    def start_op(self, name: str):
+        """Start tracking a specific operation phase."""
+        if self.current_op:
+            self.end_op()
+        self.current_op = name
+        self.op_start_time = time.perf_counter()
+        self.track_memory()
+
+    def end_op(self):
+        """End tracking the current operation phase."""
+        if self.current_op:
+            duration = time.perf_counter() - self.op_start_time
+            self.operation_breakdown[self.current_op] += duration
+            self.current_op = None
+        self.track_memory()
+
+    def track_memory(self):
+        """Track peak memory usage using PyArrow's allocator."""
+        current_mem_mb = pa.total_allocated_bytes() / (1024 * 1024)
+        if current_mem_mb > self.memory_peak_mb:
+            self.memory_peak_mb = current_mem_mb
+
+    def get_metrics(
+        self,
+        total_rows_before: int,
+        total_rows_after: int,
+        total_bytes: int,
+    ) -> dict[str, Any]:
+        """Generate comprehensive performance metrics report.
+
+        Args:
+            total_rows_before: Total rows in the dataset before operation.
+            total_rows_after: Total rows in the dataset after operation.
+            total_bytes: Total size of the dataset in bytes.
+
+        Returns:
+            Dictionary containing performance metrics.
+        """
+        self.track_memory()
+        total_time = time.perf_counter() - self.start_time
+        rows_removed = total_rows_before - total_rows_after
+        dedup_efficiency = (
+            (rows_removed / total_rows_before) if total_rows_before > 0 else 0.0
+        )
+
+        return {
+            "total_process_time_sec": total_time,
+            "memory_peak_mb": self.memory_peak_mb,
+            "throughput_mb_sec": (total_bytes / (1024 * 1024)) / total_time
+            if total_time > 0
+            else 0.0,
+            "rows_per_sec": total_rows_before / total_time if total_time > 0 else 0.0,
+            "files_processed": self.files_processed,
+            "chunks_processed": self.chunks_processed,
+            "dedup_efficiency": dedup_efficiency,
+            "operation_breakdown": dict(self.operation_breakdown),
+        }
+
+
+def _table_drop_duplicates(
+    table: pa.Table, subset: list[str] | None = None
+) -> pa.Table:
+    """Safely drop duplicates from a PyArrow Table.
+
+    Uses Table.drop_duplicates if available (PyArrow >= 12.0.0),
+    otherwise falls back to Polars.
+    """
+    if hasattr(table, "drop_duplicates"):
+        return table.drop_duplicates(subset=subset)  # type: ignore
+
+    # Fallback to Polars for older/weird PyArrow environments
+    import polars as pl
+
+    df = pl.from_arrow(table)
+    assert isinstance(df, pl.DataFrame)
+    return df.unique(subset=subset).to_arrow()  # type: ignore
+
+
+def _make_struct_safe(table: pa.Table, columns: list[str]) -> pa.Array:
+    """Safely create a struct array from table columns.
+
+    Handles ChunkedArrays by combining them.
+    """
+    arrays = [table[c].combine_chunks() for c in columns]
+    return pa.StructArray.from_arrays(arrays, names=columns)
 
 
 def collect_dataset_stats_pyarrow(
@@ -156,12 +263,11 @@ def compact_parquet_dataset_pyarrow(
 
     from fsspeckit.core.maintenance import MaintenanceStats, plan_compaction_groups
 
-    if filesystem is None:
-        filesystem = fsspec_filesystem("file")
+    fs = filesystem or fsspec_filesystem("file")
 
     # Get dataset stats using shared logic
     stats = collect_dataset_stats_pyarrow(
-        path=path, filesystem=filesystem, partition_filter=partition_filter
+        path=path, filesystem=fs, partition_filter=partition_filter
     )
     files = stats["files"]
 
@@ -197,7 +303,7 @@ def compact_parquet_dataset_pyarrow(
             file_path = file_info.path
             table = pq.read_table(
                 file_path,
-                filesystem=filesystem,
+                filesystem=fs,
             )
             tables.append(table)
 
@@ -212,14 +318,14 @@ def compact_parquet_dataset_pyarrow(
         pq.write_table(
             combined,
             output_path,
-            filesystem=filesystem,
+            filesystem=fs,
             compression=compression or "snappy",
         )
 
     # Remove original files
     for group in groups:
         for file_info in group.files:
-            filesystem.rm(file_info.path)
+            fs.rm(file_info.path)
 
     return planned_stats.to_dict()
 
@@ -270,7 +376,7 @@ def optimize_parquet_dataset_pyarrow(
     """
     # Perform deduplication first if requested
     if deduplicate_key_columns is not None:
-        dedup_stats = deduplicate_parquet_dataset_pyarrow(
+        deduplicate_parquet_dataset_pyarrow(
             path=path,
             key_columns=deduplicate_key_columns,
             dedup_order_by=dedup_order_by,
@@ -279,9 +385,6 @@ def optimize_parquet_dataset_pyarrow(
             filesystem=filesystem,
             verbose=verbose,
         )
-
-        if verbose:
-            logger.info("Deduplication completed: %s", dedup_stats)
 
     # Use compaction for optimization
     result = compact_parquet_dataset_pyarrow(
@@ -310,12 +413,16 @@ def deduplicate_parquet_dataset_pyarrow(
     dry_run: bool = False,
     filesystem: AbstractFileSystem | None = None,
     verbose: bool = False,
+    chunk_size_rows: int = 1_000_000,
+    max_memory_mb: int = 2048,
+    enable_progress: bool = True,
+    progress_callback: Callable[[int, int], None] | None = None,
 ) -> dict[str, Any]:
     """Deduplicate an existing parquet dataset using PyArrow.
 
     This method removes duplicate rows from an existing parquet dataset,
     supporting both key-based deduplication and exact duplicate removal.
-    Can be run independently of ingestion workflows.
+    It can process datasets larger than memory using chunked processing.
 
     Args:
         path: Dataset path
@@ -329,63 +436,61 @@ def deduplicate_parquet_dataset_pyarrow(
         dry_run: Whether to perform a dry run (return plan without execution)
         filesystem: Optional filesystem instance
         verbose: Print progress information
+        chunk_size_rows: Number of rows per chunk for large datasets.
+        max_memory_mb: Peak memory limit in MB.
+        enable_progress: Whether to show progress updates.
+        progress_callback: Optional callback for progress updates.
 
     Returns:
-        Dictionary containing deduplication statistics
+        Dictionary containing deduplication statistics and performance metrics.
 
     Raises:
         ValueError: If key_columns is empty when provided
         FileNotFoundError: If dataset path doesn't exist
-
-    Example:
-        ```python
-        # Key-based deduplication
-        stats = deduplicate_parquet_dataset_pyarrow(
-            "/tmp/dataset/",
-            key_columns=["id", "timestamp"],
-            dedup_order_by=["-timestamp"],  # Keep most recent
-            verbose=True
-        )
-
-        # Exact duplicate removal
-        stats = deduplicate_parquet_dataset_pyarrow("/tmp/dataset/")
-        ```
+        MemoryError: If memory limit is exceeded during processing
     """
     from fsspeckit.core.maintenance import plan_deduplication_groups
+
+    monitor = PerformanceMonitor()
+    monitor.start_op("initialization")
 
     # Validate inputs
     if key_columns is not None and not key_columns:
         raise ValueError("key_columns cannot be empty when provided")
 
     # Normalize parameters
+    normalized_key_columns: list[str] | None = None
     if key_columns is not None:
-        key_columns = _normalize_key_columns(key_columns)
+        normalized_key_columns = _normalize_key_columns(key_columns)
 
+    normalized_dedup_order_by: list[str] | None = None
     if dedup_order_by is not None:
-        dedup_order_by = _normalize_key_columns(dedup_order_by)
-    elif key_columns is not None:
-        dedup_order_by = key_columns
+        normalized_dedup_order_by = _normalize_key_columns(dedup_order_by)
+    elif normalized_key_columns is not None:
+        normalized_dedup_order_by = normalized_key_columns
 
     # Get filesystem
-    if filesystem is None:
-        filesystem = fsspec_filesystem("file")
+    fs = filesystem or fsspec_filesystem("file")
 
     # Ensure compression is never None
     final_compression = compression or "snappy"
 
-    pa_filesystem = _ensure_pyarrow_filesystem(filesystem)
+    pa_filesystem = _ensure_pyarrow_filesystem(fs)
 
+    monitor.start_op("planning")
     # Collect dataset stats and plan deduplication
     stats = collect_dataset_stats_pyarrow(
-        path=path, filesystem=filesystem, partition_filter=partition_filter
+        path=path, filesystem=fs, partition_filter=partition_filter
     )
     files = stats["files"]
+    total_bytes_before = stats["total_bytes"]
+    total_rows_before = stats["total_rows"]
 
     # Plan deduplication groups
     plan_result = plan_deduplication_groups(
         file_infos=files,
-        key_columns=key_columns,
-        dedup_order_by=dedup_order_by,
+        key_columns=normalized_key_columns,
+        dedup_order_by=normalized_dedup_order_by,
     )
 
     groups = plan_result["groups"]
@@ -399,6 +504,9 @@ def deduplicate_parquet_dataset_pyarrow(
     if dry_run:
         result = planned_stats.to_dict()
         result["planned_groups"] = [group.file_paths() for group in groups]
+        result["performance_metrics"] = monitor.get_metrics(
+            total_rows_before, total_rows_before, total_bytes_before
+        )
         return result
 
     # Execute deduplication
@@ -407,87 +515,269 @@ def deduplicate_parquet_dataset_pyarrow(
 
     # Process each group
     total_deduplicated_rows = 0
-    total_process_time = 0.0
-    max_memory_usage_mb = 0.0
 
     for group in groups:
-        group_start = time.perf_counter()
-        # Read all files in this group
-        tables = []
-        for file_info in group.files:
-            file_path = file_info.path
-            table = pq.read_table(
-                file_path,
-                filesystem=pa_filesystem,
-            )
-            tables.append(table)
+        monitor.files_processed += len(group.files)
+        group_total_rows = group.total_rows
+        group_size_bytes = group.total_size_bytes
 
-        # Concatenate tables
-        if len(tables) > 1:
-            combined = pa.concat_tables(tables, promote_options="permissive")
-        else:
-            combined = tables[0]
-
-        # Get original row count
-        original_count = combined.num_rows
-
-        # Track memory (Table.nbytes gives the size of the data in memory)
-        current_mem_mb = combined.nbytes / (1024 * 1024)
-        max_memory_usage_mb = max(max_memory_usage_mb, current_mem_mb)
-
-        # Perform deduplication using PyArrow vectorized operations
-        if key_columns:
-            # Key-based deduplication
-            if dedup_order_by and dedup_order_by != key_columns:
-                # Custom ordering - sort first, then deduplicate
-                # Handle "-column" notation for descending order
-                sort_keys = []
-                for col in dedup_order_by:
-                    if col.startswith("-"):
-                        sort_keys.append((col[1:], "descending"))
-                    else:
-                        sort_keys.append((col, "ascending"))
-
-                # Vectorized sort and then drop_duplicates keeps the first occurrence
-                sorted_table = combined.sort_by(sort_keys)
-                deduped = sorted_table.drop_duplicates(subset=key_columns)
-            else:
-                # Simple key-based deduplication - keep first occurrence
-                deduped = combined.drop_duplicates(subset=key_columns)
-        else:
-            # Exact duplicate removal across all columns
-            deduped = combined.drop_duplicates()
-
-        # Get deduplicated row count
-        deduped_count = deduped.num_rows
-        total_deduplicated_rows += original_count - deduped_count
-
-        group_duration = time.perf_counter() - group_start
-        total_process_time += group_duration
-
-        # Write deduplicated data back to the first file in the group
-        output_path = group.files[0].path
-
-        pq.write_table(
-            deduped,
-            output_path,
-            filesystem=pa_filesystem,
-            compression=final_compression,
+        # Decide whether to use chunked processing
+        use_chunked = (group_total_rows > chunk_size_rows) or (
+            group_size_bytes > max_memory_mb * 1024 * 1024 * 0.7
         )
 
-        # Remove remaining files in the group (if multiple files)
-        for file_info in group.files[1:]:
-            file_path = file_info.path
-            if filesystem is not None:
-                filesystem.rm(file_path)
+        if not use_chunked:
+            monitor.start_op("in_memory_processing")
+            # Efficient in-memory logic for small groups
+            tables = []
+            for file_info in group.files:
+                table = pq.read_table(file_info.path, filesystem=pa_filesystem)
+                tables.append(table)
 
+            combined = (
+                pa.concat_tables(tables, promote_options="permissive")
+                if len(tables) > 1
+                else tables[0]
+            )
+            original_count = combined.num_rows
+
+            if normalized_key_columns:
+                if (
+                    normalized_dedup_order_by
+                    and normalized_dedup_order_by != normalized_key_columns
+                ):
+                    sort_keys = []
+                    for col in normalized_dedup_order_by:
+                        if col.startswith("-"):
+                            sort_keys.append((col[1:], "descending"))
+                        else:
+                            sort_keys.append((col, "ascending"))
+                    combined = combined.sort_by(sort_keys)
+                    deduped = _table_drop_duplicates(
+                        combined, subset=normalized_key_columns
+                    )
+                else:
+                    deduped = _table_drop_duplicates(
+                        combined, subset=normalized_key_columns
+                    )
+            else:
+                deduped = _table_drop_duplicates(combined)
+
+            deduped_count = deduped.num_rows
+            total_deduplicated_rows += original_count - deduped_count
+
+            monitor.start_op("writing")
+            output_path = group.files[0].path
+            pq.write_table(
+                deduped,
+                output_path,
+                filesystem=pa_filesystem,
+                compression=final_compression,
+            )
+
+            # Remove remaining files
+            for file_info in group.files[1:]:
+                fs.rm(file_info.path)
+        else:
+            # Optimized Chunked Processing
+            monitor.start_op("chunked_processing_setup")
+            if verbose:
+                logger.info(
+                    "Using optimized chunked processing for group with %d rows",
+                    group_total_rows,
+                )
+
+            group_files = [f.path for f in group.files]
+            group_dataset = ds.dataset(group_files, filesystem=pa_filesystem)
+            temp_path = f"{group.files[0].path}.tmp.{uuid.uuid4().hex}"
+
+            # Prepare sort metadata for streaming deduplication if needed
+            sort_configs = []
+            order_cols = []
+            if normalized_dedup_order_by:
+                for col in normalized_dedup_order_by:
+                    if col.startswith("-"):
+                        sort_configs.append(True)  # descending
+                        order_cols.append(col[1:])
+                    else:
+                        sort_configs.append(False)  # ascending
+                        order_cols.append(col)
+
+            if (
+                not normalized_dedup_order_by
+                or normalized_dedup_order_by == normalized_key_columns
+            ):
+                # One-pass streaming deduplication (keep first seen)
+                monitor.start_op("streaming_deduplication")
+                seen_keys = set()
+                rows_written = 0
+                with pq.ParquetWriter(
+                    temp_path,
+                    group_dataset.schema,
+                    filesystem=pa_filesystem,
+                    compression=final_compression,
+                ) as writer:
+                    for chunk in process_in_chunks(
+                        group_dataset,
+                        chunk_size_rows,
+                        max_memory_mb,
+                        enable_progress,
+                        progress_callback,
+                    ):
+                        monitor.chunks_processed += 1
+                        # Deduplicate within chunk first
+                        chunk_deduped = _table_drop_duplicates(
+                            chunk, subset=normalized_key_columns
+                        )
+
+                        # Extract keys
+                        k_cols = (
+                            list(normalized_key_columns)
+                            if normalized_key_columns is not None
+                            else chunk_deduped.column_names
+                        )
+                        if len(k_cols) == 1:
+                            keys = chunk_deduped[k_cols[0]].to_pylist()
+                        else:
+                            # Use StructArray for multi-column keys
+                            keys = [
+                                tuple(d.values())
+                                for d in _make_struct_safe(
+                                    chunk_deduped, k_cols
+                                ).to_pylist()
+                            ]
+
+                        mask = []
+                        for k in keys:
+                            if k in seen_keys:
+                                mask.append(False)
+                            else:
+                                mask.append(True)
+                                seen_keys.add(k)
+
+                        final_chunk = chunk_deduped.filter(
+                            pa.array(mask, type=pa.bool_())
+                        )
+                        if final_chunk.num_rows > 0:
+                            writer.write_table(final_chunk)
+                            rows_written += final_chunk.num_rows
+
+                total_deduplicated_rows += group_total_rows - rows_written
+            else:
+                # Two-pass optimized streaming deduplication for custom ordering
+                monitor.start_op("chunked_pass1_find_best")
+                best_values_table: pa.Table | None = None
+                aggs = []
+                for i, col in enumerate(order_cols):
+                    op = "max" if sort_configs[i] else "min"
+                    aggs.append((col, op))
+
+                k_cols = (
+                    list(normalized_key_columns)
+                    if normalized_key_columns is not None
+                    else []
+                )
+
+                for chunk in process_in_chunks(
+                    group_dataset,
+                    chunk_size_rows,
+                    max_memory_mb,
+                    enable_progress,
+                    progress_callback,
+                ):
+                    monitor.chunks_processed += 1
+                    # Group by keys and find best values in this chunk
+                    chunk_best = chunk.group_by(normalized_key_columns).aggregate(aggs)
+                    # Rename back to original names immediately for consistent re-aggregation
+                    chunk_best = chunk_best.rename_columns(k_cols + order_cols)
+
+                    if best_values_table is None:
+                        best_values_table = chunk_best
+                    else:
+                        # Combine with previous bests and re-aggregate
+                        best_values_table = pa.concat_tables(
+                            [best_values_table, chunk_best]
+                        )
+                        best_values_table = best_values_table.group_by(
+                            normalized_key_columns
+                        ).aggregate(aggs)
+                        best_values_table = best_values_table.rename_columns(
+                            k_cols + order_cols
+                        )
+
+                if best_values_table is None:
+                    continue
+
+                # Pass 2: Write rows that match best values
+                monitor.start_op("chunked_pass2_filter_and_write")
+                seen_keys = set()
+                rows_written = 0
+                with pq.ParquetWriter(
+                    temp_path,
+                    group_dataset.schema,
+                    filesystem=pa_filesystem,
+                    compression=final_compression,
+                ) as writer:
+                    for chunk in process_in_chunks(
+                        group_dataset,
+                        chunk_size_rows,
+                        max_memory_mb,
+                        enable_progress,
+                        progress_callback,
+                    ):
+                        monitor.chunks_processed += 1
+                        # Inner join with best_values_table to keep only 'best' rows
+                        filtered_chunk = chunk.join(
+                            best_values_table,
+                            keys=k_cols + order_cols,
+                            join_type="inner",
+                        )
+
+                        # Handle potential duplicates within 'best' rows and across chunks
+                        curr_k_cols = k_cols if k_cols else filtered_chunk.column_names
+
+                        if len(curr_k_cols) == 1:
+                            keys = filtered_chunk[curr_k_cols[0]].to_pylist()
+                        else:
+                            keys = [
+                                tuple(d.values())
+                                for d in _make_struct_safe(
+                                    filtered_chunk, curr_k_cols
+                                ).to_pylist()
+                            ]
+
+                        mask = []
+                        for k in keys:
+                            if k in seen_keys:
+                                mask.append(False)
+                            else:
+                                mask.append(True)
+                                seen_keys.add(k)
+
+                        final_chunk = filtered_chunk.filter(
+                            pa.array(mask, type=pa.bool_())
+                        )
+                        if final_chunk.num_rows > 0:
+                            writer.write_table(final_chunk)
+                            rows_written += final_chunk.num_rows
+
+                total_deduplicated_rows += group_total_rows - rows_written
+
+            # Cleanup: replace original files with deduplicated temp file
+            monitor.start_op("cleanup")
+            for f_info in group.files:
+                fs.rm(f_info.path)
+            fs.mv(temp_path, group.files[0].path)
+
+    monitor.end_op()
     # Update final statistics
     final_stats = planned_stats.to_dict()
     final_stats["deduplicated_rows"] = total_deduplicated_rows
-    final_stats["performance_metrics"] = {
-        "total_process_time_sec": total_process_time,
-        "max_memory_usage_mb": max_memory_usage_mb,
-    }
+
+    total_rows_after = total_rows_before - total_deduplicated_rows
+    final_stats["performance_metrics"] = monitor.get_metrics(
+        total_rows_before, total_rows_after, total_bytes_before
+    )
 
     if verbose:
         logger.info("Deduplication complete: %s", final_stats)
@@ -677,6 +967,85 @@ def _ensure_no_null_keys_dataset(
             )
 
 
+def process_in_chunks(
+    dataset: ds.Dataset | pa.Table,
+    chunk_size_rows: int = 1_000_000,
+    max_memory_mb: int = 2048,
+    enable_progress: bool = True,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> Iterable[pa.Table]:
+    """Process a dataset or table in configurable chunks to avoid memory overflow.
+
+    This function enables processing of datasets larger than available system memory
+    by yielding data in manageable chunks. It monitors memory usage and enforces
+    limits to prevent OOM errors.
+
+    Args:
+        dataset: PyArrow Dataset or Table to process.
+        chunk_size_rows: Number of rows per chunk. Defaults to 1,000,000.
+        max_memory_mb: Peak memory limit in MB. Defaults to 2048.
+        enable_progress: Whether to track and report progress. Defaults to True.
+        progress_callback: Optional callback function(rows_processed, total_rows).
+
+    Yields:
+        pa.Table: A chunk of data as a PyArrow Table.
+
+    Raises:
+        MemoryError: If peak memory usage exceeds max_memory_mb.
+    """
+    total_rows = (
+        dataset.num_rows if isinstance(dataset, pa.Table) else dataset.count_rows()
+    )
+    rows_processed = 0
+
+    if isinstance(dataset, ds.Dataset):
+        # For datasets, use a scanner with specified batch size
+        scanner = dataset.scanner(batch_size=chunk_size_rows)
+        batches = scanner.to_batches()
+    else:
+        # For tables, slice into chunks
+        def _table_iterator():
+            for i in range(0, total_rows, chunk_size_rows):
+                yield dataset.slice(i, min(chunk_size_rows, total_rows - i))
+
+        batches = _table_iterator()
+
+    for batch in batches:
+        # Ensure we have a Table for consistent processing
+        chunk = (
+            pa.Table.from_batches([batch])
+            if isinstance(batch, pa.RecordBatch)
+            else batch
+        )
+
+        # Monitor Arrow-allocated memory
+        total_allocated_mb = pa.total_allocated_bytes() / (1024 * 1024)
+
+        if total_allocated_mb > max_memory_mb:
+            logger.warning(
+                "Peak memory usage (%.2f MB) exceeded limit (%.2f MB)",
+                total_allocated_mb,
+                max_memory_mb,
+            )
+            raise MemoryError(
+                f"Peak memory usage {total_allocated_mb:.2f}MB exceeded limit {max_memory_mb}MB"
+            )
+
+        yield chunk
+
+        rows_processed += chunk.num_rows
+        if enable_progress:
+            if progress_callback:
+                progress_callback(rows_processed, total_rows)
+            else:
+                logger.debug(
+                    "Processed %d/%d rows (%.1f%%)",
+                    rows_processed,
+                    total_rows,
+                    (rows_processed / total_rows) * 100 if total_rows > 0 else 100,
+                )
+
+
 def _write_tables_to_dataset(
     tables: list[pa.Table],
     output_path: str,
@@ -708,7 +1077,7 @@ def _write_tables_to_dataset(
             table,
             file_path,
             filesystem=pa_filesystem,
-            compression=compression,
+            compression=compression or "snappy",
         )
         written_files.append(file_path)
 
@@ -771,200 +1140,3 @@ def merge_parquet_dataset_pyarrow(
     raise NotImplementedError(
         "merge_parquet_dataset_pyarrow has been removed. Use PyarrowDatasetIO.merge instead."
     )
-    # Validate strategy compatibility
-    validate_strategy_compatibility(strategy, key_columns, target)
-
-    # Normalize parameters
-    if key_columns is not None:
-        key_columns = _normalize_key_columns(key_columns)
-
-    # Get filesystem
-    if filesystem is None:
-        filesystem = fsspec_filesystem("file")
-
-    pa_filesystem = _ensure_pyarrow_filesystem(filesystem)
-
-    # Load target if provided
-    target_table = None
-    if target and strategy in ["upsert", "update"]:
-        target_table = _load_source_table_pyarrow(target, filesystem)
-
-        if key_columns:
-            _ensure_no_null_keys_table(target_table, key_columns)
-
-    # Process sources
-    merged_data = []
-    total_rows = 0
-
-    for source_path in sources:
-        if verbose:
-            logger.info("Processing source: %s", source_path)
-
-        source_table = _load_source_table_pyarrow(source_path, filesystem)
-
-        if key_columns:
-            _ensure_no_null_keys_table(source_table, key_columns)
-
-        if strategy == "full_merge":
-            # Simply concatenate all data
-            merged_data.append(source_table)
-            total_rows += source_table.num_rows
-
-        elif strategy == "deduplicate":
-            # Remove duplicates based on key columns
-            if key_columns:
-                # Group by keys and keep first occurrence
-                table = source_table
-
-                # Use PyArrow's group_by for deduplication
-                # This is a simplified implementation
-                groups = table.group_by(key_columns).aggregate([])
-                keys = groups.select(key_columns)
-
-                # Get unique keys
-                unique_keys = []
-                for row in keys.to_pylist():
-                    unique_keys.append(tuple(row[col] for col in key_columns))
-
-                # Filter to keep only unique rows
-                filtered = []
-                for row in table.to_pylist():
-                    key = tuple(row[col] for col in key_columns)
-                    if key in unique_keys:
-                        filtered.append(row)
-                        unique_keys.remove(key)  # Remove to avoid duplicates
-
-                if filtered:
-                    deduped = pa.Table.from_pylist(filtered, schema=table.schema)
-                    merged_data.append(deduped)
-                    total_rows += deduped.num_rows
-            else:
-                # No key columns, remove exact duplicates
-                merged_data.append(source_table)
-                total_rows += source_table.num_rows
-
-        elif strategy in ["upsert", "insert", "update"] and target_table is not None:
-            # Key-based relational operations
-            if strategy == "insert":
-                # Only insert non-existing rows
-                target_keys = _extract_key_tuples(target_table, key_columns)
-                source_keys = _extract_key_tuples(source_table, key_columns)
-
-                # Find keys that don't exist in target
-                new_keys = set(source_keys) - set(target_keys)
-
-                # Filter source for new keys
-                new_rows = []
-                for row in source_table.to_pylist():
-                    key = tuple(row[col] for col in key_columns)
-                    if key in new_keys:
-                        new_rows.append(row)
-
-                if new_rows:
-                    new_table = pa.Table.from_pylist(
-                        new_rows, schema=source_table.schema
-                    )
-                    merged_data.append(new_table)
-                    total_rows += new_table.num_rows
-
-            elif strategy == "update":
-                # Update existing rows
-                target_keys = _extract_key_tuples(target_table, key_columns)
-                source_keys = _extract_key_tuples(source_table, key_columns)
-
-                # Find common keys
-                common_keys = set(source_keys) & set(target_keys)
-
-                # Build updated target
-                updated_data = []
-
-                # Keep non-matching rows from target
-                for row in target_table.to_pylist():
-                    key = tuple(row[col] for col in key_columns)
-                    if key not in common_keys:
-                        updated_data.append(row)
-
-                # Add updated rows from source
-                for row in source_table.to_pylist():
-                    key = tuple(row[col] for col in key_columns)
-                    if key in common_keys:
-                        updated_data.append(row)
-
-                if updated_data:
-                    updated_table = pa.Table.from_pylist(
-                        updated_data, schema=target_table.schema
-                    )
-                    merged_data.append(updated_table)
-                    total_rows += updated_table.num_rows
-
-            elif strategy == "upsert":
-                # Insert or update
-                all_data = [target_table] if target_table else []
-                all_data.append(source_table)
-
-                if all_data:
-                    combined = pa.concat_tables(all_data, promote_options="permissive")
-
-                    # Deduplicate based on keys
-                    if key_columns:
-                        # Group by keys and keep last occurrence
-                        # This is a simplified implementation
-                        groups = combined.group_by(key_columns).aggregate([])
-                        keys = groups.select(key_columns)
-
-                        unique_keys = []
-                        for row in keys.to_pylist():
-                            unique_keys.append(tuple(row[col] for col in key_columns))
-
-                        # Keep only last occurrence of each key
-                        filtered = []
-                        seen = set()
-                        for row in reversed(combined.to_pylist()):
-                            key = tuple(row[col] for col in key_columns)
-                            if key not in seen:
-                                filtered.append(row)
-                                seen.add(key)
-
-                        if filtered:
-                            deduped = pa.Table.from_pylist(
-                                list(reversed(filtered)), schema=combined.schema
-                            )
-                            merged_data.append(deduped)
-                            total_rows += deduped.num_rows
-                    else:
-                        merged_data.append(combined)
-                        total_rows += combined.num_rows
-
-    # Combine all data
-    if merged_data:
-        if len(merged_data) == 1:
-            final_table = merged_data[0]
-        else:
-            final_table = pa.concat_tables(merged_data, promote_options="permissive")
-    else:
-        # No data to merge
-        final_table = pa.table({})
-
-    # Write output
-    pq.write_table(
-        final_table,
-        output_path,
-        filesystem=pa_filesystem,
-        compression=compression,
-        row_group_size=row_group_size,
-        max_rows_per_file=max_rows_per_file,
-    )
-
-    # Calculate stats
-    stats = calculate_merge_stats(
-        sources=sources,
-        target=output_path,
-        strategy=strategy,
-        total_rows=total_rows,
-        output_rows=final_table.num_rows,
-    )
-
-    if verbose:
-        logger.info("\nMerge complete: %s", stats)
-
-    return stats
