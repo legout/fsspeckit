@@ -8,39 +8,39 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     import duckdb
     import pyarrow as pa
 
     from fsspeckit.core.incremental import MergeResult
-    from fsspeckit.datasets.interfaces import DatasetHandler
-    from fsspeckit.storage_options.base import BaseStorageOptions
+    from fsspeckit.datasets.write_result import WriteDatasetResult
 
-from fsspec import AbstractFileSystem
 
 from fsspeckit.common.logging import get_logger
 from fsspeckit.common.optional import _DUCKDB_AVAILABLE
 from fsspeckit.common.security import (
     safe_format_error,
-    scrub_credentials,
     validate_compression_codec,
     validate_path,
 )
 from fsspeckit.core.merge import (
     MergeStats,
     calculate_merge_stats,
-    check_null_keys,
     normalize_key_columns,
-    validate_merge_inputs,
-    validate_strategy_compatibility,
 )
 from fsspeckit.core.merge import (
     MergeStrategy as CoreMergeStrategy,
 )
 from fsspeckit.datasets.duckdb.connection import DuckDBConnection
 from fsspeckit.datasets.duckdb.helpers import _unregister_duckdb_table_safely
+from fsspeckit.datasets.exceptions import (
+    DatasetFileError,
+    DatasetMergeError,
+    DatasetOperationError,
+)
+from fsspeckit.datasets.path_utils import normalize_path, validate_dataset_path
 
 logger = get_logger(__name__)
 
@@ -116,7 +116,6 @@ class DuckDBDatasetIO:
         validate_path(path)
 
         conn = self._connection.connection
-        fs = self._connection.filesystem
 
         # Build the query
         query = "SELECT * FROM parquet_scan(?)"
@@ -191,12 +190,12 @@ class DuckDBDatasetIO:
         conn = self._connection.connection
 
         # Register the data as a temporary table
-        table_name = f"temp_{uuid.uuid4().hex[:16]}"
+        f"temp_{uuid.uuid4().hex[:16]}"
         conn.register("data_table", data)
 
         try:
             # Build the COPY command
-            copy_query = f"COPY data_table TO ?"
+            copy_query = "COPY data_table TO ?"
 
             params = [path]
 
@@ -275,6 +274,8 @@ class DuckDBDatasetIO:
         """
         raise NotImplementedError(
             "DuckDBDatasetIO.write_parquet_dataset() legacy API has been removed; "
+        )
+
     def write_dataset(
         self,
         data: pa.Table | list[pa.Table],
@@ -343,10 +344,24 @@ class DuckDBDatasetIO:
         for f in moved_files:
             row_count = int(self._get_file_row_count(f, fs))
             size_bytes = None
-            try:
-                size_bytes = int(fs.size(f))
-            except Exception:
-                size_bytes = None
+                try:
+                    size_bytes = int(fs.size(f))
+                except (OSError, IOError, PermissionError) as e:
+                    logger.warning(
+                        "Failed to retrieve file size",
+                        path=f,
+                        error=str(e),
+                        operation="write_dataset",
+                    )
+                    size_bytes = None
+                except (TypeError, ValueError) as e:
+                    logger.warning(
+                        "Invalid file size value",
+                        path=f,
+                        error=str(e),
+                        operation="write_dataset",
+                    )
+                    size_bytes = None
 
             files.append(
                 FileWriteMetadata(path=f, row_count=row_count, size_bytes=size_bytes)
@@ -999,10 +1014,8 @@ class DuckDBDatasetIO:
             row_group_size: Rows per row group
             mode: Write mode - 'append' or 'overwrite'
         """
-        import os
         import tempfile
 
-        conn = self._connection.connection
         fs = self._connection.filesystem
 
         # Ensure output directory exists
@@ -1106,11 +1119,9 @@ class DuckDBDatasetIO:
         Returns:
             MergeStats with operation results
         """
-        import tempfile
 
         from fsspeckit.core.incremental import plan_incremental_rewrite
 
-        conn = self._connection.connection
         fs = self._connection.filesystem
 
         # Extract source keys for planning
@@ -1193,6 +1204,8 @@ class DuckDBDatasetIO:
         row_group_size: int | None = 500_000,
     ) -> MergeStats:
         """Write source data as new files for UPSERT when no existing files are affected."""
+        import tempfile
+
         fs = self._connection.filesystem
 
         # Create temporary directory for new files
@@ -1250,11 +1263,9 @@ class DuckDBDatasetIO:
         row_group_size: int | None = 500_000,
     ) -> MergeStats:
         """Perform the actual incremental rewrite operation."""
-        import tempfile
 
         from fsspeckit.core.incremental import IncrementalFileManager
 
-        conn = self._connection.connection
         fs = self._connection.filesystem
         file_manager = IncrementalFileManager()
 
@@ -1292,7 +1303,19 @@ class DuckDBDatasetIO:
 
             # For UPSERT, write new files for inserted rows
             if strategy == CoreMergeStrategy.UPSERT and inserted_rows > 0:
-                new_data = self._extract_inserted_rows(data, key_columns)
+                import pyarrow as pa
+
+                all_existing = []
+                for f in rewrite_plan.affected_files:
+                    all_existing.append(self._read_parquet_file(f, fs))
+                existing_table = (
+                    pa.concat_tables(all_existing)
+                    if all_existing
+                    else pa.Table.from_batches([], schema=data.schema)
+                )
+                new_data = self._extract_inserted_rows(
+                    existing_table, data, key_columns
+                )
                 if len(new_data) > 0:
                     inserted_stats = self._write_new_files_incremental(
                         new_data, path, compression, max_rows_per_file, row_group_size
@@ -1373,10 +1396,26 @@ class DuckDBDatasetIO:
         source_data: pa.Table,
         key_columns: list[str],
     ) -> pa.Table:
-        """Perform UPSERT merge: update existing, insert new."""
-        # Implementation would use DuckDB to perform the merge
-        # This is a simplified version - actual implementation would be more complex
-        pass
+        conn = self._connection.connection
+        conn.register("existing_data", existing_data)
+        conn.register("source_data", source_data)
+        try:
+            key_conditions = " AND ".join([f'e."{c}" = s."{c}"' for c in key_columns])
+            query = f"""
+                SELECT s.*
+                FROM source_data s
+                UNION ALL
+                SELECT e.*
+                FROM existing_data e
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM source_data s
+                    WHERE {key_conditions}
+                )
+            """
+            return conn.execute(query).fetch_arrow_table()
+        finally:
+            _unregister_duckdb_table_safely(conn, "existing_data")
+            _unregister_duckdb_table_safely(conn, "source_data")
 
     def _merge_update(
         self,
@@ -1384,20 +1423,51 @@ class DuckDBDatasetIO:
         source_data: pa.Table,
         key_columns: list[str],
     ) -> pa.Table:
-        """Perform UPDATE merge: only update existing records."""
-        # Implementation would use DuckDB to perform the update
-        # This is a simplified version - actual implementation would be more complex
-        pass
+        conn = self._connection.connection
+        conn.register("existing_data", existing_data)
+        conn.register("source_data", source_data)
+        try:
+            key_conditions = " AND ".join([f'e."{c}" = s."{c}"' for c in key_columns])
+            query = f"""
+                SELECT s.*
+                FROM source_data s
+                JOIN existing_data e ON {key_conditions}
+                UNION ALL
+                SELECT e.*
+                FROM existing_data e
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM source_data s
+                    WHERE {key_conditions}
+                )
+            """
+            return conn.execute(query).fetch_arrow_table()
+        finally:
+            _unregister_duckdb_table_safely(conn, "existing_data")
+            _unregister_duckdb_table_safely(conn, "source_data")
 
     def _extract_inserted_rows(
         self,
+        existing_data: pa.Table,
         source_data: pa.Table,
         key_columns: list[str],
     ) -> pa.Table:
-        """Extract rows that would be inserted (not updates)."""
-        # Implementation would identify rows that don't exist in target
-        # This is a simplified version - actual implementation would be more complex
-        return source_data
+        conn = self._connection.connection
+        conn.register("existing_data", existing_data)
+        conn.register("source_data", source_data)
+        try:
+            key_conditions = " AND ".join([f'e."{c}" = s."{c}"' for c in key_columns])
+            query = f"""
+                SELECT s.*
+                FROM source_data s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM existing_data e
+                    WHERE {key_conditions}
+                )
+            """
+            return conn.execute(query).fetch_arrow_table()
+        finally:
+            _unregister_duckdb_table_safely(conn, "existing_data")
+            _unregister_duckdb_table_safely(conn, "source_data")
 
     def _write_to_path(
         self,
@@ -1412,7 +1482,7 @@ class DuckDBDatasetIO:
         conn = self._connection.connection
 
         # Register the data as a temporary table
-        table_name = f"temp_{uuid.uuid4().hex[:16]}"
+        f"temp_{uuid.uuid4().hex[:16]}"
         conn.register("data_table", data)
 
         try:
@@ -1534,6 +1604,8 @@ class DuckDBDatasetIO:
         """
         raise NotImplementedError(
             "DuckDBDatasetIO.merge_parquet_dataset() legacy API has been removed; "
+        )
+
     def compact_parquet_dataset(
         self,
         path: str,
@@ -1563,7 +1635,7 @@ class DuckDBDatasetIO:
         import pyarrow as pa
         import pyarrow.parquet as pq
 
-        from fsspeckit.core.maintenance import MaintenanceStats, plan_compaction_groups
+        from fsspeckit.core.maintenance import plan_compaction_groups
 
         # Collect stats
         stats = self._collect_dataset_stats(path, partition_filter)
@@ -1709,6 +1781,8 @@ class DuckDBDatasetIO:
         """
         raise NotImplementedError(
             "DuckDBDatasetIO.insert_dataset() legacy API has been removed; "
+        )
+
     def upsert_dataset(
         self,
         data: pa.Table | list[pa.Table],
@@ -1746,6 +1820,8 @@ class DuckDBDatasetIO:
         """
         raise NotImplementedError(
             "DuckDBDatasetIO.upsert_dataset() legacy API has been removed; "
+        )
+
     def update_dataset(
         self,
         data: pa.Table | list[pa.Table],
@@ -1783,6 +1859,8 @@ class DuckDBDatasetIO:
         """
         raise NotImplementedError(
             "DuckDBDatasetIO.update_dataset() legacy API has been removed; "
+        )
+
     def deduplicate_dataset(
         self,
         data: pa.Table | list[pa.Table],
@@ -1817,6 +1895,8 @@ class DuckDBDatasetIO:
         """
         raise NotImplementedError(
             "DuckDBDatasetIO.deduplicate_dataset() legacy API has been removed; "
+        )
+
     def deduplicate_parquet_dataset(
         self,
         path: str,

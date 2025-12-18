@@ -8,6 +8,16 @@ This package contains dataset-specific functionality including:
 """
 
 from .duckdb import DuckDBParquetHandler, MergeStrategy
+from .exceptions import (
+    DatasetError,
+    DatasetFileError,
+    DatasetMergeError,
+    DatasetOperationError,
+    DatasetPathError,
+    DatasetSchemaError,
+    DatasetValidationError,
+)
+from .path_utils import normalize_path, validate_dataset_path
 from .pyarrow import (
     cast_schema,
     collect_dataset_stats_pyarrow,
@@ -25,6 +35,17 @@ __all__ = [
     # DuckDB handlers
     "DuckDBParquetHandler",
     "MergeStrategy",
+    # Exceptions
+    "DatasetError",
+    "DatasetFileError",
+    "DatasetMergeError",
+    "DatasetOperationError",
+    "DatasetPathError",
+    "DatasetSchemaError",
+    "DatasetValidationError",
+    # Path utilities
+    "normalize_path",
+    "validate_dataset_path",
     # PyArrow handlers
     "PyarrowDatasetIO",
     "PyarrowDatasetHandler",
