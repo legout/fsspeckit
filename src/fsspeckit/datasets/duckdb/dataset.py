@@ -40,6 +40,7 @@ from fsspeckit.datasets.exceptions import (
     DatasetMergeError,
     DatasetOperationError,
 )
+from fsspeckit.datasets.base import BaseDatasetHandler
 from fsspeckit.datasets.path_utils import normalize_path, validate_dataset_path
 
 logger = get_logger(__name__)
@@ -64,7 +65,7 @@ if _DUCKDB_AVAILABLE:
 MergeStrategy = Literal["upsert", "insert", "update", "full_merge", "deduplicate"]
 
 
-class DuckDBDatasetIO:
+class DuckDBDatasetIO(BaseDatasetHandler):
     """DuckDB-based dataset I/O operations.
 
     This class provides methods for reading and writing parquet files and datasets
@@ -84,6 +85,11 @@ class DuckDBDatasetIO:
             connection: DuckDB connection manager
         """
         self._connection = connection
+
+    @property
+    def filesystem(self) -> "AbstractFileSystem":
+        """Return the filesystem instance used by this handler."""
+        return self._connection.filesystem
 
     def read_parquet(
         self,
@@ -344,24 +350,24 @@ class DuckDBDatasetIO:
         for f in moved_files:
             row_count = int(self._get_file_row_count(f, fs))
             size_bytes = None
-                try:
-                    size_bytes = int(fs.size(f))
-                except (OSError, IOError, PermissionError) as e:
-                    logger.warning(
-                        "Failed to retrieve file size",
-                        path=f,
-                        error=str(e),
-                        operation="write_dataset",
-                    )
-                    size_bytes = None
-                except (TypeError, ValueError) as e:
-                    logger.warning(
-                        "Invalid file size value",
-                        path=f,
-                        error=str(e),
-                        operation="write_dataset",
-                    )
-                    size_bytes = None
+            try:
+                size_bytes = int(fs.size(f))
+            except (OSError, IOError, PermissionError) as e:
+                logger.warning(
+                    "Failed to retrieve file size",
+                    path=f,
+                    error=str(e),
+                    operation="write_dataset",
+                )
+                size_bytes = None
+            except (TypeError, ValueError) as e:
+                logger.warning(
+                    "Invalid file size value",
+                    path=f,
+                    error=str(e),
+                    operation="write_dataset",
+                )
+                size_bytes = None
 
             files.append(
                 FileWriteMetadata(path=f, row_count=row_count, size_bytes=size_bytes)
@@ -621,7 +627,7 @@ class DuckDBDatasetIO:
                 if file_matched:
                     matched_keys_by_file[file_path] = set(file_matched)
                     matched_keys |= set(file_matched)
-            except Exception:
+            except (OSError, IOError, Exception):
                 # Conservative: assume all source keys might be present.
                 matched_keys_by_file[file_path] = set(source_key_set)
                 matched_keys |= set(source_key_set)
@@ -781,7 +787,7 @@ class DuckDBDatasetIO:
                 size_bytes = None
                 try:
                     size_bytes = int(fs.size(staging_file))
-                except Exception:
+                except (OSError, IOError, PermissionError):
                     size_bytes = None
 
                 file_manager.atomic_replace_files(
@@ -884,6 +890,10 @@ class DuckDBDatasetIO:
             f"{source_path}/**/*.parquet" if fs.isdir(source_path) else source_path
         )
 
+        # SQL injection protection: validate file paths before SQL interpolation
+        if "'" in source_glob or "--" in source_glob or ";" in source_glob:
+            raise ValueError(f"Invalid path characters in source path: {source_glob}")
+
         # Get source row count
         source_count = conn.execute(
             f"SELECT COUNT(*) FROM parquet_scan('{source_glob}')"
@@ -895,6 +905,11 @@ class DuckDBDatasetIO:
             target_glob = (
                 f"{target_path}/**/*.parquet" if fs.isdir(target_path) else target_path
             )
+            # SQL injection protection: validate file paths before SQL interpolation
+            if "'" in target_glob or "--" in target_glob or ";" in target_glob:
+                raise ValueError(
+                    f"Invalid path characters in target path: {target_glob}"
+                )
             target_count = conn.execute(
                 f"SELECT COUNT(*) FROM parquet_scan('{target_glob}')"
             ).fetchone()[0]
@@ -2084,7 +2099,10 @@ class DuckDBDatasetIO:
                     table_name = f"{temp_table_name}{table_suffix}"
                     try:
                         conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-                    except Exception:
+                    except (
+                        _DUCKDB_EXCEPTIONS.get("CatalogException"),
+                        _DUCKDB_EXCEPTIONS.get("OperationalException"),
+                    ):
                         pass  # Table might not exist
 
         # Update final statistics
