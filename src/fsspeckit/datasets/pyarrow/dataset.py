@@ -10,6 +10,7 @@ This module contains functions for dataset-level operations including:
 import concurrent.futures
 import random
 import re
+import time
 from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal
@@ -406,8 +407,11 @@ def deduplicate_parquet_dataset_pyarrow(
 
     # Process each group
     total_deduplicated_rows = 0
+    total_process_time = 0.0
+    max_memory_usage_mb = 0.0
 
     for group in groups:
+        group_start = time.perf_counter()
         # Read all files in this group
         tables = []
         for file_info in group.files:
@@ -427,64 +431,39 @@ def deduplicate_parquet_dataset_pyarrow(
         # Get original row count
         original_count = combined.num_rows
 
-        # Perform deduplication
+        # Track memory (Table.nbytes gives the size of the data in memory)
+        current_mem_mb = combined.nbytes / (1024 * 1024)
+        max_memory_usage_mb = max(max_memory_usage_mb, current_mem_mb)
+
+        # Perform deduplication using PyArrow vectorized operations
         if key_columns:
             # Key-based deduplication
             if dedup_order_by and dedup_order_by != key_columns:
                 # Custom ordering - sort first, then deduplicate
-                # Note: PyArrow doesn't have built-in DISTINCT ON, so we use group_by
-                sorted_table = combined.sort_by(dedup_order_by)
+                # Handle "-column" notation for descending order
+                sort_keys = []
+                for col in dedup_order_by:
+                    if col.startswith("-"):
+                        sort_keys.append((col[1:], "descending"))
+                    else:
+                        sort_keys.append((col, "ascending"))
 
-                # Group by key columns and take first row from each group
-                groups_table = sorted_table.group_by(key_columns).aggregate([])
-
-                # Get the unique keys
-                unique_keys = []
-                for row in groups_table.to_pylist():
-                    key = tuple(row[col] for col in key_columns)
-                    unique_keys.append(key)
-
-                # Filter to keep only rows with unique keys (first occurrence)
-                deduped_rows = []
-                seen_keys = set()
-                for row in sorted_table.to_pylist():
-                    key = tuple(row[col] for col in key_columns)
-                    if key not in seen_keys:
-                        deduped_rows.append(row)
-                        seen_keys.add(key)
-
-                if deduped_rows:
-                    deduped = pa.Table.from_pylist(deduped_rows, schema=combined.schema)
-                else:
-                    deduped = pa.table({}, schema=combined.schema)
+                # Vectorized sort and then drop_duplicates keeps the first occurrence
+                sorted_table = combined.sort_by(sort_keys)
+                deduped = sorted_table.drop_duplicates(subset=key_columns)
             else:
                 # Simple key-based deduplication - keep first occurrence
-                groups_table = combined.group_by(key_columns).aggregate([])
-                unique_keys = []
-                for row in groups_table.to_pylist():
-                    key = tuple(row[col] for col in key_columns)
-                    unique_keys.append(key)
-
-                # Filter to keep only unique rows
-                deduped_rows = []
-                seen_keys = set()
-                for row in combined.to_pylist():
-                    key = tuple(row[col] for col in key_columns)
-                    if key not in seen_keys:
-                        deduped_rows.append(row)
-                        seen_keys.add(key)
-
-                if deduped_rows:
-                    deduped = pa.Table.from_pylist(deduped_rows, schema=combined.schema)
-                else:
-                    deduped = pa.table({}, schema=combined.schema)
+                deduped = combined.drop_duplicates(subset=key_columns)
         else:
-            # Exact duplicate removal
+            # Exact duplicate removal across all columns
             deduped = combined.drop_duplicates()
 
         # Get deduplicated row count
         deduped_count = deduped.num_rows
         total_deduplicated_rows += original_count - deduped_count
+
+        group_duration = time.perf_counter() - group_start
+        total_process_time += group_duration
 
         # Write deduplicated data back to the first file in the group
         output_path = group.files[0].path
@@ -505,6 +484,10 @@ def deduplicate_parquet_dataset_pyarrow(
     # Update final statistics
     final_stats = planned_stats.to_dict()
     final_stats["deduplicated_rows"] = total_deduplicated_rows
+    final_stats["performance_metrics"] = {
+        "total_process_time_sec": total_process_time,
+        "max_memory_usage_mb": max_memory_usage_mb,
+    }
 
     if verbose:
         logger.info("Deduplication complete: %s", final_stats)

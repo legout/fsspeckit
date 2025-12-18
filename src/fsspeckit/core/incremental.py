@@ -212,10 +212,22 @@ def extract_source_partition_values(
 
     if len(partition_columns) == 1:
         col = partition_columns[0]
-        return {(v,) for v in source_table.column(col).to_pylist()}
+        # Use PyArrow's unique function for better performance
+        import pyarrow.compute as pc
 
-    arrays = [source_table.column(col).to_pylist() for col in partition_columns]
-    return set(zip(*arrays))
+        unique_vals = pc.unique(source_table.column(col))
+        return {(v.as_py(),) for v in unique_vals}
+
+    # For multiple columns, use group_by to get unique combinations
+    import pyarrow as pa
+
+    subset = source_table.select(partition_columns)
+    grouped = subset.group_by(partition_columns).aggregate([])
+    result_dict = grouped.to_pydict()
+    return {
+        tuple(result_dict[col][i] for col in partition_columns)
+        for i in range(len(next(iter(result_dict.values()))))
+    }
 
 
 @dataclass
@@ -802,17 +814,28 @@ def confirm_affected_files(
                 file_path, columns=list(key_columns), filesystem=filesystem
             )
 
-            if len(key_columns) == 1:
-                file_keys = set(table.column(key_columns[0]).to_pylist())
-            else:
-                file_keys = set()
-                for i in range(table.num_rows):
-                    file_keys.add(
-                        tuple(table.column(col)[i].as_py() for col in key_columns)
-                    )
+            import pyarrow as pa
+            import pyarrow.compute as pc
 
-            if source_set & file_keys:
-                affected.append(file_path)
+            if len(key_columns) == 1:
+                # Use vectorized is_in for single column
+                mask = pc.is_in(
+                    table.column(key_columns[0]), value_set=pa.array(list(source_set))
+                )
+                if pc.any(mask).as_py():
+                    affected.append(file_path)
+            else:
+                # For multi-column: convert source_set to table and use join
+                source_list = list(source_set)
+                source_table = pa.table(
+                    {
+                        col: [k[i] for k in source_list]
+                        for i, col in enumerate(key_columns)
+                    }
+                )
+                joined = table.join(source_table, keys=key_columns, join_type="inner")
+                if joined.num_rows > 0:
+                    affected.append(file_path)
         except Exception:
             # Conservative: if we can't confirm, treat as affected.
             affected.append(file_path)
