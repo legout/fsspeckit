@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
     from fsspeckit.core.incremental import MergeResult
     from fsspeckit.core.merge import MergeStats
+    from fsspeckit.datasets.pyarrow.memory import MemoryMonitor
     from fsspeckit.datasets.write_result import WriteDatasetResult
 
 from fsspec import filesystem as fsspec_filesystem
@@ -359,8 +360,37 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         merge_chunk_size_rows: int = 100_000,
         enable_streaming_merge: bool = True,
         merge_max_memory_mb: int = 1024,
+        merge_max_process_memory_mb: int | None = None,
+        merge_min_system_available_mb: int = 512,
         merge_progress_callback: Callable[[int, int], None] | None = None,
     ) -> MergeResult:
+        """Merge data into an existing parquet dataset.
+
+        This method performs an incremental merge (insert, update, or upsert)
+        of the provided data into the target dataset. It uses PyArrow's
+        high-performance operations and supports both in-memory and
+        streaming merge strategies.
+
+        Args:
+            data: PyArrow table or list of tables to merge
+            path: Target dataset path
+            strategy: Merge strategy ('insert', 'update', or 'upsert')
+            key_columns: Column(s) used as unique identifiers
+            partition_columns: Optional column(s) to partition by
+            schema: Optional schema to enforce on the source data
+            compression: Compression codec (default: snappy)
+            max_rows_per_file: Max rows per file in output (default: 5,000,000)
+            row_group_size: Rows per row group (default: 500_000)
+            merge_chunk_size_rows: Rows per processing chunk (default: 100_000)
+            enable_streaming_merge: Whether to use streaming merge (default: True)
+            merge_max_memory_mb: Max PyArrow memory in MB (default: 1024)
+            merge_max_process_memory_mb: Optional max process RSS in MB
+            merge_min_system_available_mb: Min system available memory in MB (default: 512)
+            merge_progress_callback: Optional callback for progress updates
+
+        Returns:
+            MergeResult with detailed statistics
+        """
         import pyarrow.compute as pc
         import pyarrow.parquet as pq
         import pyarrow.dataset as ds
@@ -382,7 +412,11 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             process_in_chunks,
         )
 
-        monitor = PerformanceMonitor()
+        monitor = PerformanceMonitor(
+            max_pyarrow_mb=merge_max_memory_mb,
+            max_process_memory_mb=merge_max_process_memory_mb,
+            min_system_available_mb=merge_min_system_available_mb,
+        )
         monitor.start_op("initialization")
 
         pa_mod = _import_pyarrow()
@@ -723,6 +757,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                                 key_cols,
                                 chunk_size=merge_chunk_size_rows,
                                 max_memory_mb=merge_max_memory_mb,
+                                memory_monitor=monitor._memory_monitor,
                                 writer=writer,
                             )
                         else:  # strategy == "update"
@@ -732,6 +767,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                                 key_cols,
                                 chunk_size=merge_chunk_size_rows,
                                 max_memory_mb=merge_max_memory_mb,
+                                memory_monitor=monitor._memory_monitor,
                                 writer=writer,
                             )
                     monitor.end_op()
@@ -745,11 +781,19 @@ class PyarrowDatasetIO(BaseDatasetHandler):
 
                     if strategy == "upsert":
                         updated_table = self._merge_upsert_pyarrow(
-                            target_table, source_for_file, key_cols
+                            target_table,
+                            source_for_file,
+                            key_cols,
+                            max_memory_mb=merge_max_memory_mb,
+                            memory_monitor=monitor._memory_monitor,
                         )
                     else:
                         updated_table = self._merge_update_pyarrow(
-                            target_table, source_for_file, key_cols
+                            target_table,
+                            source_for_file,
+                            key_cols,
+                            max_memory_mb=merge_max_memory_mb,
+                            memory_monitor=monitor._memory_monitor,
                         )
 
                     pq.write_table(
@@ -1238,6 +1282,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         key_columns: list[str],
         chunk_size: int = 100_000,
         max_memory_mb: int = 1024,
+        memory_monitor: MemoryMonitor | None = None,
         writer: pq.ParquetWriter | None = None,
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> pa.Table | None:
@@ -1248,7 +1293,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             source: Source data to merge (Table)
             key_columns: Columns to use as merge keys
             chunk_size: Number of rows per processing chunk
-            max_memory_mb: Maximum memory to use in MB
+            max_memory_mb: Maximum PyArrow memory to use in MB
+            memory_monitor: Optional MemoryMonitor for enhanced tracking
             writer: Optional ParquetWriter for streaming output
             progress_callback: Optional progress callback
 
@@ -1302,6 +1348,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 chunk_size,
                 max_memory_mb,
                 progress_callback=progress_callback,
+                memory_monitor=memory_monitor,
             ):
                 filtered = _process_chunk(chunk)
                 if filtered.num_rows > 0:
@@ -1319,6 +1366,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                     chunk_size,
                     max_memory_mb,
                     progress_callback=progress_callback,
+                    memory_monitor=memory_monitor,
                 ):
                     chunks.append(_process_chunk(chunk))
                 filtered_existing = pa_mod.concat_tables(
@@ -1335,6 +1383,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         key_columns: list[str],
         chunk_size: int = 100_000,
         max_memory_mb: int = 1024,
+        memory_monitor: MemoryMonitor | None = None,
         writer: pq.ParquetWriter | None = None,
         progress_callback: Callable[[int, int], None] | None = None,
     ) -> pa.Table | None:
@@ -1345,7 +1394,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             source: Source data to merge (Table)
             key_columns: Columns to use as merge keys
             chunk_size: Number of rows per processing chunk
-            max_memory_mb: Maximum memory to use in MB
+            max_memory_mb: Maximum PyArrow memory to use in MB
+            memory_monitor: Optional MemoryMonitor for enhanced tracking
             writer: Optional ParquetWriter for streaming output
             progress_callback: Optional progress callback
 
@@ -1375,7 +1425,11 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         # Pass 1: find which source rows are in existing
         all_existing_keys = set()
         for chunk in process_in_chunks(
-            existing, chunk_size, max_memory_mb, progress_callback=progress_callback
+            existing,
+            chunk_size,
+            max_memory_mb,
+            progress_callback=progress_callback,
+            memory_monitor=memory_monitor,
         ):
             if len(key_columns) == 1:
                 chunk_keys = chunk.column(key_columns[0]).to_pylist()
@@ -1441,6 +1495,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 chunk_size,
                 max_memory_mb,
                 progress_callback=progress_callback,
+                memory_monitor=memory_monitor,
             ):
                 filtered = _process_chunk_existing(chunk)
                 if filtered.num_rows > 0:
@@ -1455,179 +1510,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 chunk_size,
                 max_memory_mb,
                 progress_callback=progress_callback,
+                memory_monitor=memory_monitor,
             ):
-                chunks.append(_process_chunk_existing(chunk))
-            filtered_existing = pa_mod.concat_tables(
-                chunks, promote_options="permissive"
-            )
-            return pa_mod.concat_tables(
-                [filtered_existing, source_in_existing], promote_options="permissive"
-            )
-
-        source_aligned = source_aligned.select(existing_schema.names).cast(
-            existing_schema
-        )
-
-        # Prepare source keys for filtering
-        if len(key_columns) == 1:
-            source_keys = source_aligned.column(key_columns[0])
-        else:
-            source_keys = pc.binary_join_element_wise(
-                *[
-                    pc.cast(source_aligned.column(c), pa_mod.string())
-                    for c in key_columns
-                ],
-                "||",
-            )
-
-        def _process_chunk(chunk: pa.Table) -> pa.Table:
-            if len(key_columns) == 1:
-                chunk_keys = chunk.column(key_columns[0])
-            else:
-                chunk_keys = pc.binary_join_element_wise(
-                    *[pc.cast(chunk.column(c), pa_mod.string()) for c in key_columns],
-                    "||",
-                )
-            mask = pc.invert(pc.is_in(chunk_keys, source_keys))
-            return chunk.filter(mask)
-
-        if writer:
-            # Streaming mode
-            for chunk in process_in_chunks(existing, chunk_size, max_memory_mb):
-                filtered = _process_chunk(chunk)
-                if filtered.num_rows > 0:
-                    writer.write_table(filtered)
-            writer.write_table(source_aligned)
-            return None
-        else:
-            # Batch mode
-            if isinstance(existing, pa_mod.Table) and existing.num_rows <= chunk_size:
-                filtered_existing = _process_chunk(existing)
-            else:
-                chunks = []
-                for chunk in process_in_chunks(existing, chunk_size, max_memory_mb):
-                    chunks.append(_process_chunk(chunk))
-                filtered_existing = pa_mod.concat_tables(
-                    chunks, promote_options="permissive"
-                )
-            return pa_mod.concat_tables(
-                [filtered_existing, source_aligned], promote_options="permissive"
-            )
-
-    def _merge_update_pyarrow(
-        self,
-        existing: pa.Table | ds.Dataset,
-        source: pa.Table,
-        key_columns: list[str],
-        chunk_size: int = 100_000,
-        max_memory_mb: int = 1024,
-        writer: pq.ParquetWriter | None = None,
-    ) -> pa.Table | None:
-        """Perform UPDATE merge using PyArrow operations with streaming support.
-
-        Args:
-            existing: Existing data (Table or Dataset)
-            source: Source data to merge (Table)
-            key_columns: Columns to use as merge keys
-            chunk_size: Number of rows per processing chunk
-            max_memory_mb: Maximum memory to use in MB
-            writer: Optional ParquetWriter for streaming output
-
-        Returns:
-            Merged Table if writer is None, else None
-        """
-        pa_mod = _import_pyarrow()
-        import pyarrow.compute as pc
-
-        from fsspeckit.datasets.pyarrow.dataset import (
-            _make_struct_safe,
-            process_in_chunks,
-        )
-
-        # Align source schema with existing
-        existing_schema = existing.schema
-        source_aligned = source
-        for field in existing_schema:
-            if field.name not in source_aligned.column_names:
-                source_aligned = source_aligned.append_column(
-                    field.name, pa_mod.nulls(len(source_aligned), type=field.type)
-                )
-        source_aligned = source_aligned.select(existing_schema.names).cast(
-            existing_schema
-        )
-
-        # Pass 1: find which source rows are in existing
-        all_existing_keys = set()
-        for chunk in process_in_chunks(existing, chunk_size, max_memory_mb):
-            if len(key_columns) == 1:
-                chunk_keys = chunk.column(key_columns[0]).to_pylist()
-            else:
-                chunk_keys = [
-                    tuple(d.values())
-                    for d in _make_struct_safe(chunk, key_columns).to_pylist()
-                ]
-            all_existing_keys.update(chunk_keys)
-
-        # Now filter source
-        if len(key_columns) == 1:
-            source_in_existing_mask = pc.is_in(
-                source_aligned.column(key_columns[0]),
-                value_set=pa_mod.array(
-                    list(all_existing_keys),
-                    type=existing_schema.field(key_columns[0]).type,
-                ),
-            )
-        else:
-            # For multi-key, we'll use a slower path for now
-            source_list = source_aligned.to_pylist()
-            keep_indices = []
-            for i, row in enumerate(source_list):
-                key = tuple(row[c] for c in key_columns)
-                if key in all_existing_keys:
-                    keep_indices.append(i)
-            source_in_existing_mask = pa_mod.array(
-                [i in keep_indices for i in range(len(source_aligned))],
-                type=pa_mod.bool_(),
-            )
-
-        source_in_existing = source_aligned.filter(source_in_existing_mask)
-
-        # Prepare source keys for Pass 2 filtering
-        if len(key_columns) == 1:
-            source_keys = source_aligned.column(key_columns[0])
-        else:
-            source_keys = pc.binary_join_element_wise(
-                *[
-                    pc.cast(source_aligned.column(c), pa_mod.string())
-                    for c in key_columns
-                ],
-                "||",
-            )
-
-        def _process_chunk_existing(chunk: pa.Table) -> pa.Table:
-            if len(key_columns) == 1:
-                chunk_keys = chunk.column(key_columns[0])
-            else:
-                chunk_keys = pc.binary_join_element_wise(
-                    *[pc.cast(chunk.column(c), pa_mod.string()) for c in key_columns],
-                    "||",
-                )
-            # Rows in existing NOT in source
-            not_in_source_mask = pc.invert(pc.is_in(chunk_keys, source_keys))
-            return chunk.filter(not_in_source_mask)
-
-        if writer:
-            # Pass 2: Streaming output
-            for chunk in process_in_chunks(existing, chunk_size, max_memory_mb):
-                filtered = _process_chunk_existing(chunk)
-                if filtered.num_rows > 0:
-                    writer.write_table(filtered)
-            writer.write_table(source_in_existing)
-            return None
-        else:
-            # Pass 2: Batch mode
-            chunks = []
-            for chunk in process_in_chunks(existing, chunk_size, max_memory_mb):
                 chunks.append(_process_chunk_existing(chunk))
             filtered_existing = pa_mod.concat_tables(
                 chunks, promote_options="permissive"

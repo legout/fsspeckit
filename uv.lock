@@ -1045,11 +1045,15 @@ datasets = [
     { name = "orjson" },
     { name = "pandas" },
     { name = "polars" },
+    { name = "psutil" },
     { name = "pyarrow" },
     { name = "sqlglot" },
 ]
 gcp = [
     { name = "gcsfs" },
+]
+monitoring = [
+    { name = "psutil" },
 ]
 polars = [
     { name = "polars" },
@@ -1107,6 +1111,8 @@ requires-dist = [
     { name = "polars", specifier = ">=1.35.2" },
     { name = "polars", marker = "extra == 'datasets'", specifier = ">=1.30.0" },
     { name = "polars", marker = "extra == 'polars'", specifier = ">=1.30.0" },
+    { name = "psutil", marker = "extra == 'datasets'", specifier = ">=5.9.0" },
+    { name = "psutil", marker = "extra == 'monitoring'", specifier = ">=5.9.0" },
     { name = "pyarrow", specifier = ">=22.0.0" },
     { name = "pyarrow", marker = "extra == 'datasets'", specifier = ">=20.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -1116,7 +1122,7 @@ requires-dist = [
     { name = "sqlglot", marker = "extra == 'datasets'", specifier = ">=27.16.3" },
     { name = "sqlglot", marker = "extra == 'sql'", specifier = ">=27.16.3" },
 ]
-provides-extras = ["aws", "gcp", "azure", "polars", "datasets", "sql"]
+provides-extras = ["aws", "gcp", "azure", "polars", "datasets", "monitoring", "sql"]
 
 [package.metadata.requires-dev]
 dev = [

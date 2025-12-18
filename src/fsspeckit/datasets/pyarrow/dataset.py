@@ -41,6 +41,7 @@ from fsspeckit.core.merge import (
 from fsspeckit.core.merge import (
     MergeStrategy as CoreMergeStrategy,
 )
+from fsspeckit.datasets.pyarrow.memory import MemoryMonitor, MemoryPressureLevel
 
 logger = get_logger(__name__)
 
@@ -52,16 +53,30 @@ class PerformanceMonitor:
     memory usage, throughput, and operation-specific metrics.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        max_pyarrow_mb: int = 2048,
+        max_process_memory_mb: int | None = None,
+        min_system_available_mb: int = 512,
+    ):
         self.start_time = time.perf_counter()
         self.operation_breakdown = defaultdict(float)
         self.memory_peak_mb = 0.0
+        self.process_memory_peak_mb = 0.0
         self.files_processed = 0
         self.chunks_processed = 0
         self.total_rows_processed = 0
         self.total_bytes_processed = 0
         self.current_op = None
         self.op_start_time = 0.0
+
+        self._memory_monitor = MemoryMonitor(
+            max_pyarrow_mb=max_pyarrow_mb,
+            max_process_memory_mb=max_process_memory_mb,
+            min_system_available_mb=min_system_available_mb,
+        )
+        self.pressure_counts: dict[str, int] = defaultdict(int)
+        self._last_status_time = 0.0
 
     def start_op(self, name: str):
         """Start tracking a specific operation phase."""
@@ -80,10 +95,32 @@ class PerformanceMonitor:
         self.track_memory()
 
     def track_memory(self):
-        """Track peak memory usage using PyArrow's allocator."""
-        current_mem_mb = pa.total_allocated_bytes() / (1024 * 1024)
-        if current_mem_mb > self.memory_peak_mb:
-            self.memory_peak_mb = current_mem_mb
+        """Track peak memory usage using MemoryMonitor."""
+        now = time.perf_counter()
+        # Avoid excessive psutil calls (cache for 100ms)
+        if now - self._last_status_time < 0.1:
+            return
+
+        status = self._memory_monitor.get_memory_status()
+        self._last_status_time = now
+
+        # Track PyArrow peak
+        current_pa_mb = status.get("pyarrow_allocated_mb", 0.0)
+        if current_pa_mb > self.memory_peak_mb:
+            self.memory_peak_mb = current_pa_mb
+
+        # Track Process peak
+        current_rss_mb = status.get("process_rss_mb", 0.0)
+        if current_rss_mb > self.process_memory_peak_mb:
+            self.process_memory_peak_mb = current_rss_mb
+
+        # Track pressure level
+        pressure = self._memory_monitor.check_memory_pressure()
+        self.pressure_counts[pressure.value] += 1
+
+    def get_memory_status(self) -> dict[str, float]:
+        """Get current memory snapshot from MemoryMonitor."""
+        return self._memory_monitor.get_memory_status()
 
     def get_metrics(
         self,
@@ -101,16 +138,20 @@ class PerformanceMonitor:
         Returns:
             Dictionary containing performance metrics.
         """
+        # Force a final memory track to ensure peaks are captured
+        self._last_status_time = 0.0
         self.track_memory()
+
         total_time = time.perf_counter() - self.start_time
         rows_removed = total_rows_before - total_rows_after
         dedup_efficiency = (
             (rows_removed / total_rows_before) if total_rows_before > 0 else 0.0
         )
 
-        return {
+        metrics = {
             "total_process_time_sec": total_time,
             "memory_peak_mb": self.memory_peak_mb,
+            "process_memory_peak_mb": self.process_memory_peak_mb,
             "throughput_mb_sec": (total_bytes / (1024 * 1024)) / total_time
             if total_time > 0
             else 0.0,
@@ -119,7 +160,15 @@ class PerformanceMonitor:
             "chunks_processed": self.chunks_processed,
             "dedup_efficiency": dedup_efficiency,
             "operation_breakdown": dict(self.operation_breakdown),
+            "memory_pressure_stats": dict(self.pressure_counts),
         }
+
+        # Include system info if available
+        status = self._memory_monitor.get_memory_status()
+        if "system_available_mb" in status:
+            metrics["system_available_mb"] = status["system_available_mb"]
+
+        return metrics
 
 
 def _table_drop_duplicates(
@@ -451,7 +500,7 @@ def deduplicate_parquet_dataset_pyarrow(
     """
     from fsspeckit.core.maintenance import plan_deduplication_groups
 
-    monitor = PerformanceMonitor()
+    monitor = PerformanceMonitor(max_pyarrow_mb=max_memory_mb)
     monitor.start_op("initialization")
 
     # Validate inputs
@@ -623,6 +672,7 @@ def deduplicate_parquet_dataset_pyarrow(
                         max_memory_mb,
                         enable_progress,
                         progress_callback,
+                        memory_monitor=monitor._memory_monitor,
                     ):
                         monitor.chunks_processed += 1
                         # Deduplicate within chunk first
@@ -684,6 +734,7 @@ def deduplicate_parquet_dataset_pyarrow(
                     max_memory_mb,
                     enable_progress,
                     progress_callback,
+                    memory_monitor=monitor._memory_monitor,
                 ):
                     monitor.chunks_processed += 1
                     # Group by keys and find best values in this chunk
@@ -724,6 +775,7 @@ def deduplicate_parquet_dataset_pyarrow(
                         max_memory_mb,
                         enable_progress,
                         progress_callback,
+                        memory_monitor=monitor._memory_monitor,
                     ):
                         monitor.chunks_processed += 1
                         # Inner join with best_values_table to keep only 'best' rows
@@ -973,6 +1025,7 @@ def process_in_chunks(
     max_memory_mb: int = 2048,
     enable_progress: bool = True,
     progress_callback: Callable[[int, int], None] | None = None,
+    memory_monitor: MemoryMonitor | None = None,
 ) -> Iterable[pa.Table]:
     """Process a dataset or table in configurable chunks to avoid memory overflow.
 
@@ -986,6 +1039,7 @@ def process_in_chunks(
         max_memory_mb: Peak memory limit in MB. Defaults to 2048.
         enable_progress: Whether to track and report progress. Defaults to True.
         progress_callback: Optional callback function(rows_processed, total_rows).
+        memory_monitor: Optional MemoryMonitor instance. If None, a new one is created.
 
     Yields:
         pa.Table: A chunk of data as a PyArrow Table.
@@ -997,6 +1051,9 @@ def process_in_chunks(
         dataset.num_rows if isinstance(dataset, pa.Table) else dataset.count_rows()
     )
     rows_processed = 0
+
+    # Initialize memory monitor
+    monitor = memory_monitor or MemoryMonitor(max_pyarrow_mb=max_memory_mb)
 
     if isinstance(dataset, ds.Dataset):
         # For datasets, use a scanner with specified batch size
@@ -1018,18 +1075,12 @@ def process_in_chunks(
             else batch
         )
 
-        # Monitor Arrow-allocated memory
-        total_allocated_mb = pa.total_allocated_bytes() / (1024 * 1024)
-
-        if total_allocated_mb > max_memory_mb:
-            logger.warning(
-                "Peak memory usage (%.2f MB) exceeded limit (%.2f MB)",
-                total_allocated_mb,
-                max_memory_mb,
-            )
-            raise MemoryError(
-                f"Peak memory usage {total_allocated_mb:.2f}MB exceeded limit {max_memory_mb}MB"
-            )
+        # Monitor memory pressure
+        pressure = monitor.check_memory_pressure()
+        if pressure == MemoryPressureLevel.EMERGENCY:
+            status = monitor.get_detailed_status()
+            logger.error(f"Memory limit exceeded (EMERGENCY): {status}")
+            raise MemoryError(f"Peak memory usage exceeded limit: {status}")
 
         yield chunk
 

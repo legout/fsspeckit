@@ -33,6 +33,12 @@ from .dataset import (
     optimize_parquet_dataset_pyarrow,
 )
 
+# Re-export memory monitoring utilities
+from .memory import (
+    MemoryMonitor,
+    MemoryPressureLevel,
+)
+
 # Re-export dataset I/O classes
 from .io import (
     PyarrowDatasetHandler,
@@ -54,6 +60,9 @@ __all__ = [
     "standardize_schema_timezones",
     "standardize_schema_timezones_by_majority",
     "unify_schemas",
+    # Memory monitoring
+    "MemoryMonitor",
+    "MemoryPressureLevel",
     # Dataset I/O classes
     "PyarrowDatasetIO",
     "PyarrowDatasetHandler",
