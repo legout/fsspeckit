@@ -405,5 +405,5 @@ For detailed documentation of specific functions and classes:
 ## Related Documentation
 
 - [API Guide](api-guide.md) - Capability-oriented API overview
-- [How-to Guides](../how-to/) - Task-oriented recipes
+- [How-to Guides](../how-to/index.md) - Task-oriented recipes
 - [Architecture](../explanation/architecture.md) - Design principles

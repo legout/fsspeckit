@@ -6,7 +6,7 @@
 
 **New to fsspeckit?** Start with our [Getting Started](tutorials/getting-started.md) tutorial for a complete walkthrough.
 
-**Looking for specific tasks?** Browse our [How-to Guides](how-to/) for practical recipes:
+**Looking for specific tasks?** Browse our [How-to Guides](how-to/index.md) for practical recipes:
 
 - [Configure Cloud Storage](how-to/configure-cloud-storage.md) - AWS, GCP, Azure setup
 - [Work with Filesystems](how-to/work-with-filesystems.md) - Local and remote operations  
@@ -32,11 +32,11 @@
 
 **Beginners**: Start with [Getting Started](tutorials/getting-started.md) for hands-on learning
 
-**Practical Users**: Jump to [How-to Guides](how-to/) for specific task solutions
+**Practical Users**: Jump to [How-to Guides](how-to/index.md) for specific task solutions
 
 **Developers**: Reference [API Guide](reference/api-guide.md) for capability overview
 
-**Architects**: Understand design decisions in [Architecture & Concepts](explanation/)
+**Architects**: Understand design decisions in [Architecture & Concepts](explanation/index.md)
 
 ### Reference Materials
 

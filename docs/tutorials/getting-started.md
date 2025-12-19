@@ -225,9 +225,9 @@ Congratulations! You've completed the basic fsspeckit tutorial. Here are some re
 
 ### Explore More Features
 
-- **How-to Guides**: Dive into specific tasks with our [How-to Guides](../how-to/)
+- **How-to Guides**: Dive into specific tasks with our [How-to Guides](../how-to/index.md)
 - **API Reference**: Browse the [API Reference](../reference/api-guide.md) for detailed documentation
-- **Architecture & Concepts**: Understand the design principles in [Architecture & Concepts](../explanation/)
+- **Architecture & Concepts**: Understand the design principles in [Architecture & Concepts](../explanation/index.md)
 
 ### Common Use Cases
 

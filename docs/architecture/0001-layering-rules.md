@@ -185,10 +185,8 @@ For existing code:
 
 ## References
 
-- [OpenSpec: fix-package-layout-critical-issues](../changes/fix-package-layout-critical-issues/)
 - [Migration Guide](../how-to/migrate-package-layout.md)
-- [CONTRIBUTING.md](../../CONTRIBUTING.md)
-- [Import Layering Check Script](../../scripts/check_layering.py)
+- [CONTRIBUTING.md](../contributing.md)
 
 ## Date
 

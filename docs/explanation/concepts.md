@@ -548,4 +548,4 @@ safe_codec = validate_compression_codec(user_codec)
 
 - [Architecture](architecture.md) - Detailed system design
 - [API Guide](../reference/api-guide.md) - Capability overview
-- [How-to Guides](../how-to/) - Practical implementation
+- [How-to Guides](../how-to/index.md) - Practical implementation

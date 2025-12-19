@@ -15,18 +15,36 @@ nav:
       - Work with Filesystems: how-to/work-with-filesystems.md
       - Read and Write Datasets: how-to/read-and-write-datasets.md
       - Merge Datasets: how-to/merge-datasets.md
-      - Merge Datasets: how-to/merge-datasets.md
       - Use SQL Filters: how-to/use-sql-filters.md
       - Sync and Manage Files: how-to/sync-and-manage-files.md
       - Optimize Performance: how-to/optimize-performance.md
+      - Memory-Constrained Environments: how-to/memory-constrained-environments.md
+      - Adaptive Key Tracking: how-to/adaptive-key-tracking.md
+      - Multi-Key Examples: how-to/multi-key-examples.md
+      - Multi-Key Performance: how-to/multi-key-performance.md
+      - Merge Operations Examples: how-to/merge-operations-examples.md
+      - Migrate Package Layout: how-to/migrate-package-layout.md
+      - Optimize Memory Monitoring Performance: how-to/optimize-memory-monitoring-performance.md
+  - API Reference:
+      - API Guide: reference/api-guide.md
+      - Reference Index: reference/index.md
+      - Utils Reference: reference/utils.md
+      - Adaptive Key Tracking Reference: reference/adaptive-key-tracking.md
+      - Multi-Key API Reference: reference/multi-key-api.md
+      - Dataset Handlers: dataset-handlers.md
+      - Installation: installation.md
   - API Reference:
       - API Guide: reference/api-guide.md
       - Utils Reference: reference/utils.md
+      - Adaptive Key Tracking Reference: reference/adaptive-key-tracking.md
+      - Multi-Key API Reference: reference/multi-key-api.md
       - Installation: installation.md
       - Generated API:
           - api/index.md
           - Domain Packages:
               - fsspeckit.datasets: api/fsspeckit.datasets.md
+              - fsspeckit.datasets.pyarrow.adaptive_tracker: api/fsspeckit.datasets.pyarrow.adaptive_tracker.md
+              - fsspeckit.datasets.pyarrow.memory: api/fsspeckit.datasets.pyarrow.memory.md
               - fsspeckit.sql.filters: api/fsspeckit.sql.filters.md
               - fsspeckit.common: api/fsspeckit.common.md
           - Core:
@@ -52,6 +70,10 @@ nav:
       - Overview: explanation/index.md
       - Architecture Overview: explanation/architecture.md
       - Key Concepts: explanation/concepts.md
+      - Layering Rules: architecture/0001-layering-rules.md
+  - Migration Guides:
+      - Append Mode Default: migration/append-mode-default.md
+      - Enhanced Memory Monitoring: migration/enhanced-memory-monitoring.md
   - Contributing: contributing.md
 
 theme:

@@ -525,6 +525,6 @@ from fsspeckit.datasets.pyarrow.dataset import (
 )
 ```
 
-For practical usage examples, see [Multi-Key Usage Examples](./multi-key-examples.md).
+For practical usage examples, see [Multi-Key Usage Examples](../how-to/multi-key-examples.md).
 
-For performance characteristics and optimization details, see [Multi-Key Performance Guide](./multi-key-performance.md).
+For performance characteristics and optimization details, see [Multi-Key Performance Guide](../how-to/multi-key-performance.md).

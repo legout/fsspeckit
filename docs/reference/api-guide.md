@@ -381,6 +381,6 @@ For detailed method signatures and parameters:
 
 ## Related Documentation
 
-- [How-to Guides](../how-to/) - Task-oriented recipes
-- [Tutorials](../tutorials/) - Step-by-step learning
-- [Explanation](../explanation/) - Conceptual understanding
+- [How-to Guides](../how-to/index.md) - Task-oriented recipes
+- [Tutorials](../tutorials/index.md) - Step-by-step learning
+- [Explanation](../explanation/index.md) - Conceptual understanding
