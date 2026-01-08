@@ -121,13 +121,17 @@ class TestUtilsFaçade:
         from fsspeckit import utils
         from fsspeckit.datasets import duckdb
 
-        # Check that utils has DuckDB handler
-        assert hasattr(utils, "DuckDBParquetHandler"), (
-            "utils should export DuckDBParquetHandler"
+        # DuckDBParquetHandler is removed - use create_duckdb_connection + DuckDBDatasetIO
+        # Test that we're importing the right new APIs
+        from fsspeckit.datasets.duckdb.connection import (
+            create_duckdb_connection,
+            DuckDBDatasetIO,
         )
+        from fsspeckit.core.merge import MergeStrategy as CanonicalMergeStrategy
 
-        # Check that it's the same object
-        assert utils.DuckDBParquetHandler is duckdb.DuckDBParquetHandler
+        assert callable(create_duckdb_connection)
+        assert callable(DuckDBDatasetIO)
+        assert CanonicalMergeStrategy is duckdb.MergeStrategy
 
     def test_utils_re_exports_logging(self):
         """Test that utils re-exports from common.logging."""

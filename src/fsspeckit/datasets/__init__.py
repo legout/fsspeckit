@@ -10,8 +10,7 @@ This package contains dataset-specific functionality including:
 import warnings
 from typing import Any
 
-from .duckdb import DuckDBParquetHandler, MergeStrategy
-# ... existing imports ...
+from .duckdb import MergeStrategy
 
 _DEPRECATED_IMPORTS = {
     "duckdb_dataset": ("fsspeckit.datasets.duckdb.dataset", None),
@@ -20,6 +19,10 @@ _DEPRECATED_IMPORTS = {
     "_duckdb_helpers": ("fsspeckit.datasets.duckdb.helpers", None),
     "pyarrow_dataset": ("fsspeckit.datasets.pyarrow.dataset", None),
     "pyarrow_schema": ("fsspeckit.datasets.pyarrow.schema", None),
+    "DuckDBParquetHandler": ("fsspeckit.datasets.duckdb.dataset", None),
+    "DuckDBConnection": ("fsspeckit.datasets.duckdb.connection", "DuckDBConnection"),
+    "DuckDBDatasetIO": ("fsspeckit.datasets.duckdb.dataset", None),
+    "MergeStrategy": ("fsspeckit.core.merge", None),
 }
 
 
@@ -63,9 +66,6 @@ from .pyarrow import (
 )
 
 __all__ = [
-    # DuckDB handlers
-    "DuckDBParquetHandler",
-    "MergeStrategy",
     # Exceptions
     "DatasetError",
     "DatasetFileError",

@@ -12,13 +12,14 @@ class TestUtilsBackwardsCompatibility:
 
     def test_utils_re_exports_match_canonical(self):
         """Test that utils re-exports refer to same objects as canonical modules."""
-        # Test dataset helpers
-        from fsspeckit.utils import DuckDBParquetHandler
-        from fsspeckit.datasets import (
-            DuckDBParquetHandler as CanonicalDuckDBParquetHandler,
-        )
+        # DuckDBParquetHandler is removed - users should use create_duckdb_connection + DuckDBDatasetIO
+        # Test that we're importing the right new APIs
+        from fsspeckit.datasets.duckdb import create_duckdb_connection, DuckDBDatasetIO
+        from fsspeckit.datasets.duckdb import MergeStrategy as CanonicalMergeStrategy
 
-        assert DuckDBParquetHandler is CanonicalDuckDBParquetHandler
+        assert callable(create_duckdb_connection)
+        assert callable(DuckDBDatasetIO)
+        assert MergeStrategy is CanonicalMergeStrategy
 
         # Test common utilities
         from fsspeckit.utils import setup_logging, run_parallel

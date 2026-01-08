@@ -4,7 +4,7 @@
 - [x] 1.3 Remove redundant type aliases and imports.
 
 ## 2. Refactor Maintenance Operations
-- [ ] 2.1 Update `compact_parquet_dataset_duckdb` to use DuckDB SQL (`COPY ... TO ...`) for data movement.
+- [x] 2.1 Update `compact_parquet_dataset_duckdb` to use DuckDB SQL (`COPY ... TO ...`) for data movement.
 - [ ] 2.2 Simplify `deduplicate_parquet_dataset` to use DuckDB's `DISTINCT` or `DISTINCT ON` SQL clauses.
 
 ## 3. Redesign Merge Logic
