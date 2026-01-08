@@ -22,6 +22,8 @@ from .connection import (
 # Re-export dataset I/O
 from .dataset import (
     DuckDBDatasetIO,
+    collect_dataset_stats_duckdb,
+    compact_parquet_dataset_duckdb,
 )
 
 # Re-export helpers
@@ -29,68 +31,13 @@ from .dataset import (
 #     # Add specific helpers here as needed
 # )
 
-# Type alias for backward compatibility
-MergeStrategy = Literal["upsert", "insert", "update", "full_merge", "deduplicate"]
-
-
-# Main DuckDBParquetHandler class for backward compatibility
-class DuckDBParquetHandler(DuckDBDatasetIO):
-    """Backward compatibility wrapper for DuckDBParquetHandler.
-
-    This class has been refactored into:
-    - DuckDBConnection: for connection management
-    - DuckDBDatasetIO: for dataset I/O operations
-
-    For new code, consider using DuckDBConnection and DuckDBDatasetIO directly.
-    """
-
-    def __init__(
-        self,
-        storage_options: BaseStorageOptions | dict | None = None,
-        filesystem: AbstractFileSystem | None = None,
-    ):
-        """Initialize DuckDB parquet handler.
-
-        Args:
-            storage_options: Storage configuration options (deprecated)
-            filesystem: Filesystem instance (deprecated)
-        """
-        from fsspeckit.datasets.duckdb.connection import create_duckdb_connection
-
-        # Create connection from filesystem
-        self._connection = create_duckdb_connection(filesystem=filesystem)
-
-        # Initialize the IO handler
-        super().__init__(self._connection)
-
-    def execute_sql(self, query: str, parameters=None):
-        """Execute SQL query (deprecated, use connection.execute_sql)."""
-        return self._connection.execute_sql(query, parameters)
-
-    def close(self):
-        """Close connection (deprecated, use connection.close)."""
-        self._connection.close()
-
-    def __enter__(self):
-        """Enter context manager (deprecated)."""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Exit context manager (deprecated)."""
-        self.close()
-
-    def __del__(self):
-        """Destructor (deprecated)."""
-        self.close()
-
-
 __all__ = [
     # Connection management
     "DuckDBConnection",
     "create_duckdb_connection",
     # Dataset I/O
     "DuckDBDatasetIO",
-    # Backward compatibility
-    "DuckDBParquetHandler",
-    "MergeStrategy",
+    # Dataset operations
+    "collect_dataset_stats_duckdb",
+    "compact_parquet_dataset_duckdb",
 ]
