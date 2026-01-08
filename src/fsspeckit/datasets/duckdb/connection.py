@@ -18,25 +18,14 @@ from fsspec import filesystem as fsspec_filesystem
 
 from fsspeckit.common.logging import get_logger
 from fsspeckit.common.optional import _DUCKDB_AVAILABLE
+from fsspeckit.datasets.duckdb.exceptions import (
+    ConnectionException,
+    IOException,
+    OperationalError,
+)
 from fsspeckit.datasets.duckdb.helpers import _unregister_duckdb_table_safely
 
 logger = get_logger(__name__)
-
-# DuckDB exception types for specific error handling
-_DUCKDB_EXCEPTIONS = {}
-if _DUCKDB_AVAILABLE:
-    import duckdb
-
-    _DUCKDB_EXCEPTIONS = {
-        "InvalidInputException": duckdb.InvalidInputException,
-        "OperationalException": duckdb.OperationalError,
-        "CatalogException": duckdb.CatalogException,
-        "IOException": duckdb.IOException,
-        "OutOfMemoryException": duckdb.OutOfMemoryException,
-        "ParserException": duckdb.ParserException,
-        "ConnectionException": duckdb.ConnectionException,
-        "SyntaxException": duckdb.SyntaxException,
-    }
 
 
 class DuckDBConnection:
@@ -99,7 +88,7 @@ class DuckDBConnection:
         """
         try:
             self._connection.register_filesystem(self._filesystem)
-        except (_DUCKDB_EXCEPTIONS.get("ConnectionException"), _DUCKDB_EXCEPTIONS.get("IOException")) as e:
+        except (ConnectionException, IOException) as e:
             logger.warning(
                 "Failed to register filesystem with DuckDB during connection setup: %s. "
                 "Some operations may not work correctly.",
@@ -132,7 +121,7 @@ class DuckDBConnection:
         if self._connection is not None:
             try:
                 self._connection.close()
-            except (_DUCKDB_EXCEPTIONS.get("ConnectionException"), _DUCKDB_EXCEPTIONS.get("OperationalException")) as e:
+            except (ConnectionException, OperationalError) as e:
                 logger.warning("Error closing DuckDB connection: %s", e)
             finally:
                 self._connection = None

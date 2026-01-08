@@ -1,0 +1,414 @@
+[2026-01-07T18:05:02] OpenAI Codex v0.0.0 (research preview)
+[2026-01-07T18:05:02] binary: /home/volker/.cache/just-every/code/0.6.40/code-aarch64-unknown-linux-musl
+--------
+workdir: /home/volker/coding/fsspeckit
+model: gpt-5.2
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: auto
+--------
+[2026-01-07T18:05:02] User instructions:
+Context: Repo: /home/volker/coding/fsspeckit. We updated getting_started examples with dependency checks and README install guidance. Ran examples via uv and they succeeded. There may be API drift in examples (e.g., 04_pyarrow_merges mentions fs.insert_dataset etc which are removed). Identify worthwhile follow-ups that improve reliability and user experience.
+
+Agent: Propose meaningful and useful follow-ups after getting_started examples now run successfully. Consider docs/README improvements, example accuracy vs current APIs, testing, CI checks, and optional refactors. Provide a concise plan with steps and rationale.
+
+Files to consider: /home/volker/coding/fsspeckit/examples/datasets/getting_started/README.md, /home/volker/coding/fsspeckit/examples/datasets/getting_started/04_pyarrow_merges.py, /home/volker/coding/fsspeckit/src/fsspeckit/datasets/pyarrow/io.py
+
+[Running in read-only mode - no modifications allowed]
+
+[2026-01-07T18:05:06] thinking
+
+**Planning file review**
+
+I need to propose follow-ups but only in a read-only sense, so no patches. To understand the content, I'll use shell commands like cat to open the files. Since the user mentioned "Propose ... plan," I need to access the `@/openspec/AGENTS.md` file to review that plan. I'll gather all the necessary information by using multi_tool_use.parallel to cat the relevant files. Let's get started on that!
+[2026-01-07T18:05:09] exec sh -lc "ls -la openspec && sed -n '1,200p' openspec/AGENTS.md" in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:09] sh -lc "ls -la openspec && sed -n '1,200p' openspec/AGENTS.md" succeeded in 11ms:
+total 44
+drwxrwxr-x  4 volker volker  4096 Dec 13 20:18 .
+drwxrwxr-x 21 volker volker  4096 Jan  7 17:43 ..
+-rw-rw-r--  1 volker volker 14967 Dec  8 08:52 AGENTS.md
+drwxrwxr-x  3 volker volker  4096 Jan  7 16:06 changes
+-rw-r--r--  1 volker volker  2535 Dec 13 20:18 examples-refactor-execution.md
+-rw-rw-r--  1 volker volker  5351 Dec  9 09:11 project.md
+drwxrwxr-x 19 volker volker  4096 Dec 17 21:24 specs
+# OpenSpec Instructions
+
+Instructions for AI coding assistants using OpenSpec for spec-driven development.
+
+## TL;DR Quick Checklist
+
+- Search existing work: `openspec spec list --long`, `openspec list` (use `rg` only for full-text search)
+- Decide scope: new capability vs modify existing capability
+- Pick a unique `change-id`: kebab-case, verb-led (`add-`, `update-`, `remove-`, `refactor-`)
+- Scaffold: `proposal.md`, `tasks.md`, `design.md` (only if needed), and delta specs per affected capability
+- Write deltas: use `## ADDED|MODIFIED|REMOVED|RENAMED Requirements`; include at least one `#### Scenario:` per requirement
+- Validate: `openspec validate [change-id] --strict` and fix issues
+[2026-01-07T18:05:09] exec sh -lc "sed -n '1,200p' examples/datasets/getting_started/README.md" in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:09] sh -lc "sed -n '1,200p' examples/datasets/getting_started/README.md" succeeded in 9ms:
+# Getting Started with Datasets
+
+This directory contains beginner-friendly examples that introduce the fundamental concepts of working with datasets using fsspeckit.
+
+## Overview
+
+The examples in this directory are designed to help you:
+- Understand basic dataset operations
+- Learn when to use DuckDB vs PyArrow approaches
+- Master essential data merging techniques
+- Build a foundation for more advanced workflows
+
+## Learning Path
+
+We recommend following the examples in numerical order:
+
+### 1. `01_duckdb_basics.py` - DuckDB Fundamentals
+**Prerequisites**: Basic Python knowledge
+**Time**: 15-20 minutes
+
+[2026-01-07T18:05:09] exec sh -lc "sed -n '1,200p' examples/datasets/getting_started/04_pyarrow_merges.py" in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:09] sh -lc "sed -n '1,200p' examples/datasets/getting_started/04_pyarrow_merges.py" succeeded in 11ms:
+"""
+PyArrow Merge-Aware Writes - Getting Started
+
+This example introduces PyArrow's merge-aware write functionality for efficient dataset operations.
+
+The example covers:
+1. Basic merge-aware write concepts
+2. Strategy selection (insert, upsert, update, etc.)
+3. Key column configuration
+4. Convenience helper functions
+5. Performance benefits over traditional approaches
+"""
+
+import argparse
+import tempfile
+from pathlib import Path
+from typing import Dict, Any
+
+try:
+    import pyarrow as pa
+[2026-01-07T18:05:09] exec sh -lc "sed -n '1,220p' src/fsspeckit/datasets/pyarrow/io.py" in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:09] sh -lc "sed -n '1,220p' src/fsspeckit/datasets/pyarrow/io.py" succeeded in 9ms:
+"""PyArrow dataset I/O and maintenance operations.
+
+This module contains the PyarrowDatasetIO class for reading, writing, and
+maintaining parquet datasets using PyArrow's high-performance engine.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal, Callable, Iterable
+
+if TYPE_CHECKING:
+    import pyarrow as pa
+    import pyarrow.dataset as ds
+    from fsspec import AbstractFileSystem
+
+    from fsspeckit.core.incremental import MergeResult
+    from fsspeckit.core.merge import MergeStats
+    from fsspeckit.datasets.pyarrow.memory import MemoryMonitor
+    from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+    from fsspeckit.datasets.write_result import WriteDatasetResult
+[2026-01-07T18:05:09] tokens used: 3,192
+[2026-01-07T18:05:13] exec sh -lc "rg -n \"def merge\\b|merge\\(|upsert|insert_dataset|write_pyarrow_dataset|upsert_dataset\" -n src/fsspeckit/datasets/pyarrow/io.py && sed -n '220,520p' src/fsspeckit/datasets/pyarrow/io.py" in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:13] sh -lc "rg -n \"def merge\\b|merge\\(|upsert|insert_dataset|write_pyarrow_dataset|upsert_dataset\" -n src/fsspeckit/datasets/pyarrow/io.py && sed -n '220,520p' src/fsspeckit/datasets/pyarrow/io.py" succeeded in 14ms:
+63:        io.merge(table, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
+349:    def merge(
+353:        strategy: Literal["insert", "update", "upsert"],
+370:        This method performs an incremental merge (insert, update, or upsert)
+378:            strategy: Merge strategy ('insert', 'update', or 'upsert')
+808:                        if strategy == "upsert":
+809:                            self._merge_upsert_pyarrow(
+837:                    if strategy == "upsert":
+838:                        updated_table = self._merge_upsert_pyarrow(
+893:            strategy == "upsert"
+985:                - 'upsert': Insert or update existing records
+995:                - 'incremental': Only rewrite files affected by merge (requires strategy in {'upsert', 'update'})
+1007:            "or merge(...) for insert/update/upsert."
+1026:            target: Target dataset path (for upsert/update strategies)
+1048:            "merge_parquet_dataset has been removed. Use merge(...) for incremental merges."
+1146:    def insert_dataset(
+1167:            "insert_dataset has been removed. Use merge(..., strategy='insert') instead."
+1170:    def upsert_dataset(
+1179:        Convenience method that calls write_parquet_dataset with strategy='upsert'.
+1191:            "upsert_dataset has been removed. Use merge(..., strategy='upsert') instead."
+[2026-01-07T18:05:13] tokens used: 11,138
+[2026-01-07T18:05:25] exec sh -lc "sed -n '1040,1235p' src/fsspeckit/datasets/pyarrow/io.py" in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:25] sh -lc "sed -n '1040,1235p' src/fsspeckit/datasets/pyarrow/io.py" succeeded in 9ms:
+                sources=["dataset1/", "dataset2/"],
+                output_path="merged/",
+                strategy="deduplicate",
+                key_columns=["id"],
+            )
+            ```
+        """
+        raise NotImplementedError(
+            "merge_parquet_dataset has been removed. Use merge(...) for incremental merges."
+        )
+
+    def compact_parquet_dataset(
+        self,
+        path: str,
+        target_mb_per_file: int | None = None,
+        target_rows_per_file: int | None = None,
+        partition_filter: list[str] | None = None,
+        compression: str | None = None,
+        dry_run: bool = False,
+        verbose: bool = False,
+[2026-01-07T18:05:25] tokens used: 14,951
+[2026-01-07T18:05:29] exec sh -lc "python - <<'PY'
+import pkgutil, pathlib
+print('skip')
+PY" in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:29] sh -lc "python - <<'PY'
+import pkgutil, pathlib
+print('skip')
+PY" exited 127 in 7ms:
+ERROR
+sh: 1: python: not found
+[2026-01-07T18:05:29] tokens used: 16,861
+[2026-01-07T18:05:32] exec sh -lc "ls -la src/fsspeckit/datasets && sed -n '1,200p' src/fsspeckit/datasets/__init__.py" in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:32] sh -lc "ls -la src/fsspeckit/datasets && sed -n '1,200p' src/fsspeckit/datasets/__init__.py" succeeded in 10ms:
+total 68
+drwxrwxr-x 5 volker volker  4096 Jan  7 17:18 .
+drwxrwxr-x 9 volker volker  4096 Dec 17 21:24 ..
+-rw-rw-r-- 1 volker volker  2733 Jan  7 17:38 __init__.py
+drwxrwxr-x 2 volker volker  4096 Jan  7 17:39 __pycache__
+-rw-rw-r-- 1 volker volker 16810 Dec 27 17:30 base.py
+drwxrwxr-x 3 volker volker  4096 Jan  7 17:02 duckdb
+-rw-rw-r-- 1 volker volker  1029 Jan  7 17:06 duckdb_cleanup_helpers.py
+-rw-rw-r-- 1 volker volker  2949 Jan  7 17:20 exceptions.py
+-rw-rw-r-- 1 volker volker  5195 Dec 17 21:24 interfaces.py
+-rw-rw-r-- 1 volker volker  4042 Dec 27 17:30 path_utils.py
+drwxrwxr-x 3 volker volker  4096 Dec 27 17:30 pyarrow
+-rw-rw-r-- 1 volker volker  2980 Dec 17 21:24 write_result.py
+"""Dataset-level operations for fsspeckit.
+
+This package contains dataset-specific functionality including:
+- DuckDB parquet handlers for high-performance dataset operations
+- PyArrow handlers for dataset I/O operations
+- PyArrow utilities for schema management and type conversion
+- Dataset merging and optimization tools
+[2026-01-07T18:05:32] tokens used: 17,861
+
+[2026-01-07T18:05:37] thinking
+
+**Checking dataset functionality**
+
+I see that the getting_started README mentions the `optimize_parquet_dataset_pyarrow` from `fsspeckit.datasets`, which is good since it's exported. Now, I need to check how merges are being exposed through `PyarrowDatasetIO.merge`. I wonder if Example 04 could use either `PyarrowDatasetIO` or `PyarrowDatasetHandler`. I think it’d be helpful to open the `pyarrow` module at `src/fsspeckit/datasets/pyarrow/__init__.py` to explore that further.
+[2026-01-07T18:05:41] exec sh -lc "sed -n '1,240p' src/fsspeckit/datasets/pyarrow/__init__.py" in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:41] sh -lc "sed -n '1,240p' src/fsspeckit/datasets/pyarrow/__init__.py" succeeded in 9ms:
+"""PyArrow dataset integration for fsspeckit.
+
+This package contains focused submodules for PyArrow functionality:
+- dataset: Dataset merge and maintenance operations
+- schema: Schema unification, type inference, and optimization
+- io: PyarrowDatasetIO class for dataset operations
+
+All public APIs are re-exported here for convenient access.
+"""
+
+# Re-export schema utilities from common.schema (canonical location)
+from fsspeckit.common.schema import (
+    cast_schema,
+    convert_large_types_to_normal,
+    dominant_timezone_per_column,
+    opt_dtype,
+    remove_empty_columns,
+    standardize_schema_timezones,
+    standardize_schema_timezones_by_majority,
+    unify_schemas,
+[2026-01-07T18:05:41] tokens used: 20,094
+[2026-01-07T18:05:46] exec sh -lc "rg -n \"insert_dataset|upsert_dataset|write_pyarrow_dataset|merge-aware|fs\\.\" examples/datasets/getting_started/04_pyarrow_merges.py" in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:46] sh -lc "rg -n \"insert_dataset|upsert_dataset|write_pyarrow_dataset|merge-aware|fs\\.\" examples/datasets/getting_started/04_pyarrow_merges.py" succeeded in 11ms:
+4:This example introduces PyArrow's merge-aware write functionality for efficient dataset operations.
+7:1. Basic merge-aware write concepts
+115:    """Explain the basic concepts of merge-aware writes."""
+172:        # For demonstration, we'll use a simple write since merge-aware writes
+199:        "   • More readable code - `fs.upsert_dataset()` vs `fs.write_pyarrow_dataset(..., strategy='upsert')`"
+222:            print(f"   Using: fs.{strategy_name.lower()}_dataset()")
+264:            "example": "fs.insert_dataset(data, 'events/', key_columns='event_id')",
+270:            "example": "fs.upsert_dataset(data, 'customers/', key_columns='customer_id')",
+276:            "example": "fs.update_dataset(data, 'products/', key_columns='product_id')",
+282:            "example": "fs.write_pyarrow_dataset(data, 'inventory/', strategy='full_merge')",
+288:            "example": "fs.deduplicate_dataset(data, 'transactions/', key_columns='transaction_id')",
+351:    """Show performance benefits of merge-aware writes."""
+387:    print("Welcome to merge-aware writes! This tutorial will teach you")
+401:    print("   • Try merge-aware writes with your own data")
+407:    print("   fs.insert_dataset(data, path, key_columns)     # Insert only")
+408:    print("   fs.upsert_dataset(data, path, key_columns)      # Insert or update")
+409:    print("   fs.update_dataset(data, path, key_columns)     # Update only")
+410:    print("   fs.deduplicate_dataset(data, path, key_columns) # Remove duplicates")
+412:        "   fs.write_pyarrow_dataset(data, path, strategy='full_merge') # Replace all"
+[2026-01-07T18:05:46] tokens used: 21,023
+[2026-01-07T18:05:48] exec sh -lc "sed -n '200,460p' examples/datasets/getting_started/04_pyarrow_merges.py" in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:48] sh -lc "sed -n '200,460p' examples/datasets/getting_started/04_pyarrow_merges.py" succeeded in 9ms:
+    )
+    print("   • Less error-prone - Can't forget strategy name")
+    print("   • Better IDE support - Function signatures are specific")
+
+    import pyarrow.parquet as pq
+
+    fs = LocalFileSystem()
+    data = create_simple_customer_data()
+
+    with tempfile.TemporaryDirectory() as temp_dir:
+        # Create separate datasets for each helper
+        datasets = {
+            "insert_demo": ("INSERT", data["new_products"], "product_id"),
+            "update_demo": ("UPDATE", data["price_updates"], "product_id"),
+            "dedup_demo": ("DEDUPLICATE", data["duplicate_log_entries"], "log_id"),
+        }
+
+        for demo_name, (strategy_name, demo_data, key_col) in datasets.items():
+            demo_path = Path(temp_dir) / demo_name
+            demo_path.mkdir(parents=True, exist_ok=True)
+[2026-01-07T18:05:48] tokens used: 21,662
+
+[2026-01-07T18:05:55] thinking
+
+**Checking documentation and code reliability**
+
+I'm looking through a file that references some docs, and I need to ensure those documents actually exist or make adjustments accordingly. I’m considering if I should remove emojis since they’re not necessary in prints. There’s also a concern about reliability when using `--interactive`. A bug caught my attention regarding the use of `len(demo_data)`, which actually should rely on `demo_data.num_rows`. Also, I have notes about filesystem expectations in the code! Things could get tricky there.
+**Planning meaningful follow-ups**
+
+The file seems to work since examples were run successfully, but it lacks accurate API references. I’m thinking it might be best to split it into a document-only explanation or implement an actual merge using `PyarrowDatasetIO.merge` for clarity. The current import of `pyarrow.dataset as pds` is okay, but I see some mismatches. I'll outline a plan with steps and rationale in response to the user's request for meaningful follow-ups, without needing an update_plan tool.
+**Considering follow-up improvements**
+
+I’m reflecting on our instructions, which mention using the update_plan tool for complex tasks, but I don't think it's necessary here. I see the sandbox is read-only, so I should suggest adding dedicated documentation for merges, including deprecation notes and updating the `PyarrowDatasetIO` docstring. A new top-level function alias like `merge_dataset_pyarrow` could make things easier too, but that might require an openspec proposal. The user asked for follow-up suggestions, so I should keep it focused on that!
+[2026-01-07T18:06:08] codex
+**Planning meaningful follow-ups**
+
+The file seems to work since examples were run successfully, but it lacks accurate API references. I’m thinking it might be best to split it into a document-only explanation or implement an actual merge using `PyarrowDatasetIO.merge` for clarity. The current import of `pyarrow.dataset as pds` is okay, but I see some mismatches. I'll outline a plan with steps and rationale in response to the user's request for meaningful follow-ups, without needing an update_plan tool.
+[2026-01-07T18:06:08] codex
+**Considering follow-up improvements**
+
+I’m reflecting on our instructions, which mention using the update_plan tool for complex tasks, but I don't think it's necessary here. I see the sandbox is read-only, so I should suggest adding dedicated documentation for merges, including deprecation notes and updating the `PyarrowDatasetIO` docstring. A new top-level function alias like `merge_dataset_pyarrow` could make things easier too, but that might require an openspec proposal. The user asked for follow-up suggestions, so I should keep it focused on that!
+[2026-01-07T18:06:09] exec sh -lc 'ls -la .github/workflows && rg -n "pytest|uv|examples" .github/workflows -S || true' in /home/volker/coding/fsspeckit
+[2026-01-07T18:06:09] sh -lc 'ls -la .github/workflows && rg -n "pytest|uv|examples" .github/workflows -S || true' succeeded in 15ms:
+total 16
+drwxrwxr-x 2 volker volker 4096 Dec  8 15:32 .
+drwxrwxr-x 3 volker volker 4096 Dec 17 21:24 ..
+-rw-rw-r-- 1 volker volker 1272 Dec  8 15:32 ci.yml
+-rw-rw-r-- 1 volker volker 2115 Dec  8 08:52 publish-to-pypi.yml
+.github/workflows/ci.yml:25:      - name: Install uv
+.github/workflows/ci.yml:27:          pip install uv
+.github/workflows/ci.yml:31:          uv sync --dev
+.github/workflows/ci.yml:36:          uv run python scripts/check_layering.py
+.github/workflows/ci.yml:41:          uv run mypy src/fsspeckit --no-error-summary || true
+.github/workflows/ci.yml:43:      - name: Run tests with pytest
+.github/workflows/ci.yml:45:          uv run pytest tests/ --cov=fsspeckit --cov-report=term-missing
+.github/workflows/publish-to-pypi.yml:21:      - name: Install uv
+.github/workflows/publish-to-pypi.yml:23:          pip install uv
+.github/workflows/publish-to-pypi.yml:27:          uv sync --no-dev
+.github/workflows/publish-to-pypi.yml:32:          uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])" > version.txt
+.github/workflows/publish-to-pypi.yml:38:          PKG_NAME=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['name'])")
+.github/workflows/publish-to-pypi.yml:39:          LATEST_VERSION=$(curl -s https://pypi.org/pypi/$PKG_NAME/json | uv run python -c "import sys, json; data = json.load(sys.stdin); print(data['info']['version']) if 'info' in data else print('0.0.0')" 2>/dev/null || echo "0.0.0")
+.github/workflows/publish-to-pypi.yml:45:          SHOULD_PUBLISH=$(uv run python -c "
+.github/workflows/publish-to-pypi.yml:57:          uv build --sdist --wheel
+[2026-01-07T18:06:09] tokens used: 24,970
+[2026-01-07T18:06:11] exec sh -lc "sed -n '1,120p' .github/workflows/ci.yml" in /home/volker/coding/fsspeckit
+[2026-01-07T18:06:11] sh -lc "sed -n '1,120p' .github/workflows/ci.yml" succeeded in 8ms:
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [ "3.11", "3.12", "3.13" ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+[2026-01-07T18:06:11] tokens used: 26,096
+
+[2026-01-07T18:06:16] thinking
+
+**Considering dependencies and steps**
+
+I'm thinking that CI already uses `uv`. I could add a step to run getting started examples, but it might require some extras. The command `uv sync --dev` probably involves `pyproject`, and I wonder if it includes optional extras like dev dependencies for datasets. Hmm, I'm uncertain here, so it might be wise to add a separate dependency group in `pyproject`. I guess I need to inspect `pyproject` for those extras.
+[2026-01-07T18:06:18] exec sh -lc "rg -n \"\\[project\\.optional-dependencies\\]|datasets\" pyproject.toml && sed -n '1,220p' pyproject.toml" in /home/volker/coding/fsspeckit
+[2026-01-07T18:06:18] sh -lc "rg -n \"\\[project\\.optional-dependencies\\]|datasets\" pyproject.toml && sed -n '1,220p' pyproject.toml" succeeded in 13ms:
+56:[project.optional-dependencies]
+61:datasets = [
+68:    "psutil>=5.9.0",  # Optional system memory monitoring for datasets
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fsspeckit"
+version = "0.9.0"
+description = "Enhanced utilities and extensions for fsspec, storage_options and obstore with multi-format I/O support."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "legout", email = "ligno.blades@gmail.com" }]
+keywords = [
+    "fsspec",
+    "filesystem",
+    "cloud-storage",
+    "object-storage",
+    "obstore",
+[2026-01-07T18:06:18] tokens used: 27,722
+
+[2026-01-07T18:06:37] thinking
+
+**Evaluating success criteria**
+
+I'm thinking about how I should measure success, such as through CI (Continuous Integration) passes or by the number of examples run. It seems important to provide details about the tradeoffs involved as well. Maybe I'll want to make sure I give a clear view of these methods and their implications. This clarity will be crucial in helping anyone understand what success looks like in this context.
+[2026-01-07T18:06:39] codex
+
+**High‑value follow‑ups (reliability + UX)**
+
+- Fix API drift in `examples/datasets/getting_started/04_pyarrow_merges.py` so it demonstrates the *actual* supported API (`PyarrowDatasetIO.merge(..., strategy=...)`) instead of removed helpers (`insert_dataset`, `upsert_dataset`, `update_dataset`, `deduplicate_dataset`, `write_pyarrow_dataset`). This is currently the biggest “trust breaker” for users because the tutorial text points at APIs that now raise `NotImplementedError` in `src/fsspeckit/datasets/pyarrow/io.py`.
+- Make the merge tutorial real, not simulated: right now it explicitly writes extra parquet files and prints “(Upsert functionality would go here…)”. If examples are now positioned as runnable, this one should either (a) truly run merges or (b) be downgraded to a conceptual doc-only walkthrough.
+- Align the Getting Started index with reality: `examples/datasets/getting_started/README.md` lists 01–03 only, but 04 exists and is substantial. Either add 04 to the learning path (and ensure it’s correct), or move 04 out of “getting_started” if it’s not ready.
+- Add an automated “example smoke test” in CI so drift doesn’t reappear. CI already uses `uv` (`.github/workflows/ci.yml`) but does not currently guarantee optional deps like `duckdb`, so the strategy should explicitly install what examples need.
+- Tighten doc references and avoid dead links: 04 mentions `docs/how-to/merge-datasets.md` and `examples/pyarrow/pyarrow_merge_example.py` (not in the provided file list). If those don’t exist, users hit confusion right at the end of the tutorial.
+
+**Concise plan (steps + rationale)**
+
+1. **Audit example ↔ API mapping**
+   - Rationale: establish a single “source of truth” for public APIs; right now 04 teaches removed methods while `PyarrowDatasetIO` clearly wants users on `merge(...)`.
+   - Output: a small checklist mapping each example callsite to the canonical API in `src/fsspeckit/datasets/pyarrow/io.py` (especially merge/strategy names and expected inputs/outputs).
+
+2. **Update `04_pyarrow_merges.py` to use `PyarrowDatasetIO.merge` end-to-end**
+   - Rationale: the tutorial should be runnable *and* truthful; otherwise it trains users into exceptions (`NotImplementedError` from removed helpers).
+   - Concretely:
+     - Replace printed examples like `fs.upsert_dataset(...)` with `io.merge(..., strategy="upsert", key_columns=[...])`.
+     - Actually perform `insert`, `update`, and `upsert` against a dataset directory and print `MergeResult` stats.
+     - Fix minor correctness issues (e.g., `len(pa.Table)` reports columns, not rows; use `table.num_rows`).
+
+3. **Decide scope for “deduplicate” and “full replace” in the tutorial**
+   - Rationale: 04 currently presents strategies (`DEDUPLICATE`, `FULL_MERGE`) that don’t exist as supported public calls in `PyarrowDatasetIO` (and stubs explicitly say they were removed).
+   - Options:
+     - Keep tutorial focused strictly on what’s supported: `insert|update|upsert` via `merge(...)`, and move dedup/replace to a separate “maintenance operations” example using existing utilities (if available).
+     - Or, if you want those as first-class APIs again, that’s a product decision and should be treated as a real proposal (new public surface).
+
+4. **Update `examples/datasets/getting_started/README.md` learning path**
+   - Rationale: users follow the index; if it omits 04, it’s “hidden”, and if it includes 04 but 04 is inaccurate, it breaks trust.
+   - Concretely: add 04 with clear prerequisites (PyArrow + fsspec) and set expectations (incremental merge semantics, key columns, what “update” means).
+
+5. **Add CI smoke coverage for examples**
+   - Rationale: prevents future API drift and keeps docs runnable.
+   - Concretely:
+     - Add a lightweight pytest (or CI step) that runs `uv run python examples/.../01_*.py` etc.
+     - Ensure dependencies are installed in CI for those scripts (likely add `duckdb` to the `dev` dependency group or add a dedicated `examples` dependency group and install it in CI).
+
+6. **(Optional) Improve error messaging for removed methods**
+   - Rationale: if users still find old blog posts / snippets, the exception message should point directly to the replacement with a copy-pastable example (it already points to `merge`, but could include the signature pattern).
+   - Scope: small docstring/message tweaks in `src/fsspeckit/datasets/pyarrow/io.py`.
+
+If you want, I can also quickly scan whether the end-of-tutorial references in `04_pyarrow_merges.py` (the `docs/how-to/...` and `examples/pyarrow/...` paths) exist in this repo and list any other “broken pointers” worth cleaning up.
+[2026-01-07T18:06:52] tokens used: 31,824

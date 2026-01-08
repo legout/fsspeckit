@@ -173,7 +173,9 @@ class PerformanceMonitor:
 
 
 def _table_drop_duplicates(
-    table: pa.Table, subset: list[str] | None = None
+    table: pa.Table,
+    subset: list[str] | None = None,
+    keep: Literal["first", "last"] = "first",
 ) -> pa.Table:
     """Safely drop duplicates from a PyArrow Table.
 
@@ -181,14 +183,22 @@ def _table_drop_duplicates(
     otherwise falls back to Polars.
     """
     if hasattr(table, "drop_duplicates"):
-        return table.drop_duplicates(subset=subset)  # type: ignore
+        # Note: PyArrow Table.drop_duplicates only supports keep='first' in some versions
+        # but the kwarg is supported in newer ones.
+        try:
+            return table.drop_duplicates(subset=subset, keep=keep)  # type: ignore
+        except (TypeError, ValueError):
+            # Fallback for versions that don't support keep kwarg
+            if keep == "first":
+                return table.drop_duplicates(subset=subset)  # type: ignore
+            # if last requested but not supported, we'll fall back to Polars below
 
-    # Fallback to Polars for older/weird PyArrow environments
+    # Fallback to Polars for older/weird PyArrow environments or if keep='last' not supported
     import polars as pl
 
     df = pl.from_arrow(table)
     assert isinstance(df, pl.DataFrame)
-    return df.unique(subset=subset).to_arrow()  # type: ignore
+    return df.unique(subset=subset, keep=keep).to_arrow()  # type: ignore
 
 
 def _make_struct_safe(table: pa.Table, columns: list[str]) -> pa.Array:
@@ -262,9 +272,18 @@ def _create_fallback_key_array(table: pa.Table, key_columns: list[str]) -> pa.Ar
         # Performance optimization: Use zero-copy binary view for fixed-width types
         # instead of casting to strings.
         try:
+            # Check if type has bit_width attribute and is a fixed-width type
+            has_bit_width = False
+            bit_width_val = 0
+            try:
+                bit_width_val = t.bit_width
+                has_bit_width = True
+            except (AttributeError, ValueError):
+                has_bit_width = False
+
             if (
-                hasattr(t, "bit_width")
-                and t.bit_width > 0
+                has_bit_width
+                and bit_width_val > 0
                 and (
                     pa.types.is_integer(t)
                     or pa.types.is_floating(t)
@@ -274,7 +293,7 @@ def _create_fallback_key_array(table: pa.Table, key_columns: list[str]) -> pa.Ar
                 )
             ):
                 # zero-copy view as binary, then cast to variable binary for join compatibility
-                bin_col = pc.cast(col.view(pa.binary(t.bit_width // 8)), pa.binary())
+                bin_col = pc.cast(col.view(pa.binary(bit_width_val // 8)), pa.binary())
             else:
                 # Fallback to binary cast for others (e.g. strings are already binary-compatible)
                 bin_col = pc.cast(col, pa.binary())
@@ -291,6 +310,25 @@ def _create_fallback_key_array(table: pa.Table, key_columns: list[str]) -> pa.Ar
 
     # Join multiple binary keys with a delimiter
     return pc.binary_join_element_wise(*binary_cols, b"\x1f")
+
+
+# Alias for backward compatibility and internal consistency
+# Deprecated: Use _create_fallback_key_array directly
+def _create_string_key_array(*args, **kwargs):
+    """Deprecated alias for _create_fallback_key_array.
+
+    This alias is deprecated and will be removed in a future version.
+    Use _create_fallback_key_array directly instead.
+    """
+    import warnings
+
+    warnings.warn(
+        "_create_string_key_array is deprecated and will be removed in a future version. "
+        "Use _create_fallback_key_array directly instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return _create_fallback_key_array(*args, **kwargs)
 
 
 def _filter_by_key_membership(
@@ -1170,71 +1208,6 @@ def _build_filter_expression(
         return ds.field(filter_column).isin(filter_values)
 
 
-def _extract_key_tuples(
-    table: pa.Table,
-    key_columns: list[str],
-) -> list[tuple]:
-    """Extract key tuples from a table.
-
-    Args:
-        table: PyArrow table
-        key_columns: Key column names
-
-    Returns:
-        List of key tuples
-    """
-    keys = []
-    for row in table.to_pylist():
-        key = tuple(row[col] for col in key_columns)
-        keys.append(key)
-    return keys
-
-
-def _ensure_no_null_keys_table(table: pa.Table, key_columns: list[str]) -> None:
-    """Ensure no null keys in a table.
-
-    Args:
-        table: PyArrow table
-        key_columns: Key column names
-
-    Raises:
-        ValueError: If null keys are found
-    """
-    for key_col in key_columns:
-        null_count = table[key_col].null_count
-        if null_count > 0:
-            raise ValueError(
-                f"Found {null_count} null values in key column '{key_col}'. "
-                "Null keys are not allowed."
-            )
-
-
-def _ensure_no_null_keys_dataset(
-    dataset: ds.Dataset,
-    key_columns: list[str],
-) -> None:
-    """Ensure no null keys in a dataset.
-
-    Args:
-        dataset: PyArrow dataset
-        key_columns: Key column names
-
-    Raises:
-        ValueError: If null keys are found
-    """
-    for key_col in key_columns:
-        # Check schema
-        if key_col not in dataset.schema.names:
-            raise ValueError(f"Key column '{key_col}' not found in dataset")
-
-        # Check for nullable type
-        field = dataset.schema.field(key_col)
-        if field.nullable:
-            raise ValueError(
-                f"Key column '{key_col}' is nullable. Non-nullable keys are required."
-            )
-
-
 def process_in_chunks(
     dataset: ds.Dataset | pa.Table,
     chunk_size_rows: int = 1_000_000,
@@ -1351,59 +1324,213 @@ def _write_tables_to_dataset(
     return written_files
 
 
-def merge_parquet_dataset_pyarrow(
-    sources: list[str],
-    output_path: str,
-    target: str | None = None,
-    strategy: str | CoreMergeStrategy = "deduplicate",
-    key_columns: list[str] | str | None = None,
-    filesystem: AbstractFileSystem | None = None,
-    compression: str | None = None,
-    row_group_size: int | None = 500_000,
-    max_rows_per_file: int | None = 5_000_000,
-    verbose: bool = False,
-    **kwargs: Any,
-) -> MergeStats:
-    """Merge multiple parquet datasets using PyArrow with various strategies.
-
-    This function provides dataset merging capabilities with support for:
-    - Multiple merge strategies (upsert, insert, update, full_merge, deduplicate)
-    - Key-based merging for relational operations
-    - Batch processing for large datasets
-    - Configurable output settings
+def merge_upsert_pyarrow(
+    existing: pa.Table | ds.Dataset,
+    source: pa.Table,
+    key_columns: list[str],
+    chunk_size: int = 100_000,
+    max_memory_mb: int = 1024,
+    memory_monitor: MemoryMonitor | None = None,
+    writer: pq.ParquetWriter | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> pa.Table | None:
+    """Perform UPSERT merge using PyArrow operations with streaming support.
 
     Args:
-        sources: List of source dataset paths
-        output_path: Path for merged output
-        target: Target dataset path (for upsert/update strategies)
-        strategy: Merge strategy to use
-        key_columns: Key columns for merging (required for relational strategies)
-        filesystem: fsspec filesystem instance
-        compression: Output compression codec
-        row_group_size: Rows per parquet row group
-        max_rows_per_file: Max rows per output file
-        verbose: Print progress information
-        **kwargs: Additional arguments
+        existing: Existing data (Table or Dataset)
+        source: Source data to merge (Table)
+        key_columns: Columns to use as merge keys
+        chunk_size: Number of rows per processing chunk
+        max_memory_mb: Maximum PyArrow memory to use in MB
+        memory_monitor: Optional MemoryMonitor for enhanced tracking
+        writer: Optional ParquetWriter for streaming output
+        progress_callback: Optional progress callback
 
     Returns:
-        MergeStats with merge statistics
-
-    Raises:
-        ValueError: If required parameters are missing
-        FileNotFoundError: If sources don't exist
-
-    Example:
-        ```python
-        stats = merge_parquet_dataset_pyarrow(
-            sources=["dataset1/", "dataset2/"],
-            output_path="merged/",
-            strategy="deduplicate",
-            key_columns=["id"],
-            verbose=True,
-        )
-        print(f"Merged {stats.total_rows} rows")
-        ```
+        Merged Table if writer is None, else None
     """
-    raise NotImplementedError(
-        "merge_parquet_dataset_pyarrow has been removed. Use PyarrowDatasetIO.merge instead."
-    )
+    import pyarrow.compute as pc
+
+    from fsspeckit.common.optional import _import_pyarrow
+
+    # Align source schema with existing
+    existing_schema = existing.schema
+    pa_mod = _import_pyarrow()
+    source_aligned = source
+    for field in existing_schema:
+        if field.name not in source_aligned.column_names:
+            source_aligned = source_aligned.append_column(
+                field.name, pa_mod.nulls(len(source_aligned), type=field.type)
+            )
+    source_aligned = source_aligned.select(existing_schema.names).cast(existing_schema)
+
+    # Prepare source keys for filtering
+    use_string_fallback = False
+    if len(key_columns) == 1:
+        source_keys = source_aligned.column(key_columns[0])
+    else:
+        try:
+            # Primary approach: StructArray for vectorized matching
+            source_keys = _create_composite_key_array(source_aligned, key_columns)
+            # Test if is_in works with this StructArray
+            if source_keys.length() > 0:
+                pc.is_in(source_keys.slice(0, 1), value_set=source_keys.slice(0, 1))
+        except Exception:
+            use_string_fallback = True
+            source_keys = _create_fallback_key_array(source_aligned, key_columns)
+
+    def _process_chunk(chunk: pa.Table) -> pa.Table:
+        if len(key_columns) == 1:
+            chunk_keys = chunk.column(key_columns[0])
+        elif use_string_fallback:
+            chunk_keys = _create_fallback_key_array(chunk, key_columns)
+        else:
+            chunk_keys = _create_composite_key_array(chunk, key_columns)
+
+        mask = pc.invert(pc.is_in(chunk_keys, source_keys))
+        return chunk.filter(mask)
+
+    if writer:
+        # Streaming mode
+        for chunk in process_in_chunks(
+            existing,
+            chunk_size,
+            max_memory_mb,
+            progress_callback=progress_callback,
+            memory_monitor=memory_monitor,
+        ):
+            filtered = _process_chunk(chunk)
+            if filtered.num_rows > 0:
+                writer.write_table(filtered)
+        writer.write_table(source_aligned)
+        return None
+    else:
+        # Batch mode
+        if isinstance(existing, pa.Table) and existing.num_rows <= chunk_size:
+            filtered_existing = _process_chunk(existing)
+        else:
+            chunks = []
+            for chunk in process_in_chunks(
+                existing,
+                chunk_size,
+                max_memory_mb,
+                progress_callback=progress_callback,
+                memory_monitor=memory_monitor,
+            ):
+                chunks.append(_process_chunk(chunk))
+            filtered_existing = pa_mod.concat_tables(
+                chunks, promote_options="permissive"
+            )
+        return pa_mod.concat_tables(
+            [filtered_existing, source_aligned], promote_options="permissive"
+        )
+
+
+def merge_update_pyarrow(
+    existing: pa.Table | ds.Dataset,
+    source: pa.Table,
+    key_columns: list[str],
+    chunk_size: int = 100_000,
+    max_memory_mb: int = 1024,
+    memory_monitor: MemoryMonitor | None = None,
+    writer: pq.ParquetWriter | None = None,
+    progress_callback: Callable[[int, int], None] | None = None,
+) -> pa.Table | None:
+    """Perform UPDATE merge using PyArrow operations with streaming support.
+
+    Args:
+        existing: Existing data (Table or Dataset)
+        source: Source data to merge (Table)
+        key_columns: Columns to use as merge keys
+        chunk_size: Number of rows per processing chunk
+        max_memory_mb: Maximum PyArrow memory to use in MB
+        memory_monitor: Optional MemoryMonitor for enhanced tracking
+        writer: Optional ParquetWriter for streaming output
+        progress_callback: Optional progress callback
+
+    Returns:
+        Merged Table if writer is None, else None
+    """
+    import pyarrow.compute as pc
+
+    from fsspeckit.common.optional import _import_pyarrow
+
+    # Align source schema with existing
+    existing_schema = existing.schema
+    pa_mod = _import_pyarrow()
+    source_aligned = source
+    for field in existing_schema:
+        if field.name not in source_aligned.column_names:
+            source_aligned = source_aligned.append_column(
+                field.name, pa_mod.nulls(len(source_aligned), type=field.type)
+            )
+    source_aligned = source_aligned.select(existing_schema.names).cast(existing_schema)
+
+    # Pass 1: find which source rows are in existing
+    existing_keys_table = None
+    for chunk in process_in_chunks(
+        existing,
+        chunk_size,
+        max_memory_mb,
+        progress_callback=progress_callback,
+        memory_monitor=memory_monitor,
+    ):
+        chunk_keys = chunk.select(key_columns)
+        # Deduplicate within chunk to keep existing_keys_table smaller
+        chunk_keys = _table_drop_duplicates(chunk_keys, subset=key_columns)
+
+        if existing_keys_table is None:
+            existing_keys_table = chunk_keys
+        else:
+            # Only add keys we haven't seen yet
+            new_keys = _filter_by_key_membership(
+                chunk_keys, key_columns, existing_keys_table, keep_matches=False
+            )
+            if new_keys.num_rows > 0:
+                existing_keys_table = pa_mod.concat_tables(
+                    [existing_keys_table, new_keys]
+                )
+
+    # Now filter source to keep only rows that exist in 'existing'
+    if existing_keys_table is None:
+        source_in_existing = source_aligned.schema.empty_table()
+    else:
+        source_in_existing = _filter_by_key_membership(
+            source_aligned, key_columns, existing_keys_table, keep_matches=True
+        )
+
+    def _process_chunk_existing(chunk: pa.Table) -> pa.Table:
+        # Rows in existing NOT in source
+        return _filter_by_key_membership(
+            chunk, key_columns, source_aligned, keep_matches=False
+        )
+
+    if writer:
+        # Pass 2: Streaming output
+        for chunk in process_in_chunks(
+            existing,
+            chunk_size,
+            max_memory_mb,
+            progress_callback=progress_callback,
+            memory_monitor=memory_monitor,
+        ):
+            filtered = _process_chunk_existing(chunk)
+            if filtered.num_rows > 0:
+                writer.write_table(filtered)
+        writer.write_table(source_in_existing)
+        return None
+    else:
+        # Pass 2: Batch mode
+        chunks = []
+        for chunk in process_in_chunks(
+            existing,
+            chunk_size,
+            max_memory_mb,
+            progress_callback=progress_callback,
+            memory_monitor=memory_monitor,
+        ):
+            chunks.append(_process_chunk_existing(chunk))
+        filtered_existing = pa_mod.concat_tables(chunks, promote_options="permissive")
+        return pa_mod.concat_tables(
+            [filtered_existing, source_in_existing], promote_options="permissive"
+        )

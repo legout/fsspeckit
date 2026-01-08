@@ -1,0 +1,966 @@
+[2026-01-07T17:46:58] OpenAI Codex v0.0.0 (research preview)
+[2026-01-07T17:46:58] binary: /home/volker/.cache/just-every/code/0.6.40/code-aarch64-unknown-linux-musl
+--------
+workdir: /home/volker/coding/fsspeckit
+model: gpt-5.1-codex-mini
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: auto
+--------
+[2026-01-07T17:46:58] User instructions:
+Context: Repo: /home/volker/coding/fsspeckit. README in examples/datasets/workflows/README.md. Getting started scripts: examples/datasets/getting_started/01_duckdb_basics.py through 05_duckdb_upserts.py. I already ran them and got ModuleNotFoundError: No module named 'pyarrow' for all scripts. Check if other issues likely once deps installed and propose plan. Use current APIs (DuckDBConnection, PyarrowDatasetIO.merge etc.).
+
+Agent: Read examples/datasets/workflows/README.md and run examples in examples/datasets/getting_started. Use run outputs (errors) to propose a fix plan for getting_started examples. Focus on identifying missing deps, environment setup, or code fixes needed. Provide a concrete, ordered plan.
+
+Files to consider: /home/volker/coding/fsspeckit/examples/datasets/workflows/README.md, /home/volker/coding/fsspeckit/examples/datasets/getting_started/README.md, /home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py, /home/volker/coding/fsspeckit/examples/datasets/getting_started/02_pyarrow_basics.py, /home/volker/coding/fsspeckit/examples/datasets/getting_started/03_simple_merges.py, /home/volker/coding/fsspeckit/examples/datasets/getting_started/04_pyarrow_merges.py, /home/volker/coding/fsspeckit/examples/datasets/getting_started/05_duckdb_upserts.py
+
+[Running in read-only mode - no modifications allowed]
+
+[2026-01-07T17:47:00] thinking
+
+**Preparing to read AGENTS.md and plan**
+[2026-01-07T17:47:00] exec /bin/sh -c ls in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:00] /bin/sh -c ls succeeded in 5ms:
+AGENTS.md
+CLAUDE.md
+CONTRIBUTING.md
+LICENSE
+README.md
+cache
+cleanup_decision.md
+code_review
+coverage.xml
+dev
+docs
+examples
+htmlcov
+mkdocs.yml
+openspec
+pyproject.toml
+scripts
+src
+test_adaptive_tracker.py
+test_adaptive_tracker_basic.py
+[2026-01-07T17:47:00] tokens used: 8,924
+
+[2026-01-07T17:47:01] thinking
+
+**Opening openspec AGENTS.md for planning**
+[2026-01-07T17:47:02] exec /bin/sh -c 'cat openspec/AGENTS.md' in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:02] /bin/sh -c 'cat openspec/AGENTS.md' succeeded in 9ms:
+# OpenSpec Instructions
+
+Instructions for AI coding assistants using OpenSpec for spec-driven development.
+
+## TL;DR Quick Checklist
+
+- Search existing work: `openspec spec list --long`, `openspec list` (use `rg` only for full-text search)
+- Decide scope: new capability vs modify existing capability
+- Pick a unique `change-id`: kebab-case, verb-led (`add-`, `update-`, `remove-`, `refactor-`)
+- Scaffold: `proposal.md`, `tasks.md`, `design.md` (only if needed), and delta specs per affected capability
+- Write deltas: use `## ADDED|MODIFIED|REMOVED|RENAMED Requirements`; include at least one `#### Scenario:` per requirement
+- Validate: `openspec validate [change-id] --strict` and fix issues
+- Request approval: Do not start implementation until proposal is approved
+
+## Three-Stage Workflow
+
+### Stage 1: Creating Changes
+Create proposal when you need to:
+- Add features or functionality
+- Make breaking changes (API, schema)
+[2026-01-07T17:47:02] tokens used: 18,050
+
+[2026-01-07T17:47:04] thinking
+
+**Preparing to use plan skill**
+[2026-01-07T17:47:05] exec /bin/sh -c 'cat /home/volker/.code/skills/.system/plan/SKILL.md' in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:05] /bin/sh -c 'cat /home/volker/.code/skills/.system/plan/SKILL.md' succeeded in 4ms:
+---
+name: plan
+description: Generate a plan for how an agent should accomplish a complex coding task. Use when a user asks for a plan, and optionally when they want to save, find, read, update, or delete plan files in $CODEX_HOME/plans (default ~/.codex/plans).
+metadata:
+  short-description: Generate a plan for a complex task
+---
+
+# Plan
+
+## Overview
+
+Draft structured plans that clarify intent, scope, requirements, action items, testing/validation, and risks.
+
+Optionally, save plans to disk as markdown files with YAML frontmatter and free-form content. When drafting in chat, output only the plan body without frontmatter; add frontmatter only when saving to disk. Only write to the plans folder; do not modify the repository codebase.
+
+This skill can also be used to draft codebase or system overviews.
+
+## Core rules
+
+- Resolve the plans directory as `$CODEX_HOME/plans` or `~/.codex/plans` when `CODEX_HOME` is not set.
+[2026-01-07T17:47:05] tokens used: 31,172
+
+[2026-01-07T17:47:07] thinking
+
+**Preparing to review documentation and examples**
+[2026-01-07T17:47:07] exec /bin/sh -c 'cat examples/datasets/workflows/README.md' in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:07] /bin/sh -c 'cat examples/datasets/workflows/README.md' succeeded in 4ms:
+# Workflow Examples
+
+This directory contains intermediate-level examples that demonstrate real-world workflows and advanced dataset operations using fsspeckit.
+
+## Overview
+
+The workflow examples build on the foundational knowledge from the getting started section and show how to apply fsspeckit in practical, production scenarios.
+
+## Prerequisites
+
+Before diving into these examples, you should have completed:
+- Basic DuckDB and PyArrow operations
+- Understanding of fundamental dataset merging
+- Familiarity with SQL filtering and schema management
+- Basic understanding of cloud storage concepts
+
+## Available Workflows
+
+### 1. `cloud_datasets.py` - Cloud Storage Workflows
+**Prerequisites**: Getting Started completion
+[2026-01-07T17:47:07] tokens used: 37,071
+
+[2026-01-07T17:47:08] thinking
+
+**Checking for getting_started README**
+[2026-01-07T17:47:09] exec /bin/sh -c 'cat examples/datasets/getting_started/README.md' in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:09] /bin/sh -c 'cat examples/datasets/getting_started/README.md' succeeded in 4ms:
+# Getting Started with Datasets
+
+This directory contains beginner-friendly examples that introduce the fundamental concepts of working with datasets using fsspeckit.
+
+## Overview
+
+The examples in this directory are designed to help you:
+- Understand basic dataset operations
+- Learn when to use DuckDB vs PyArrow approaches
+- Master essential data merging techniques
+- Build a foundation for more advanced workflows
+
+## Learning Path
+
+We recommend following the examples in numerical order:
+
+### 1. `01_duckdb_basics.py` - DuckDB Fundamentals
+**Prerequisites**: Basic Python knowledge
+**Time**: 15-20 minutes
+
+[2026-01-07T17:47:09] tokens used: 45,524
+
+[2026-01-07T17:47:10] thinking
+
+**Running initial scripts and capturing errors**
+[2026-01-07T17:47:11] exec /bin/sh -c 'python3 examples/datasets/getting_started/01_duckdb_basics.py' in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:11] /bin/sh -c 'python3 examples/datasets/getting_started/01_duckdb_basics.py' exited 1 in 154ms:
+ERROR
+Traceback (most recent call last):
+  File "/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py", line 25, in <module>
+    import pyarrow as pa
+ModuleNotFoundError: No module named 'pyarrow'
+[2026-01-07T17:47:11] tokens used: 64,522
+
+[2026-01-07T17:47:13] thinking
+
+**Running script 02 to check errors**
+[2026-01-07T17:47:13] exec /bin/sh -c 'python3 examples/datasets/getting_started/02_pyarrow_basics.py' in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:13] /bin/sh -c 'python3 examples/datasets/getting_started/02_pyarrow_basics.py' exited 1 in 155ms:
+ERROR
+Traceback (most recent call last):
+  File "/home/volker/coding/fsspeckit/examples/datasets/getting_started/02_pyarrow_basics.py", line 24, in <module>
+    import pyarrow as pa
+ModuleNotFoundError: No module named 'pyarrow'
+[2026-01-07T17:47:13] tokens used: 70,686
+
+[2026-01-07T17:47:14] thinking
+
+**Noticing minimal content**
+[2026-01-07T17:47:15] exec /bin/sh -c 'python3 examples/datasets/getting_started/03_simple_merges.py' in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:15] /bin/sh -c 'python3 examples/datasets/getting_started/03_simple_merges.py' exited 1 in 147ms:
+ERROR
+Traceback (most recent call last):
+  File "/home/volker/coding/fsspeckit/examples/datasets/getting_started/03_simple_merges.py", line 25, in <module>
+    import pyarrow as pa
+ModuleNotFoundError: No module named 'pyarrow'
+[2026-01-07T17:47:15] tokens used: 90,098
+
+[2026-01-07T17:47:16] thinking
+
+**Noticing minimal content**
+[2026-01-07T17:47:16] exec /bin/sh -c 'python3 examples/datasets/getting_started/04_pyarrow_merges.py' in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:16] /bin/sh -c 'python3 examples/datasets/getting_started/04_pyarrow_merges.py' exited 1 in 142ms:
+ERROR
+Traceback (most recent call last):
+  File "/home/volker/coding/fsspeckit/examples/datasets/getting_started/04_pyarrow_merges.py", line 19, in <module>
+    import pyarrow as pa
+ModuleNotFoundError: No module named 'pyarrow'
+[2026-01-07T17:47:16] tokens used: 90,327
+
+[2026-01-07T17:47:17] thinking
+
+**Noticing a number marker**
+[2026-01-07T17:47:18] exec /bin/sh -c 'python3 examples/datasets/getting_started/05_duckdb_upserts.py' in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:18] /bin/sh -c 'python3 examples/datasets/getting_started/05_duckdb_upserts.py' exited 1 in 143ms:
+ERROR
+Traceback (most recent call last):
+  File "/home/volker/coding/fsspeckit/examples/datasets/getting_started/05_duckdb_upserts.py", line 22, in <module>
+    import pyarrow as pa
+ModuleNotFoundError: No module named 'pyarrow'
+[2026-01-07T17:47:18] tokens used: 110,031
+
+[2026-01-07T17:47:22] thinking
+
+**Planning dependency fixes and script inspection**
+[2026-01-07T17:47:22] exec /bin/sh -c "sed -n '1,200p' examples/datasets/getting_started/01_duckdb_basics.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:22] /bin/sh -c "sed -n '1,200p' examples/datasets/getting_started/01_duckdb_basics.py" succeeded in 4ms:
+"""
+DuckDB Basics - Getting Started with Datasets
+
+This beginner-friendly example introduces the fundamental concepts of using
+DuckDBParquetHandler for efficient parquet dataset operations.
+
+The example covers:
+1. Basic setup and configuration
+2. Creating and reading parquet files
+3. Simple queries and filtering
+4. Writing data back to parquet
+5. Context manager usage for resource management
+
+This is your starting point for learning how to use fsspeckit's
+dataset capabilities with DuckDB for high-performance data operations.
+"""
+
+from __future__ import annotations
+
+import tempfile
+[2026-01-07T17:47:22] tokens used: 110,364
+
+[2026-01-07T17:47:23] thinking
+
+**Continuing file review**
+[2026-01-07T17:47:23] exec /bin/sh -c "sed -n '200,400p' examples/datasets/getting_started/01_duckdb_basics.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:23] /bin/sh -c "sed -n '200,400p' examples/datasets/getting_started/01_duckdb_basics.py" succeeded in 5ms:
+            print("\n3. Sales summary by customer:")
+            result3 = handler.execute_sql(f"""
+                SELECT
+                    customer,
+                    COUNT(*) as order_count,
+                    SUM(quantity) as total_quantity,
+                    SUM(total) as total_sales,
+                    AVG(total) as avg_order_value
+                FROM read_parquet('{data_file}')
+                GROUP BY customer
+                ORDER BY total_sales DESC
+            """)
+            print(result3.fetchdf().to_string())
+
+            # Query 4: Calculated fields
+            print("\n4. Orders with tax calculation (10% tax):")
+            result4 = handler.execute_sql(f"""
+                SELECT
+                    order_id,
+                    product,
+[2026-01-07T17:47:23] tokens used: 117,087
+
+[2026-01-07T17:47:24] thinking
+
+**Checking for more outdated APIs**
+[2026-01-07T17:47:24] exec /bin/sh -c "sed -n '400,800p' examples/datasets/getting_started/01_duckdb_basics.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:24] /bin/sh -c "sed -n '400,800p' examples/datasets/getting_started/01_duckdb_basics.py" succeeded in 5ms:
+        print(f"   Query time: {query_time:.3f} seconds")
+        print(f"   Summary:")
+        print(summary_result.to_string())
+
+        # Tip 3: Use specific column selection instead of SELECT *
+        print("\n💡 Tip 3: Select only needed columns")
+        start_time = time.time()
+
+        with DuckDBParquetHandler() as handler:
+            # Good: Specific columns
+            specific_result = handler.execute_sql(f"""
+                SELECT customer, total
+                FROM read_parquet('{data_file}')
+                WHERE total > 100
+            """).fetchdf()
+
+            # Bad: All columns (commented out to avoid unnecessary processing)
+            # all_result = handler.execute_sql("SELECT * FROM sales WHERE total > 100")
+
+        selective_time = time.time() - start_time
+[2026-01-07T17:47:25] tokens used: 118,931
+
+[2026-01-07T17:47:29] thinking
+
+**Reviewing scripts for outdated APIs**
+[2026-01-07T17:47:30] exec /bin/sh -c "sed -n '1,200p' examples/datasets/getting_started/02_pyarrow_basics.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:30] /bin/sh -c "sed -n '1,200p' examples/datasets/getting_started/02_pyarrow_basics.py" succeeded in 4ms:
+"""
+PyArrow Basics - Dataset Optimization
+
+This beginner-friendly example introduces PyArrow dataset optimization techniques
+using fsspeckit's PyArrow utilities for high-performance data operations.
+
+The example covers:
+1. Basic PyArrow table creation and manipulation
+2. Dataset optimization with PyArrow
+3. Data compaction strategies
+4. Performance comparison between optimized and unoptimized data
+5. Memory-efficient data processing patterns
+
+This example complements the DuckDB basics by showing an alternative
+approach that doesn't require a database engine.
+"""
+
+from __future__ import annotations
+
+import tempfile
+[2026-01-07T17:47:30] tokens used: 119,629
+
+[2026-01-07T17:47:31] thinking
+
+**Continuing file review**
+[2026-01-07T17:47:31] exec /bin/sh -c "sed -n '200,400p' examples/datasets/getting_started/02_pyarrow_basics.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:31] /bin/sh -c "sed -n '200,400p' examples/datasets/getting_started/02_pyarrow_basics.py" succeeded in 4ms:
+        unoptimized_path.mkdir()
+        create_unoptimized_dataset(inventory_data, unoptimized_path)
+
+        # Create well-organized dataset for comparison
+        optimized_path = dataset_path / "well_organized"
+        optimized_path.mkdir()
+        pq.write_table(inventory_data, optimized_path / "inventory.parquet")
+
+        print(f"\n📊 Dataset Comparison:")
+        print(f"  Unoptimized: {len(list(unoptimized_path.glob('*.parquet')))} files")
+        print(f"  Organized:   {len(list(optimized_path.glob('*.parquet')))} files")
+
+        # Measure read performance
+        print(f"\n⏱️  Performance Comparison:")
+
+        # Read unoptimized dataset
+        start_time = time.time()
+        unoptimized_files = list(unoptimized_path.glob("*.parquet"))
+        unoptimized_tables = [pq.read_table(f) for f in unoptimized_files]
+        unoptimized_combined = pa.concat_tables(unoptimized_tables)
+[2026-01-07T17:47:31] tokens used: 121,589
+
+[2026-01-07T17:47:33] thinking
+
+**Continuing final part**
+[2026-01-07T17:47:34] exec /bin/sh -c "sed -n '400,800p' examples/datasets/getting_started/02_pyarrow_basics.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:34] /bin/sh -c "sed -n '400,800p' examples/datasets/getting_started/02_pyarrow_basics.py" succeeded in 4ms:
+
+        # Query 3: Complex query with multiple filters
+        start_time = time.time()
+        complex_result = optimized_table.filter(
+            pc.and_(
+                pc.equal(optimized_table.column("category"), "Electronics"),
+                pc.and_(
+                    pc.greater_equal(optimized_table.column("unit_price"), 100),
+                    pc.less(optimized_table.column("quantity"), 500),
+                ),
+            )
+        )
+        query3_time = time.time() - start_time
+
+        print(
+            f"  Query 3 (complex filter): {query3_time:.4f}s, {len(complex_result)} results"
+        )
+
+        total_query_time = query1_time + query2_time + query3_time
+        print(f"  Total query time: {total_query_time:.4f} seconds")
+[2026-01-07T17:47:34] tokens used: 123,647
+
+[2026-01-07T17:47:35] thinking
+
+**Reviewing scripts 03, 04, and 05**
+[2026-01-07T17:47:36] exec /bin/sh -c "sed -n '1,200p' examples/datasets/getting_started/03_simple_merges.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:36] /bin/sh -c "sed -n '1,200p' examples/datasets/getting_started/03_simple_merges.py" succeeded in 9ms:
+"""
+Simple Dataset Merges - Getting Started
+
+This beginner-friendly example introduces fundamental dataset merging concepts
+using fsspeckit's dataset utilities.
+
+The example covers:
+1. Basic dataset merging concepts
+2. Simple append operations
+3. Schema handling during merges
+4. Duplicate detection and handling
+5. Performance considerations for merging
+
+This example helps you understand how to combine multiple datasets
+efficiently and safely.
+"""
+
+from __future__ import annotations
+
+import tempfile
+[2026-01-07T17:47:36] tokens used: 125,178
+
+[2026-01-07T17:47:37] thinking
+
+**Needing more of the file**
+[2026-01-07T17:47:37] exec /bin/sh -c "sed -n '200,400p' examples/datasets/getting_started/03_simple_merges.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:37] /bin/sh -c "sed -n '200,400p' examples/datasets/getting_started/03_simple_merges.py" succeeded in 4ms:
+        shutil.rmtree(temp_dir)
+
+
+def demonstrate_schema_alignment():
+    """Demonstrate aligning different schemas for merging."""
+
+    print("\n🔄 Schema Alignment for Merging")
+
+    temp_dir = Path(tempfile.mkdtemp())
+
+    try:
+        # Create datasets with different schemas
+        print("Creating datasets with different schemas...")
+
+        # Dataset 1: Basic sales data
+        sales_basic = create_sample_sales_data("X001", 20)
+        # Remove some columns to create schema differences
+        sales_basic = sales_basic.drop(["batch_id", "total"])
+
+        # Dataset 2: Extended sales data with additional columns
+[2026-01-07T17:47:37] tokens used: 139,148
+
+[2026-01-07T17:47:38] thinking
+
+**Waiting for more file content**
+[2026-01-07T17:47:39] exec /bin/sh -c "sed -n '400,800p' examples/datasets/getting_started/03_simple_merges.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:39] /bin/sh -c "sed -n '400,800p' examples/datasets/getting_started/03_simple_merges.py" succeeded in 5ms:
+                )
+                GROUP BY order_id
+                HAVING COUNT(*) > 1
+                ORDER BY duplicate_count DESC
+            """).fetchdf()
+
+            if len(duplicate_analysis) > 0:
+                print(f"   Found {len(duplicate_analysis)} duplicate order IDs:")
+                print(duplicate_analysis.to_string())
+            else:
+                print("   No duplicates found")
+
+            # Create deduplicated dataset using UNION
+            print(f"\n🧹 Creating deduplicated dataset...")
+            start_time = time.time()
+
+            deduplication_query = f"""
+            SELECT
+                *
+            FROM read_parquet('{file1}')
+[2026-01-07T17:47:41] tokens used: 143,205
+
+[2026-01-07T17:47:42] thinking
+
+**Inspecting files 04 and 05**
+[2026-01-07T17:47:43] exec /bin/sh -c "sed -n '1,200p' examples/datasets/getting_started/04_pyarrow_merges.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:43] /bin/sh -c "sed -n '1,200p' examples/datasets/getting_started/04_pyarrow_merges.py" succeeded in 6ms:
+"""
+PyArrow Merge-Aware Writes - Getting Started
+
+This example introduces PyArrow's merge-aware write functionality for efficient dataset operations.
+
+The example covers:
+1. Basic merge-aware write concepts
+2. Strategy selection (insert, upsert, update, etc.)
+3. Key column configuration
+4. Convenience helper functions
+5. Performance benefits over traditional approaches
+"""
+
+import argparse
+import tempfile
+from pathlib import Path
+from typing import Dict, Any
+
+import pyarrow as pa
+import pyarrow.dataset as pds
+[2026-01-07T17:47:43] tokens used: 158,973
+
+[2026-01-07T17:47:44] thinking
+
+**Continuing file review for Pyarrow instructions**
+[2026-01-07T17:47:45] exec /bin/sh -c "sed -n '200,400p' examples/datasets/getting_started/04_pyarrow_merges.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:45] /bin/sh -c "sed -n '200,400p' examples/datasets/getting_started/04_pyarrow_merges.py" succeeded in 5ms:
+            "update_demo": ("UPDATE", data["price_updates"], "product_id"),
+            "dedup_demo": ("DEDUPLICATE", data["duplicate_log_entries"], "log_id"),
+        }
+
+        for demo_name, (strategy_name, demo_data, key_col) in datasets.items():
+            demo_path = Path(temp_dir) / demo_name
+            demo_path.mkdir(parents=True, exist_ok=True)
+
+            print(f"\n📝 {strategy_name} Helper Demo:")
+            print(f"   Using: fs.{strategy_name.lower()}_dataset()")
+            print(f"   Key column: {key_col}")
+            print(f"   Records: {len(demo_data)}")
+
+            # Create initial dataset if needed for UPDATE demo
+            if strategy_name == "UPDATE":
+                initial_products = pa.Table.from_pydict(
+                    {
+                        "product_id": [101, 102, 103],
+                        "name": ["Laptop Pro", "Wireless Mouse", "Mechanical Keyboard"],
+                        "price": [999.99, 29.99, 89.99],  # Original prices
+[2026-01-07T17:47:45] tokens used: 163,614
+
+[2026-01-07T17:47:47] thinking
+
+**Requesting specific file**
+[2026-01-07T17:47:47] exec /bin/sh -c "sed -n '1,200p' examples/datasets/getting_started/05_duckdb_upserts.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:47] /bin/sh -c "sed -n '1,200p' examples/datasets/getting_started/05_duckdb_upserts.py" succeeded in 5ms:
+"""
+DuckDB Upsert Operations - Getting Started
+
+This example demonstrates how to perform UPSERT (insert or update) operations
+using DuckDB with PyArrow tables.
+
+The example covers:
+1. Basic UPSERT concepts with DuckDB
+2. Creating tables from PyArrow data
+3. INSERT ... ON CONFLICT DO UPDATE syntax
+4. Batched upserts for large datasets
+5. Comparison with PyArrow merge-aware writes
+"""
+
+from __future__ import annotations
+
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+[2026-01-07T17:47:47] tokens used: 168,222
+
+[2026-01-07T17:47:49] thinking
+
+**Requesting more content to proceed**
+[2026-01-07T17:47:50] exec /bin/sh -c "sed -n '200,400p' examples/datasets/getting_started/05_duckdb_upserts.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:50] /bin/sh -c "sed -n '200,400p' examples/datasets/getting_started/05_duckdb_upserts.py" succeeded in 5ms:
+        with DuckDBParquetHandler() as handler:
+            # Step 1: Create table from Parquet with PRIMARY KEY
+            print("\n📥 Step 1: Creating table from Parquet file...")
+            conn = handler._connection.connection
+            conn.execute(f"""
+                CREATE OR REPLACE TABLE customers (
+                    customer_id INTEGER PRIMARY KEY,
+                    name VARCHAR,
+                    email VARCHAR,
+                    segment VARCHAR,
+                    total_spend DECIMAL(10, 2),
+                    last_purchase VARCHAR,
+                    updated_at VARCHAR
+                )
+            """)
+            conn.execute(f"""
+                INSERT INTO customers
+                SELECT * FROM read_parquet('{customers_file}')
+            """)
+
+[2026-01-07T17:47:50] tokens used: 170,477
+
+[2026-01-07T17:47:51] thinking
+
+**Continuing to gather API references**
+[2026-01-07T17:47:52] exec /bin/sh -c "sed -n '400,800p' examples/datasets/getting_started/05_duckdb_upserts.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:52] /bin/sh -c "sed -n '400,800p' examples/datasets/getting_started/05_duckdb_upserts.py" succeeded in 5ms:
+def demonstrate_conflict_resolution():
+    """Demonstrate different conflict resolution strategies."""
+    print("\n⚔️  Conflict Resolution Strategies")
+    print("=" * 50)
+
+    temp_dir = Path(tempfile.mkdtemp())
+
+    try:
+        with DuckDBParquetHandler() as handler:
+            # Create sample data with potential conflicts
+            conn = handler._connection.connection
+            conn.execute("""
+                CREATE TABLE inventory (
+                    sku VARCHAR PRIMARY KEY,
+                    product_name VARCHAR,
+                    quantity INT,
+                    price DECIMAL(10, 2),
+                    last_updated DATE
+                )
+            """)
+[2026-01-07T17:47:52] tokens used: 172,591
+
+[2026-01-07T17:47:56] thinking
+
+**Planning dependency and API review**
+[2026-01-07T17:47:56] exec /bin/sh -c 'rg -n "DuckDBConnection" -n src -n' in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:56] /bin/sh -c 'rg -n "DuckDBConnection" -n src -n' succeeded in 10ms:
+src/fsspeckit/datasets/duckdb/dataset.py:38:from fsspeckit.datasets.duckdb.connection import DuckDBConnection
+src/fsspeckit/datasets/duckdb/dataset.py:259:    def __init__(self, connection: DuckDBConnection) -> None:
+src/fsspeckit/datasets/duckdb/__init__.py:18:    DuckDBConnection,
+src/fsspeckit/datasets/duckdb/__init__.py:43:    - DuckDBConnection: for connection management
+src/fsspeckit/datasets/duckdb/__init__.py:46:    For new code, consider using DuckDBConnection and DuckDBDatasetIO directly.
+src/fsspeckit/datasets/duckdb/__init__.py:91:    "DuckDBConnection",
+src/fsspeckit/datasets/duckdb/connection.py:31:class DuckDBConnection:
+src/fsspeckit/datasets/duckdb/connection.py:129:    def __enter__(self) -> "DuckDBConnection":
+src/fsspeckit/datasets/duckdb/connection.py:153:) -> DuckDBConnection:
+src/fsspeckit/datasets/duckdb/connection.py:162:    return DuckDBConnection(filesystem=filesystem)
+src/fsspeckit/datasets/__init__.py:18:    "duckdb_connection": ("fsspeckit.datasets.duckdb.connection", "DuckDBConnection"),
+[2026-01-07T17:47:56] tokens used: 175,325
+
+[2026-01-07T17:47:59] thinking
+
+**Examining DuckDB connection usage**
+[2026-01-07T17:47:59] exec /bin/sh -c "sed -n '1,200p' src/fsspeckit/datasets/duckdb/connection.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:47:59] /bin/sh -c "sed -n '1,200p' src/fsspeckit/datasets/duckdb/connection.py" succeeded in 5ms:
+"""DuckDB connection and filesystem registration helpers.
+
+This module contains functions and classes for managing DuckDB connections
+and integrating with fsspec filesystems.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    import duckdb
+    from fsspeckit.storage_options.base import BaseStorageOptions
+
+from fsspec import AbstractFileSystem
+from fsspec import filesystem as fsspec_filesystem
+
+from fsspeckit.common.logging import get_logger
+from fsspeckit.common.optional import _DUCKDB_AVAILABLE
+[2026-01-07T17:47:59] tokens used: 202,824
+
+[2026-01-07T17:48:00] thinking
+
+**Searching for Pyarrow dataset APIs**
+[2026-01-07T17:48:01] exec /bin/sh -c 'rg -n "PyarrowDatasetIO" -n src -n' in /home/volker/coding/fsspeckit
+[2026-01-07T17:48:01] /bin/sh -c 'rg -n "PyarrowDatasetIO" -n src -n' succeeded in 13ms:
+src/fsspeckit/datasets/__init__.py:61:    PyarrowDatasetIO,
+src/fsspeckit/datasets/__init__.py:81:    "PyarrowDatasetIO",
+src/fsspeckit/datasets/pyarrow/dataset.py:1433:        "Use PyarrowDatasetIO.merge() instead.",
+src/fsspeckit/datasets/pyarrow/dataset.py:1438:        "merge_parquet_dataset_pyarrow has been removed. Use PyarrowDatasetIO.merge instead."
+src/fsspeckit/datasets/pyarrow/io.py:3:This module contains the PyarrowDatasetIO class for reading, writing, and
+src/fsspeckit/datasets/pyarrow/io.py:38:class PyarrowDatasetIO(BaseDatasetHandler):
+src/fsspeckit/datasets/pyarrow/io.py:52:        from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+src/fsspeckit/datasets/pyarrow/io.py:54:        io = PyarrowDatasetIO()
+src/fsspeckit/datasets/pyarrow/io.py:80:                "pyarrow is required for PyarrowDatasetIO. "
+src/fsspeckit/datasets/pyarrow/io.py:126:            io = PyarrowDatasetIO()
+src/fsspeckit/datasets/pyarrow/io.py:183:            io = PyarrowDatasetIO()
+src/fsspeckit/datasets/pyarrow/io.py:1038:            io = PyarrowDatasetIO()
+src/fsspeckit/datasets/pyarrow/io.py:1077:            io = PyarrowDatasetIO()
+src/fsspeckit/datasets/pyarrow/io.py:1124:            io = PyarrowDatasetIO()
+src/fsspeckit/datasets/pyarrow/io.py:1324:            # NOTE: _perform_merge_in_memory is not defined in PyarrowDatasetIO.
+src/fsspeckit/datasets/pyarrow/io.py:1670:class PyarrowDatasetHandler(PyarrowDatasetIO):
+src/fsspeckit/datasets/pyarrow/io.py:1674:    It inherits all methods from PyarrowDatasetIO.
+src/fsspeckit/datasets/pyarrow/__init__.py:6:- io: PyarrowDatasetIO class for dataset operations
+src/fsspeckit/datasets/pyarrow/__init__.py:46:    PyarrowDatasetIO,
+src/fsspeckit/datasets/pyarrow/__init__.py:69:    "PyarrowDatasetIO",
+[2026-01-07T17:48:01] tokens used: 204,154
+
+[2026-01-07T17:48:04] thinking
+
+**Examining PyarrowDatasetIO and API usage**
+[2026-01-07T17:48:04] exec /bin/sh -c 'rg -n "DuckDBParquetHandler" -n' in /home/volker/coding/fsspeckit
+[2026-01-07T17:48:04] /bin/sh -c 'rg -n "DuckDBParquetHandler" -n' succeeded in 18ms:
+README.md:101:from fsspeckit.datasets import DuckDBParquetHandler
+README.md:103:with DuckDBParquetHandler() as handler:
+README.md:342:- `duckdb>=0.9.0` - SQL analytics (required for `fsspeckit.datasets.DuckDBParquetHandler`)
+src/fsspeckit/datasets/duckdb/__init__.py:38:# Main DuckDBParquetHandler class for backward compatibility
+src/fsspeckit/datasets/duckdb/__init__.py:39:class DuckDBParquetHandler(DuckDBDatasetIO):
+src/fsspeckit/datasets/duckdb/__init__.py:40:    """Backward compatibility wrapper for DuckDBParquetHandler.
+src/fsspeckit/datasets/duckdb/__init__.py:99:    "DuckDBParquetHandler",
+src/fsspeckit/datasets/__init__.py:13:from .duckdb import DuckDBParquetHandler, MergeStrategy
+src/fsspeckit/datasets/__init__.py:67:    "DuckDBParquetHandler",
+src/fsspeckit/datasets/pyarrow/io.py:1673:    This class provides a familiar interface for users coming from DuckDBParquetHandler.
+tests/test_utils/test_edge_cases.py:10:from fsspeckit.datasets.duckdb import DuckDBParquetHandler
+tests/test_utils/test_edge_cases.py:33:            with DuckDBParquetHandler() as handler:
+tests/test_utils/test_edge_cases.py:65:            with DuckDBParquetHandler() as handler:
+tests/test_utils/test_edge_cases.py:89:            with DuckDBParquetHandler() as handler:
+tests/test_utils/test_edge_cases.py:102:            with DuckDBParquetHandler() as handler:
+tests/test_utils/test_edge_cases.py:126:            with DuckDBParquetHandler() as handler:
+tests/test_utils/test_edge_cases.py:145:                with DuckDBParquetHandler() as handler:
+tests/test_utils/test_edge_cases.py:162:            with DuckDBParquetHandler() as handler:
+tests/test_utils/test_edge_cases.py:177:            with DuckDBParquetHandler() as handler:
+tests/test_utils/test_edge_cases.py:190:            with DuckDBParquetHandler() as handler:
+[2026-01-07T17:48:04] tokens used: 205,153
+
+[2026-01-07T17:48:12] thinking
+
+**Planning dependency fixes and API updates**
+[2026-01-07T17:48:13] exec /bin/sh -c "sed -n '1,200p' src/fsspeckit/datasets/duckdb/dataset.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:48:13] /bin/sh -c "sed -n '1,200p' src/fsspeckit/datasets/duckdb/dataset.py" succeeded in 5ms:
+"""DuckDB dataset I/O and maintenance operations.
+
+This module contains functions for reading, writing, and maintaining
+parquet datasets using DuckDB.
+"""
+
+from __future__ import annotations
+
+import uuid
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Literal
+
+if TYPE_CHECKING:
+    import duckdb
+    import pyarrow as pa
+
+    from fsspeckit.core.incremental import MergeResult
+    from fsspeckit.datasets.write_result import WriteDatasetResult
+
+
+[2026-01-07T17:48:13] tokens used: 214,260
+
+[2026-01-07T17:48:21] thinking
+
+**Outlining API migration plan**
+
+I’m mapping out a clear plan to update scripts by replacing direct handler connection access with the new DuckDBConnection context manager and switching to PyarrowDatasetIO.merge for dataset merges, while also verifying and documenting dependencies like pyarrow and duckdb to ensure smooth migration.
+[2026-01-07T17:48:22] exec /bin/sh -c 'rg -n "def merge" src/fsspeckit/datasets/pyarrow/io.py' in /home/volker/coding/fsspeckit
+[2026-01-07T17:48:22] /bin/sh -c 'rg -n "def merge" src/fsspeckit/datasets/pyarrow/io.py' succeeded in 6ms:
+349:    def merge(
+1010:    def merge_parquet_dataset(
+[2026-01-07T17:48:22] tokens used: 217,041
+
+[2026-01-07T17:48:23] thinking
+
+**Inspecting method definition area**
+[2026-01-07T17:48:24] exec /bin/sh -c "sed -n '320,420p' src/fsspeckit/datasets/pyarrow/io.py" in /home/volker/coding/fsspeckit
+[2026-01-07T17:48:24] /bin/sh -c "sed -n '320,420p' src/fsspeckit/datasets/pyarrow/io.py" succeeded in 4ms:
+            if wf.size is not None:
+                size_bytes = int(wf.size)
+            else:
+                try:
+                    size_bytes = int(self._filesystem.size(wf.path))
+                except (IOError, RuntimeError) as e:
+                    logger.warning(
+                        "failed_to_get_file_size",
+                        path=wf.path,
+                        error=str(e),
+                        operation="write_dataset",
+                    )
+                    size_bytes = None
+
+            files.append(
+                FileWriteMetadata(
+                    path=wf.path,
+                    row_count=row_count,
+                    size_bytes=size_bytes,
+                )
+[2026-01-07T17:48:24] tokens used: 217,265
+
+[2026-01-07T17:48:36] thinking
+
+**Outlining detailed update plan**
+[2026-01-07T17:48:37] exec /bin/sh -c "nl -ba examples/datasets/getting_started/01_duckdb_basics.py | sed -n '1,100p'" in /home/volker/coding/fsspeckit
+[2026-01-07T17:48:37] /bin/sh -c "nl -ba examples/datasets/getting_started/01_duckdb_basics.py | sed -n '1,100p'" succeeded in 8ms:
+     1	"""
+     2	DuckDB Basics - Getting Started with Datasets
+     3	
+     4	This beginner-friendly example introduces the fundamental concepts of using
+     5	DuckDBParquetHandler for efficient parquet dataset operations.
+     6	
+     7	The example covers:
+     8	1. Basic setup and configuration
+     9	2. Creating and reading parquet files
+    10	3. Simple queries and filtering
+    11	4. Writing data back to parquet
+    12	5. Context manager usage for resource management
+    13	
+    14	This is your starting point for learning how to use fsspeckit's
+    15	dataset capabilities with DuckDB for high-performance data operations.
+    16	"""
+    17	
+    18	from __future__ import annotations
+    19	
+    20	import tempfile
+[2026-01-07T17:48:37] tokens used: 280,352
+
+[2026-01-07T17:48:39] thinking
+
+**Identifying line numbers for connection references**
+[2026-01-07T17:48:40] exec /bin/sh -c 'rg -n "_connection" -n examples/datasets/getting_started/05_duckdb_upserts.py' in /home/volker/coding/fsspeckit
+[2026-01-07T17:48:40] /bin/sh -c 'rg -n "_connection" -n examples/datasets/getting_started/05_duckdb_upserts.py' succeeded in 7ms:
+123:            conn = handler._connection.connection
+203:            conn = handler._connection.connection
+287:            conn = handler._connection.connection
+351:            conn = handler._connection.connection
+410:            conn = handler._connection.connection
+[2026-01-07T17:48:40] tokens used: 281,744
+
+[2026-01-07T17:48:43] thinking
+
+**Collecting code reference lines**
+[2026-01-07T17:48:43] exec /bin/sh -c "nl -ba examples/datasets/getting_started/04_pyarrow_merges.py | sed -n '180,320p'" in /home/volker/coding/fsspeckit
+[2026-01-07T17:48:43] /bin/sh -c "nl -ba examples/datasets/getting_started/04_pyarrow_merges.py | sed -n '180,320p'" succeeded in 5ms:
+   180	    """Demonstrate convenience helper functions."""
+   181	    print("\n🛠️  Convenience Helper Functions")
+   182	    print("=" * 50)
+   183	
+   184	    print("\n📋 Why Use Convenience Helpers?")
+   185	    print(
+   186	        "   • More readable code - `fs.upsert_dataset()` vs `fs.write_pyarrow_dataset(..., strategy='upsert')`"
+   187	    )
+   188	    print("   • Less error-prone - Can't forget strategy name")
+   189	    print("   • Better IDE support - Function signatures are specific")
+   190	
+   191	    import pyarrow.parquet as pq
+   192	
+   193	    fs = LocalFileSystem()
+   194	    data = create_simple_customer_data()
+   195	
+   196	    with tempfile.TemporaryDirectory() as temp_dir:
+   197	        # Create separate datasets for each helper
+   198	        datasets = {
+   199	            "insert_demo": ("INSERT", data["new_products"], "product_id"),
+[2026-01-07T17:48:44] tokens used: 282,169
+
+[2026-01-07T17:48:52] thinking
+
+**Outlining update and migration plan**
+
+I’m organizing a detailed plan to address missing PyArrow modules, update scripts to use the new `PyarrowDatasetIO.merge` API instead of deprecated helpers like `fs.insert_dataset`, and ensure dependencies like `pyarrow` and `duckdb` are documented and installed properly. The plan will reference specific example scripts and relevant line numbers, aiming to modernize the codebase and verify smooth execution.
+[2026-01-07T17:48:54] exec /bin/sh -c "nl -ba examples/datasets/getting_started/03_simple_merges.py | sed -n '1,60p'" in /home/volker/coding/fsspeckit
+[2026-01-07T17:48:54] /bin/sh -c "nl -ba examples/datasets/getting_started/03_simple_merges.py | sed -n '1,60p'" succeeded in 5ms:
+     1	"""
+     2	Simple Dataset Merges - Getting Started
+     3	
+     4	This beginner-friendly example introduces fundamental dataset merging concepts
+     5	using fsspeckit's dataset utilities.
+     6	
+     7	The example covers:
+     8	1. Basic dataset merging concepts
+     9	2. Simple append operations
+    10	3. Schema handling during merges
+    11	4. Duplicate detection and handling
+    12	5. Performance considerations for merging
+    13	
+    14	This example helps you understand how to combine multiple datasets
+    15	efficiently and safely.
+    16	"""
+    17	
+    18	from __future__ import annotations
+    19	
+    20	import tempfile
+[2026-01-07T17:48:54] tokens used: 350,047
+
+[2026-01-07T17:48:55] thinking
+
+**Planning dependency references with line numbers**
+[2026-01-07T17:48:56] exec /bin/sh -c "nl -ba examples/datasets/getting_started/README.md | sed -n '70,140p'" in /home/volker/coding/fsspeckit
+[2026-01-07T17:48:56] /bin/sh -c "nl -ba examples/datasets/getting_started/README.md | sed -n '70,140p'" succeeded in 5ms:
+    70	- You need complex SQL queries
+    71	- You have analytical workloads
+    72	- You prefer database-style operations
+    73	- You need advanced aggregations
+    74	- Memory is abundant and you want convenience
+    75	
+    76	### Use PyArrow When:
+    77	- You need in-memory performance
+    78	- You have simple filtering and transformations
+    79	- Memory is constrained
+    80	- You want to avoid database overhead
+    81	- You need fine-grained control over operations
+    82	
+    83	## Code Patterns
+    84	
+    85	### Basic DuckDB Pattern
+    86	```python
+    87	from fsspeckit.datasets import DuckDBParquetHandler
+    88	
+    89	with DuckDBParquetHandler() as handler:
+[2026-01-07T17:48:56] tokens used: 351,322
+
+[2026-01-07T17:48:58] thinking
+
+**Searching for pip install commands**
+[2026-01-07T17:48:59] exec /bin/sh -c 'rg -n "pip install" -n examples/datasets/getting_started/README.md' in /home/volker/coding/fsspeckit
+[2026-01-07T17:48:59] /bin/sh -c 'rg -n "pip install" -n examples/datasets/getting_started/README.md' succeeded in 6ms:
+162:pip install fsspeckit[datasets] pyarrow
+165:pip install pandas polars duckdb
+168:pip install jupyter matplotlib seaborn  # For visualization
+[2026-01-07T17:48:59] tokens used: 352,257
+
+[2026-01-07T17:49:02] thinking
+
+**Checking specific lines for reference**
+[2026-01-07T17:49:03] exec /bin/sh -c "nl -ba examples/datasets/getting_started/README.md | sed -n '150,190p'" in /home/volker/coding/fsspeckit
+[2026-01-07T17:49:03] /bin/sh -c "nl -ba examples/datasets/getting_started/README.md | sed -n '150,190p'" succeeded in 5ms:
+   150	- **Real-time Analytics**: Streaming data processing
+   151	- **Multi-cloud Operations**: Cross-platform data management
+   152	
+   153	### Integration Examples
+   154	- **Cross-Domain Workflows**: Combining multiple fsspeckit packages
+   155	- **End-to-End Pipelines**: Complete data processing solutions
+   156	- **Production Deployments**: Operational best practices
+   157	
+   158	## Prerequisites Installation
+   159	
+   160	```bash
+   161	# Core dependencies
+   162	pip install fsspeckit[datasets] pyarrow
+   163	
+   164	# Optional for advanced examples
+   165	pip install pandas polars duckdb
+   166	
+   167	# Development dependencies
+   168	pip install jupyter matplotlib seaborn  # For visualization
+   169	```
+[2026-01-07T17:49:03] tokens used: 352,457
+
+[2026-01-07T17:49:11] thinking
+
+**Drafting detailed fix and update plan**
+
+I'll summarize the pyarrow import failures in the example scripts referencing exact line numbers, then organize a clear multi-section plan to update dependencies, refactor scripts to adopt new APIs like `DuckDBConnection` and `PyarrowDatasetIO.merge`, and document environment setup. I'll also mention using the plan skill for structuring this fix strategy.
+[2026-01-07T17:49:12] codex
+
+- `python3 examples/datasets/getting_started/01_duckdb_basics.py` (and the remaining 02–05 scripts) die immediately with `ModuleNotFoundError: No module named 'pyarrow'`; the import at `examples/datasets/getting_started/01_duckdb_basics.py:25` (and the analogous ones in the other scripts) never executes otherwise, so none of the demos can currently run.
+- Once PyArrow (and DuckDB) are installed, the remaining blockers are likely the outdated usage patterns in the scripts: they reach into `handler._connection` (e.g., `examples/datasets/getting_started/05_duckdb_upserts.py:123`) instead of using `DuckDBConnection`, and the PyArrow merge/offline helpers still describe `fs.insert_dataset()`/`fs.upsert_dataset()` even though the modern API is `PyarrowDatasetIO.merge` (see `examples/datasets/getting_started/04_pyarrow_merges.py:180-238`).
+
+Used the plan skill because you asked for a concrete fix plan.
+
+# Plan
+
+Add the missing dependency, align each tutorial with today’s public APIs (`DuckDBConnection`, `PyarrowDatasetIO.merge`, etc.), and re-run every tutorial to confirm the demos work without manual errors.
+
+## Requirements
+- `pyarrow` (and DuckDB) must be installed before any script runs; the README’s install block at `examples/datasets/getting_started/README.md:158-168` should clearly spell this out and mention the same packages we exercise in code.
+- The DuckDB-driven scripts must use the supported API (`DuckDBConnection`/`DuckDBDatasetIO`) rather than poking at `handler._connection` (see `examples/datasets/getting_started/05_duckdb_upserts.py:123`).
+- The PyArrow merge/upsert demos should showcase `PyarrowDatasetIO.merge` instead of the deprecated convenience helpers or manual `pq.write_table` workflows outlined at `examples/datasets/getting_started/04_pyarrow_merges.py:180-238`; the docs/README should explain that developers run `PyarrowDatasetIO()` for merge strategies today.
+- Verify each example runs end-to-end after these changes.
+
+## Scope
+- In: `examples/datasets/getting_started` README + scripts 01–05 (DuckDB basics, PyArrow basics, simple merges, PyArrow merges, DuckDB upserts).
+- Out: workflow-level tutorials (`examples/datasets/workflows/*`) and unrelated docs.
+
+## Files and entry points
+- `examples/datasets/getting_started/README.md:158` (prereqs section) for dependency messaging.
+- `examples/datasets/getting_started/01_duckdb_basics.py:25` (PyArrow import) and similar top-of-file imports in scripts 02–05 to ensure they document/install the required packages.
+- `examples/datasets/getting_started/05_duckdb_upserts.py:123` (usage of `handler._connection`).
+- `examples/datasets/getting_started/04_pyarrow_merges.py:180-238` for the convenience helper section that should be rewritten to call `PyarrowDatasetIO.merge`.
+
+## Action items
+- [ ] Update the getting-started README (`examples/datasets/getting_started/README.md:158-168`) so the “Prerequisites Installation” block explicitly lists `pyarrow`, `duckdb`, and any other packages needed to run every script (the current `pip install fsspeckit[datasets] pyarrow` line should be highlighted, and the DuckDB requirement should be emphasized for the DuckDB-focused examples).
+- [ ] Refactor the DuckDB demos (`01_duckdb_basics.py`, `03_simple_merges.py`, `05_duckdb_upserts.py`) to obtain a `DuckDBConnection` (or `DuckDBDatasetIO`) and execute SQL through its public `execute_sql`/merge helpers; remove any `handler._connection` access (e.g., at `examples/datasets/getting_started/05_duckdb_upserts.py:123,203,287,351,410`) so the examples demonstrate the supported API surface.
+- [ ] Rework the PyArrow merge scripts (`02_pyarrow_basics.py`, `04_pyarrow_merges.py:180-238`) so each merge/insert/update/deduplicate demo uses `PyarrowDatasetIO.merge(..., strategy=...)`, including key column setup, rather than writing tables manually or referencing the removed `fs.insert_dataset()` helpers; update the narrative text accordingly to explain the rename.
+- [ ] After the refactor, rerun all five scripts in a clean environment (with `pyarrow`/`duckdb` installed) to confirm they now complete without `ModuleNotFoundError` or other API mismatches; capture any remaining warnings/errors for follow-up.
+- [ ] Call out in the README or a short note that these getting-started scripts now rely on the modern `DuckDBConnection` and `PyarrowDatasetIO` APIs so readers know where to look for documentation once the flow is working.
+
+## Testing and validation
+- Run `python3 examples/datasets/getting_started/01_duckdb_basics.py` through `05_duckdb_upserts.py` in sequence after the refactor; each should finish without import errors.
+- Verify any console output or sample datasets produced still match the educational narrative (e.g., confirm merge stats print statements still make sense with the new helper usage).
+
+## Risks and edge cases
+- Installing the wrong dependency set may still surface other missing modules (e.g., if DuckDB isn’t in the environment); include both `pyarrow` and `duckdb` in the prereq instructions to prevent that.
+- Refactoring the scripts to a new API may change the demo narrative slightly; double-check the printed explanations still align with what the code actually does.
+
+## Open questions
+- Should the scripts also demonstrate how to configure `PyarrowDatasetIO` for streaming merges (callbacks/limits), or is a simple `merge(..., strategy=...)` call enough for this tutorial?
+[2026-01-07T17:49:19] tokens used: 360,454

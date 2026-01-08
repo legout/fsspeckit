@@ -1,7 +1,7 @@
 """Memory monitoring utilities for PyArrow-based dataset operations."""
 
 from enum import Enum
-from typing import Optional, Dict, Any, Final
+from typing import Any, Final
 import pyarrow as pa
 import os
 
@@ -52,7 +52,7 @@ class MemoryMonitor:
     def __init__(
         self,
         max_pyarrow_mb: int = 2048,
-        max_process_memory_mb: Optional[int] = None,
+        max_process_memory_mb: int | None = None,
         min_system_available_mb: int = 512,
     ):
         """Initialize the memory monitor.
@@ -75,7 +75,7 @@ class MemoryMonitor:
                     "psutil not available; system memory thresholds will be ignored."
                 )
 
-    def get_memory_status(self) -> Dict[str, float]:
+    def get_memory_status(self) -> dict[str, float]:
         """Return current memory metrics in MB.
 
         Returns:

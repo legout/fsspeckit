@@ -21,15 +21,27 @@ import tempfile
 import time
 from pathlib import Path
 
-import pyarrow as pa
-import pyarrow.compute as pc
-import pyarrow.dataset as ds
-import pyarrow.parquet as pq
+try:
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.dataset as ds
+    import pyarrow.parquet as pq
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "Missing dependency 'pyarrow'. Install with: pip install -e \".[datasets]\" "
+        "(or run `uv sync` then `uv run python ...`)."
+    ) from exc
 
-from fsspeckit.datasets import (
-    optimize_parquet_dataset_pyarrow,
-    compact_parquet_dataset_pyarrow,
-)
+try:
+    from fsspeckit.datasets import (
+        optimize_parquet_dataset_pyarrow,
+        compact_parquet_dataset_pyarrow,
+    )
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "Missing fsspeckit dataset dependencies. Install with: pip install -e \".[datasets]\" "
+        "(or run `uv sync` then `uv run python ...`)."
+    ) from exc
 
 
 def create_sample_inventory_data() -> pa.Table:

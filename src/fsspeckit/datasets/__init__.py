@@ -7,7 +7,38 @@ This package contains dataset-specific functionality including:
 - Dataset merging and optimization tools
 """
 
+import warnings
+from typing import Any
+
 from .duckdb import DuckDBParquetHandler, MergeStrategy
+# ... existing imports ...
+
+_DEPRECATED_IMPORTS = {
+    "duckdb_dataset": ("fsspeckit.datasets.duckdb.dataset", None),
+    "duckdb_connection": ("fsspeckit.datasets.duckdb.connection", "DuckDBConnection"),
+    "duckdb_helpers": ("fsspeckit.datasets.duckdb.helpers", None),
+    "_duckdb_helpers": ("fsspeckit.datasets.duckdb.helpers", None),
+    "pyarrow_dataset": ("fsspeckit.datasets.pyarrow.dataset", None),
+    "pyarrow_schema": ("fsspeckit.datasets.pyarrow.schema", None),
+}
+
+
+def __getattr__(name: str) -> Any:
+    if name in _DEPRECATED_IMPORTS:
+        module_path, attr = _DEPRECATED_IMPORTS[name]
+        warnings.warn(
+            f"Importing '{name}' from fsspeckit.datasets is deprecated. "
+            f"Use 'from {module_path} import ...' instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        import importlib
+
+        module = importlib.import_module(module_path)
+        return getattr(module, attr) if attr else module
+    raise AttributeError(f"module 'fsspeckit.datasets' has no attribute '{name}'")
+
+
 from .exceptions import (
     DatasetError,
     DatasetFileError,

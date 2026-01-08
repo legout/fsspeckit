@@ -1,0 +1,111 @@
+Loaded cached Qwen credentials.
+I'll help you identify the issues with the getting started examples and propose a fix plan. Let me first read the README files to understand the expected setup and then examine the example scripts.
+
+Now let me read the getting started README to understand the expected setup:
+
+Now let me examine the individual getting started scripts to understand what dependencies they require:
+
+Let me read the second script:
+
+Now let me examine the third script:
+
+Let me check the 4th and 5th scripts as well:
+
+Now let me check the 5th script:
+
+Now let me run the first script to see the actual error:
+
+Let me check the project configuration to understand the dependencies:
+
+Let me check if there's a virtual environment or if we need to install the package:
+
+Based on my analysis of the repository structure and the getting started examples, I can identify the issue and propose a fix plan. Let me examine the project configuration and structure further to understand the complete picture:
+
+Let me search for DuckDB imports and fsspeckit dataset imports:
+
+Now I have a clear understanding of the issues. Based on my analysis, here's the problem and a comprehensive fix plan:
+
+## Problem Identification
+
+The getting started examples are failing with `ModuleNotFoundError: No module named 'pyarrow'` because the required dependencies are not installed. Looking at the pyproject.toml file and the example code, these scripts require several dependencies that are not currently available in the environment.
+
+## Comprehensive Fix Plan
+
+### 1. Install the Package in Development Mode
+First, you need to install the `fsspeckit` package with its dependencies:
+
+```bash
+cd /home/volker/coding/fsspeckit
+pip install -e ".[datasets]"
+```
+
+This will install the package and the datasets extra dependencies which include:
+- pyarrow>=22.0.0 (needed for all examples)
+- duckdb>=1.4.0 (needed for DuckDB examples)
+- pandas>=2.2.0 (general data operations)
+- polars>=1.30.0 (alternative dataframe library)
+
+### 2. Install Missing Dependencies
+If the above installation didn't work properly, install the core dependencies separately:
+
+```bash
+pip install pyarrow>=22.0.0
+pip install duckdb>=1.4.0
+pip install pandas>=2.2.0
+pip install polars>=1.30.0
+```
+
+### 3. Verify Installation
+After installing the dependencies, verify that they can be imported:
+
+```bash
+python -c "import pyarrow as pa; import duckdb; from fsspeckit.datasets import DuckDBParquetHandler; print('All imports successful')"
+```
+
+### 4. Run the Examples in Expected Order
+Once dependencies are installed, run the examples in the recommended order:
+
+```bash
+cd /home/volker/coding/fsspeckit
+python examples/datasets/getting_started/01_duckdb_basics.py
+python examples/datasets/getting_started/02_pyarrow_basics.py
+python examples/datasets/getting_started/03_simple_merges.py
+python examples/datasets/getting_started/04_pyarrow_merges.py
+python examples/datasets/getting_started/05_duckdb_upserts.py
+```
+
+### 5. Potential Additional Issues to Address
+
+Based on the code, there are a few potential API-related issues that may need attention:
+
+#### Issue 1: Missing Function Implementations
+Looking at the examples, they reference functions like `optimize_parquet_dataset_pyarrow` and `compact_parquet_dataset_pyarrow` which may not be fully implemented in the current version. The scripts have fallbacks for when these functions are not available.
+
+#### Issue 2: Internal API Usage
+Some examples access internal APIs like `handler._connection.connection` which might not be available in the current release. The examples assume a certain interface that may not match the actual implementation.
+
+### 6. Recommended Verification Steps
+
+After installation, verify each component works:
+
+1. **PyArrow functionality**: Test basic table operations
+2. **DuckDB functionality**: Test DuckDBParquetHandler instantiation and basic operations
+3. **Dataset merging functionality**: Test the merge functions
+
+### 7. Troubleshooting Checklist
+
+If you encounter additional issues after installation:
+
+- Check Python version compatibility (needs Python >= 3.11)
+- Check if the current codebase has the expected API functions
+- Verify that the `DuckDBParquetHandler` class exists and has expected methods
+- Make sure the fsspeckit package is properly built and installed
+
+### Summary of Required Actions:
+
+1. **Primary Action**: Run `pip install -e ".[datasets]"` in the `/home/volker/coding/fsspeckit` directory to install all required dependencies.
+2. **Verification**: Test basic imports before running the examples.
+3. **Execution**: Run the examples in numerical order (01 through 05).
+4. **Backup Plan**: If the package installation fails, install dependencies individually and address any API mismatches between expected and available interfaces.
+
+The core issue is simply missing dependencies, but there could be additional API compatibility issues depending on the current state of the fsspeckit codebase.

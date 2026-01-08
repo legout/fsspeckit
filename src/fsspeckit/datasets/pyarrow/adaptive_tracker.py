@@ -3,13 +3,13 @@ Adaptive key tracking for streaming operations with memory bounds.
 Provides tiered storage from exact sets to probabilistic Bloom filters.
 """
 
-import logging
+from fsspeckit.common.logging import get_logger
 import threading
 import sys
 from typing import Any, Dict, Optional, Set, Union, Tuple
 from collections import OrderedDict
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 try:
     from pybloom_live import BloomFilter, ScalableBloomFilter
@@ -85,7 +85,10 @@ class AdaptiveKeyTracker:
             # Use a loop to handle potential tier transitions during addition
             while True:
                 if self._tier == "EXACT":
-                    assert self._exact_keys is not None
+                    if self._exact_keys is None:
+                        # Defensive: tier mismatch, try to recover
+                        self._tier = "LRU"
+                        continue
                     if key in self._exact_keys:
                         return
                     if len(self._exact_keys) < self.max_exact_keys:
@@ -96,7 +99,18 @@ class AdaptiveKeyTracker:
                         self._transition_to_lru()
                         # Continue to next iteration to add to the new tier
                 elif self._tier == "LRU":
-                    assert self._lru_keys is not None
+                    if self._lru_keys is None:
+                        # Defensive: tier mismatch, try to recover
+                        if (
+                            HAS_BLOOM
+                            and ScalableBloomFilter is not None
+                            and self._bloom_filter
+                        ):
+                            self._tier = "BLOOM"
+                        else:
+                            # Re-initialize LRU if lost
+                            self._lru_keys = OrderedDict()
+                        continue
                     if key in self._lru_keys:
                         # Refresh LRU position
                         self._lru_keys.move_to_end(key)
@@ -114,6 +128,17 @@ class AdaptiveKeyTracker:
                             self._add_to_lru(key)
                             return
                 elif self._tier == "BLOOM":
+                    if self._bloom_filter is None:
+                        # Defensive: try to recover by initializing Bloom
+                        if HAS_BLOOM and ScalableBloomFilter is not None:
+                            self._bloom_filter = ScalableBloomFilter(
+                                initial_capacity=self.max_lru_keys,
+                                error_rate=self.false_positive_rate,
+                            )
+                        else:
+                            self._tier = "LRU"
+                            self._lru_keys = OrderedDict()
+                            continue
                     self._add_to_bloom(key)
                     return
                 else:
@@ -129,11 +154,11 @@ class AdaptiveKeyTracker:
 
         with self._lock:
             if self._tier == "EXACT":
-                assert self._exact_keys is not None
-                return key in self._exact_keys
+                return (
+                    key in self._exact_keys if self._exact_keys is not None else False
+                )
             elif self._tier == "LRU":
-                assert self._lru_keys is not None
-                if key in self._lru_keys:
+                if self._lru_keys is not None and key in self._lru_keys:
                     self._lru_keys.move_to_end(key)
                     return True
                 return False
@@ -146,7 +171,9 @@ class AdaptiveKeyTracker:
 
     def _add_to_lru(self, key: Any) -> None:
         """Add key to LRU cache (assumes lock is held)."""
-        assert self._lru_keys is not None
+        if self._lru_keys is None:
+            self._lru_keys = OrderedDict()
+
         if key not in self._lru_keys:
             self._unique_keys_seen += 1
         self._lru_keys[key] = True

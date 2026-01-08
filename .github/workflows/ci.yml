@@ -28,7 +28,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          uv sync --dev
+          uv sync --dev --extra datasets
 
       - name: Check import layering compliance
         run: |
@@ -43,6 +43,10 @@ jobs:
       - name: Run tests with pytest
         run: |
           uv run pytest tests/ --cov=fsspeckit --cov-report=term-missing
+
+      - name: Run merge example smoke test
+        run: |
+          uv run python examples/datasets/getting_started/04_pyarrow_merges.py
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12'

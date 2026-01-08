@@ -1,0 +1,1 @@
+Command failed: API Error: 500 {"type":"error","error":{"type":"api_error","message":"insufficient balance (1008)"},"request_id":"05adcfcdc1c4e06157a8d364c9680034"}

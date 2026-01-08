@@ -191,7 +191,7 @@ class TestPyarrowDatasetHandlerAPISymmetry:
         handler = PyarrowDatasetHandler()
         assert hasattr(handler, "write_dataset")
         assert hasattr(handler, "merge")
-        # Legacy convenience methods should be disabled
+        # Legacy convenience methods should be removed
         legacy_methods = [
             "insert_dataset",
             "upsert_dataset",
@@ -199,11 +199,9 @@ class TestPyarrowDatasetHandlerAPISymmetry:
             "deduplicate_dataset",
         ]
         for method in legacy_methods:
-            assert hasattr(
+            assert not hasattr(
                 handler, method
-            )  # Method exists but should raise NotImplementedError
-            with pytest.raises(NotImplementedError, match="has been removed"):
-                getattr(handler, method)(None, "/tmp/test")
+            ), f"Legacy method {method} should have been removed"
 
 
 class TestOptionalDependencyHandling:

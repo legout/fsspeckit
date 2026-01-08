@@ -2,6 +2,26 @@
 
 This module provides a consistent exception hierarchy for all dataset operations,
 enabling proper error handling and providing clear error categorization.
+
+Error Handling Patterns:
+1. Data Integrity Operations (Read/Write/Merge):
+   - Fail fast by raising DatasetFileError or DatasetOperationError.
+   - Include the 'operation' and 'path' context.
+   - Preserve original exception via 'from e'.
+
+2. Optional Metadata/Informational Reads:
+   - Log warning or debug message.
+   - Use sentinel values (None, 0, or default dicts).
+   - Do not interrupt main execution flow.
+
+3. Cleanup Operations:
+   - Use try-except blocks.
+   - Log warnings for failures but continue cleanup of other resources.
+   - Never raise from within a cleanup loop unless catastrophic.
+
+4. Validation:
+   - Raise DatasetValidationError for user input issues.
+   - Raise DatasetPathError for path-related issues.
 """
 
 from __future__ import annotations

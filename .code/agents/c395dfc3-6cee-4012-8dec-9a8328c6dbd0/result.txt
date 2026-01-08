@@ -1,0 +1,58 @@
+I will start by listing the files in the relevant directories and reading the project configuration and documentation to understand the dependencies and expected behavior.
+
+I will read the content of the first two scripts to check their imports, and then attempt to execute the first script using the Python interpreter from the virtual environment to reproduce the reported error.
+
+I will locate the source files for `DuckDBParquetHandler` and check the `__init__.py` file to understand how dependencies, particularly `duckdb`, are handled and imported.
+
+I will read `src/fsspeckit/datasets/duckdb/__init__.py` to determine how the optional `duckdb` dependency is handled and whether its absence causes an immediate import error.
+
+I will read `src/fsspeckit/datasets/duckdb/connection.py` to confirm its dependency on `duckdb`, and then I will read `03_simple_merges.py`, `04_pyarrow_merges.py`, and `05_duckdb_upserts.py` to identify any additional dependencies they may have.
+
+The user's reported `ModuleNotFoundError: No module named 'pyarrow'` indicates that the project's dependencies have not been installed in the current environment. My analysis of the "Getting Started" scripts confirms they require not just `pyarrow`, but also `duckdb` and `pandas` to function correctly.
+
+### Analysis of Dependencies
+
+1.  **`pyarrow`**: Explicitly imported in all scripts (`01` through `05`). It is a core dependency in `pyproject.toml`.
+2.  **`duckdb`**: Required for `DuckDBParquetHandler`, which is used in `01`, `03`, and `05`. It is listed as an **optional** dependency (`[project.optional-dependencies] datasets` or `sql`).
+3.  **`pandas`**: Required by the `.fetchdf()` method used in `01`, `03`, and `05` to display query results. It is a core dependency in `pyproject.toml`.
+4.  **`fsspeckit`**: The scripts import `fsspeckit`. The package itself must be installed (e.g., in editable mode) for these imports to work.
+
+### Recommended Plan
+
+To fix the errors and run the examples successfully, you need to install the project with the `datasets` extra, which includes `duckdb`.
+
+**1. Install Dependencies**
+
+Run the following command in your terminal (ensure your virtual environment is active):
+
+```bash
+pip install -e ".[datasets]"
+```
+
+*   `-e` installs the package in editable mode, allowing changes in `src/` to be reflected immediately.
+*   `.[datasets]` installs the package plus the optional dependencies defined in the `datasets` group (including `duckdb`, `polars`, etc.).
+
+**2. Verify Installation**
+
+After installation, verify that the key libraries are available:
+
+```bash
+python -c "import pyarrow; import duckdb; import pandas; import fsspeckit; print('All deps found')"
+```
+
+**3. Run the Examples**
+
+You should now be able to run the scripts in order:
+
+```bash
+python examples/datasets/getting_started/01_duckdb_basics.py
+python examples/datasets/getting_started/02_pyarrow_basics.py
+python examples/datasets/getting_started/03_simple_merges.py
+python examples/datasets/getting_started/04_pyarrow_merges.py
+python examples/datasets/getting_started/05_duckdb_upserts.py
+```
+
+### Potential Issues to Watch For
+
+*   **Pandas Requirement**: Even though `pandas` is a core dependency, if you installed a minimal version in the past, ensure it is present. The scripts `01`, `03`, and `05` will fail with an `AttributeError` or `ImportError` when calling `.fetchdf()` if `pandas` is missing. The `.[datasets]` install ensures it is there.
+*   **Python Path**: Using `pip install -e .` ensures `fsspeckit` is in your Python path. If you skip this and try to just install libraries, `from fsspeckit...` imports will fail unless you manually set `PYTHONPATH`.

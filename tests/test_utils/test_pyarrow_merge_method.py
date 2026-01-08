@@ -865,10 +865,15 @@ class TestPyArrowMergeMethods:
 
     def setup_method(self):
         """Setup for each test method."""
-        self.handler = PyarrowDatasetIO()
+        from fsspeckit.datasets.pyarrow.dataset import (
+            merge_upsert_pyarrow,
+            merge_update_pyarrow,
+        )
+        self.merge_upsert_pyarrow = merge_upsert_pyarrow
+        self.merge_update_pyarrow = merge_update_pyarrow
 
     def test_merge_upsert_pyarrow_basic(self, tmp_path):
-        """Test _merge_upsert_pyarrow with basic data."""
+        """Test merge_upsert_pyarrow with basic data."""
         existing = pa.table(
             {
                 "id": [1, 2, 3],
@@ -885,7 +890,7 @@ class TestPyArrowMergeMethods:
             }
         )
 
-        result = self.handler._merge_upsert_pyarrow(existing, source, ["id"])
+        result = self.merge_upsert_pyarrow(existing, source, ["id"])
 
         assert result.num_rows == 4
         result_dict = result.to_pydict()
@@ -904,14 +909,14 @@ class TestPyArrowMergeMethods:
         assert result_rows == expected_rows
 
     def test_merge_upsert_pyarrow_no_overlap(self, tmp_path):
-        """Test _merge_upsert_pyarrow when no keys overlap."""
+        """Test merge_upsert_pyarrow when no keys overlap."""
         existing = pa.table({"id": [1, 2], "name": ["Alice", "Bob"], "value": [10, 20]})
 
         source = pa.table(
             {"id": [3, 4], "name": ["Charlie", "David"], "value": [30, 40]}
         )
 
-        result = self.handler._merge_upsert_pyarrow(existing, source, ["id"])
+        result = self.merge_upsert_pyarrow(existing, source, ["id"])
 
         assert result.num_rows == 4
         result_dict = result.to_pydict()
@@ -932,7 +937,7 @@ class TestPyArrowMergeMethods:
             {"id": [1, 2], "name": ["Alice Updated", "Bob Updated"], "value": [15, 25]}
         )
 
-        result = self.handler._merge_upsert_pyarrow(existing, source, ["id"])
+        result = self.merge_upsert_pyarrow(existing, source, ["id"])
 
         assert result.num_rows == 2
         result_dict = result.to_pydict()
@@ -959,7 +964,7 @@ class TestPyArrowMergeMethods:
             }
         )
 
-        result = self.handler._merge_upsert_pyarrow(
+        result = self.merge_upsert_pyarrow(
             existing, source, ["user_id", "date"]
         )
 
@@ -997,7 +1002,7 @@ class TestPyArrowMergeMethods:
             }
         )
 
-        result = self.handler._merge_update_pyarrow(existing, source, ["id"])
+        result = self.merge_update_pyarrow(existing, source, ["id"])
 
         assert result.num_rows == 3
         result_dict = result.to_pydict()
@@ -1018,7 +1023,7 @@ class TestPyArrowMergeMethods:
             {"id": [3, 4], "name": ["Charlie", "David"], "value": [30, 40]}
         )
 
-        result = self.handler._merge_update_pyarrow(existing, source, ["id"])
+        result = self.merge_update_pyarrow(existing, source, ["id"])
 
         assert result.num_rows == 2
         result_dict = result.to_pydict()
@@ -1035,7 +1040,7 @@ class TestPyArrowMergeMethods:
             {"id": [1, 2], "name": ["Alice Updated", "Bob Updated"], "value": [15, 25]}
         )
 
-        result = self.handler._merge_update_pyarrow(existing, source, ["id"])
+        result = self.merge_update_pyarrow(existing, source, ["id"])
 
         assert result.num_rows == 2
         result_dict = result.to_pydict()
@@ -1059,7 +1064,7 @@ class TestPyArrowMergeMethods:
             {"id": [2, 3], "name": ["Bob Updated", "Charlie"], "value": [25, 30]}
         )
 
-        result = self.handler._merge_upsert_pyarrow(existing, source, ["id"])
+        result = self.merge_upsert_pyarrow(existing, source, ["id"])
 
         assert result.num_rows == 3
         result_dict = result.to_pydict()
@@ -1096,7 +1101,7 @@ class TestPyArrowMergeMethods:
             {"id": [2, 3], "name": ["Bob Updated", "Charlie"], "value": [25, 30]}
         )
 
-        result = self.handler._merge_update_pyarrow(existing, source, ["id"])
+        result = self.merge_update_pyarrow(existing, source, ["id"])
 
         assert result.num_rows == 2
         result_dict = result.to_pydict()

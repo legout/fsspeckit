@@ -1,0 +1,219 @@
+/home/volker/coding/fsspeckit/README.md:101:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/README.md:103:with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/README.md:342:- `duckdb>=0.9.0` - SQL analytics (required for `fsspeckit.datasets.DuckDBParquetHandler`)
+/home/volker/coding/fsspeckit/src/fsspeckit/datasets/duckdb/__init__.py:38:# Main DuckDBParquetHandler class for backward compatibility
+/home/volker/coding/fsspeckit/src/fsspeckit/datasets/duckdb/__init__.py:39:class DuckDBParquetHandler(DuckDBDatasetIO):
+/home/volker/coding/fsspeckit/src/fsspeckit/datasets/duckdb/__init__.py:40:    """Backward compatibility wrapper for DuckDBParquetHandler.
+/home/volker/coding/fsspeckit/src/fsspeckit/datasets/duckdb/__init__.py:99:    "DuckDBParquetHandler",
+/home/volker/coding/fsspeckit/src/fsspeckit/datasets/__init__.py:13:from .duckdb import DuckDBParquetHandler, MergeStrategy
+/home/volker/coding/fsspeckit/src/fsspeckit/datasets/__init__.py:65:    "DuckDBParquetHandler",
+/home/volker/coding/fsspeckit/examples/datasets/workflows/performance_optimization.py:34:    DuckDBParquetHandler,
+/home/volker/coding/fsspeckit/examples/datasets/workflows/performance_optimization.py:240:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/workflows/README.md:83:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/examples/datasets/workflows/README.md:93:with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/workflows/README.md:286:   with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/workflows/cloud_datasets.py:37:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/src/fsspeckit/datasets/pyarrow/io.py:1675:    This class provides a familiar interface for users coming from DuckDBParquetHandler.
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:5:DuckDBParquetHandler for efficient parquet dataset operations.
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:27:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:117:    """Demonstrate basic DuckDBParquetHandler usage."""
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:119:    print("\n🚀 Basic DuckDBParquetHandler Usage")
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:126:        # Write data using DuckDBParquetHandler
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:129:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:167:    """Demonstrate basic SQL queries with DuckDBParquetHandler."""
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:169:    print("\n🔍 SQL Queries with DuckDBParquetHandler")
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:177:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:252:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:260:        handler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:292:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:300:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:326:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:379:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:389:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:408:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/01_duckdb_basics.py:439:    print("This example introduces fundamental DuckDBParquetHandler usage")
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/03_simple_merges.py:30:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/03_simple_merges.py:389:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/03_simple_merges.py:516:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/README.md:22:- Basic DuckDBParquetHandler usage
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/README.md:87:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/README.md:89:with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/05_duckdb_upserts.py:25:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/05_duckdb_upserts.py:120:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/05_duckdb_upserts.py:200:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/05_duckdb_upserts.py:285:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/05_duckdb_upserts.py:348:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/datasets/getting_started/05_duckdb_upserts.py:408:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/README.md:84:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/examples/README.md:87:with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/README.md:156:   with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/README.md:278:handler = DuckDBParquetHandler(memory_limit="2GB")
+/home/volker/coding/fsspeckit/examples/README.md:318:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/examples/sql/README.md:137:- **DuckDB Examples**: Use SQL filters with DuckDBParquetHandler
+/home/volker/coding/fsspeckit/examples/sql/cross_platform_filters.py:28:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/examples/sql/cross_platform_filters.py:144:        with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/examples/fsspeckit_interactive_playground.py:470:    from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/examples/fsspeckit_interactive_playground.py:472:    handler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/docs/explanation/concepts.md:20:from fsspeckit.datasets import PyarrowDatasetIO, DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/explanation/concepts.md:285:ImportError: The 'duckdb' package is required for DuckDBParquetHandler.
+/home/volker/coding/fsspeckit/docs/explanation/concepts.md:393:    DuckDBParquetHandler,   # Dataset operations
+/home/volker/coding/fsspeckit/docs/explanation/concepts.md:406:from fsspeckit.datasets import DuckDBParquetHandler  # Obvious: datasets
+/home/volker/coding/fsspeckit/docs/explanation/architecture.md:45:- `DuckDBParquetHandler` - from `fsspeckit.datasets`
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:10:from fsspeckit.datasets.duckdb import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:33:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:65:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:89:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:102:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:126:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:145:                with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:162:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:177:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:190:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:212:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:243:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:268:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/tests/test_utils/test_edge_cases.py:287:            with DuckDBParquetHandler() as handler:
+/home/volker/coding/fsspeckit/docs/how-to/migrate-package-layout.md:57:| `from fsspeckit.utils import DuckDBParquetHandler` | `from fsspeckit.datasets.duckdb import DuckDBParquetHandler` | Direct import |
+/home/volker/coding/fsspeckit/docs/how-to/migrate-package-layout.md:64:from fsspeckit.utils import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/how-to/migrate-package-layout.md:66:handler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/docs/how-to/migrate-package-layout.md:71:from fsspeckit.datasets.duckdb import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/how-to/migrate-package-layout.md:73:handler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/docs/how-to/migrate-package-layout.md:106:from fsspeckit.utils import DuckDBParquetHandler, setup_logging
+/home/volker/coding/fsspeckit/docs/how-to/migrate-package-layout.md:116:handler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/docs/how-to/migrate-package-layout.md:123:from fsspeckit.datasets.duckdb import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/how-to/migrate-package-layout.md:134:handler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/docs/installation.md:62:- **DuckDB**: Required for `fsspeckit.datasets.DuckDBParquetHandler`
+/home/volker/coding/fsspeckit/src/fsspeckit/utils/__init__.py:26:- DuckDBParquetHandler
+/home/volker/coding/fsspeckit/src/fsspeckit/utils/__init__.py:33:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/src/fsspeckit/utils/__init__.py:66:    "DuckDBParquetHandler",
+/home/volker/coding/fsspeckit/tests/test_layering_compliance.py:125:        assert hasattr(utils, "DuckDBParquetHandler"), (
+/home/volker/coding/fsspeckit/tests/test_layering_compliance.py:126:            "utils should export DuckDBParquetHandler"
+/home/volker/coding/fsspeckit/tests/test_layering_compliance.py:130:        assert utils.DuckDBParquetHandler is duckdb.DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/reference/utils.md:33:| `from fsspeckit.utils import DuckDBParquetHandler` | Datasets | `from fsspeckit.datasets import DuckDBParquetHandler` |
+/home/volker/coding/fsspeckit/docs/reference/utils.md:165:from fsspeckit.utils import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/reference/utils.md:168:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/reference/utils.md:171:handler = DuckDBParquetHandler(storage_options=storage_options)
+/home/volker/coding/fsspeckit/docs/reference/utils.md:226:from fsspeckit.utils import run_parallel, DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/reference/utils.md:229:handler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/docs/reference/utils.md:239:from fsspeckit.datasets import DuckDBParquetHandler  # New
+/home/volker/coding/fsspeckit/docs/reference/utils.md:243:handler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/docs/reference/utils.md:253:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/reference/utils.md:259:handler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/docs/reference/utils.md:270:from fsspeckit.datasets import DuckDBParquetHandler  # Obvious: dataset operations
+/home/volker/coding/fsspeckit/docs/reference/utils.md:279:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/reference/utils.md:282:handler: DuckDBParquetHandler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/docs/reference/utils.md:290:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/reference/utils.md:293:from fsspeckit.utils import dict_to_dataframe, DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/reference/utils.md:323:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/reference/utils.md:333:from fsspeckit.utils import DuckDBParquetHandler, run_parallel
+/home/volker/coding/fsspeckit/docs/reference/utils.md:336:from fsspeckit.datasets import DuckDBParquetHandler  # Migrate this
+/home/volker/coding/fsspeckit/docs/reference/utils.md:340:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/reference/utils.md:351:        from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/reference/utils.md:354:        self.handler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/docs/api/fsspeckit.datasets.md:111:### `DuckDBParquetHandler`
+/home/volker/coding/fsspeckit/docs/reference/api-guide.md:239:| `from fsspeckit.utils import DuckDBParquetHandler` | Datasets | `from fsspeckit.datasets import DuckDBParquetHandler` |
+/home/volker/coding/fsspeckit/docs/reference/api-guide.md:298:from fsspeckit.datasets import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/docs/reference/api-guide.md:303:    handler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/openspec/specs/utils-duckdb/spec.md:204:The system SHALL provide a `DuckDBParquetHandler` class that can be initialized with either a storage options object or an existing filesystem instance to enable parquet operations with DuckDB.
+/home/volker/coding/fsspeckit/openspec/specs/utils-duckdb/spec.md:208:- **WHEN** user creates `DuckDBParquetHandler(storage_options=AwsStorageOptions(...))`
+/home/volker/coding/fsspeckit/openspec/specs/utils-duckdb/spec.md:213:- **WHEN** user creates `DuckDBParquetHandler(filesystem=fs)`
+/home/volker/coding/fsspeckit/openspec/specs/utils-duckdb/spec.md:218:- **WHEN** user creates `DuckDBParquetHandler()` without parameters
+/home/volker/coding/fsspeckit/openspec/specs/utils-duckdb/spec.md:330:- **WHEN** user creates handler with `with DuckDBParquetHandler() as handler:`
+/home/volker/coding/fsspeckit/openspec/specs/utils-duckdb/spec.md:784:DuckDBParquetHandler.merge_parquet_dataset SHALL use shared validation and statistics from fsspeckit.core.merge.
+/home/volker/coding/fsspeckit/docs/api/index.md:47:> - `from fsspeckit.datasets import DuckDBParquetHandler` instead of `from fsspeckit.utils import DuckDBParquetHandler`
+/home/volker/coding/fsspeckit/openspec/specs/datasets-duckdb/spec.md:30:- **AND** SHALL include `DuckDBParquetHandler` re-exports
+/home/volker/coding/fsspeckit/openspec/specs/project-docs/spec.md:196:- **THEN** only shipped APIs are referenced (for example `DuckDBParquetHandler`, `filesystem`, storage option factories)
+/home/volker/coding/fsspeckit/openspec/specs/project-docs/spec.md:264:  (for example, `DuckDBParquetHandler` from `fsspeckit.datasets.duckdb`,
+/home/volker/coding/fsspeckit/openspec/specs/project-docs/spec.md:589:- **THEN** examples SHALL use `from fsspeckit.datasets import PyarrowDatasetIO, DuckDBParquetHandler`
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-add-pyarrow-dataset-handler/proposal.md:4:DuckDB has a `DuckDBDatasetIO` class and `DuckDBParquetHandler` façade. PyArrow exposes functions but no symmetric
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-add-pyarrow-dataset-handler/tasks.md:7:- [x] 1.3 Align method names and signatures with `DuckDBDatasetIO`/`DuckDBParquetHandler` where feasible.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-add-pyarrow-dataset-handler/design.md:17:- `PyarrowDatasetHandler` will be a thin wrapper (similar to `DuckDBParquetHandler`) and re-exported from
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-add-duckdb-merge-aware-write-docs/tasks.md:9:  - [x] 1.2.5 `DuckDBParquetHandler` re-export documentation
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-add-duckdb-merge-aware-write-docs/specs/datasets-duckdb/spec.md:27:- **AND** SHALL include `DuckDBParquetHandler` re-exports
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-update-duckdb-error-model/proposal.md:12:The current `DuckDBParquetHandler` implementation only partially matches this:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-update-duckdb-error-model/proposal.md:22:- Update `DuckDBParquetHandler.read_parquet` to:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-update-duckdb-error-model/proposal.md:27:- Update `DuckDBParquetHandler.write_parquet` and `write_parquet_dataset` to:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-update-duckdb-error-model/tasks.md:14:- [x] 2.1 Update `DuckDBParquetHandler.read_parquet` to:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-update-duckdb-error-model/tasks.md:18:- [x] 2.2 Update `DuckDBParquetHandler.write_parquet` to:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-update-duckdb-error-model/tasks.md:24:- [x] 3.1 Update `DuckDBParquetHandler.write_parquet_dataset` to:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-05-update-docs-core-guides-alignment/tasks.md:24:- [x] 4.2 Refresh `docs/utils.md` so each documented helper lists its canonical module (for example `DuckDBParquetHandler` from `fsspeckit.datasets`, `merge_parquet_dataset_pyarrow` from `fsspeckit.datasets.pyarrow`).
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-05-update-docs-core-guides-alignment/design.md:88:  - For each documented helper, list its canonical module (for example `DuckDBParquetHandler` from `fsspeckit.datasets`, `merge_parquet_dataset_pyarrow` from `fsspeckit.datasets.pyarrow`).
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-15-add-duckdb-parquet-maintenance/proposal.md:16:- Add `compact_parquet_dataset` method to `DuckDBParquetHandler`
+/home/volker/coding/fsspeckit/tests/test_utils/test_utils_backwards_compat.py:16:        from fsspeckit.utils import DuckDBParquetHandler
+/home/volker/coding/fsspeckit/tests/test_utils/test_utils_backwards_compat.py:18:            DuckDBParquetHandler as CanonicalDuckDBParquetHandler,
+/home/volker/coding/fsspeckit/tests/test_utils/test_utils_backwards_compat.py:21:        assert DuckDBParquetHandler is CanonicalDuckDBParquetHandler
+/home/volker/coding/fsspeckit/tests/test_utils/test_utils_backwards_compat.py:74:            "DuckDBParquetHandler",
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-05-refactor-docs-diataxis-structure/tasks.md:31:  - [x] Basic `DuckDBParquetHandler` usage for reading/writing datasets and simple analytics.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-05-refactor-docs-diataxis-structure/design.md:19:    - Use a basic dataset helper (e.g., `DuckDBParquetHandler`) for an end-to-end example.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-05-refactor-docs-diataxis-structure/design.md:35:  - Core `DuckDBParquetHandler` workflows (write, query via SQL, read back).
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-02-refactor-package-layout-fsspeckit/proposal.md:58:  - Existing imports like `from fsspeckit.utils import DuckDBParquetHandler`
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-02-refactor-package-layout-fsspeckit/tasks.md:20:  `DuckDBParquetHandler` and dataset maintenance/merge helpers live under the
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-02-refactor-package-layout-fsspeckit/tasks.md:50:  `from fsspeckit.datasets import DuckDBParquetHandler`), while noting that
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-02-refactor-package-layout-fsspeckit/design.md:13:  - High-value dataset features: DuckDBParquetHandler, DuckDB dataset
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-02-refactor-package-layout-fsspeckit/specs/project-architecture/spec.md:50:- **THEN** they can import `DuckDBParquetHandler` and related dataset
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-02-refactor-package-layout-fsspeckit/specs/project-architecture/spec.md:102:  `from fsspeckit.utils import DuckDBParquetHandler`,
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-17-add-pyarrow-parquet-maintenance/proposal.md:5:`DuckDBParquetHandler` currently provides `compact_parquet_dataset` and
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-maintenance-layer-backend-neutral/proposal.md:7:- DuckDB-backed maintenance in `DuckDBParquetHandler.compact_parquet_dataset` and `DuckDBParquetHandler.optimize_parquet_dataset`.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-maintenance-layer-backend-neutral/proposal.md:21:- `optimize_parquet_dataset_pyarrow` and `DuckDBParquetHandler.optimize_parquet_dataset` both materialize the full filtered dataset into a single `pa.Table` before sorting and chunking, which conflicts with the “streaming / avoid full materialization” guidance in the PyArrow maintenance spec and is not ideal for large datasets.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-maintenance-layer-backend-neutral/proposal.md:37:  - `DuckDBParquetHandler.compact_parquet_dataset`:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-maintenance-layer-backend-neutral/proposal.md:41:  - `DuckDBParquetHandler.optimize_parquet_dataset`:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-maintenance-layer-backend-neutral/tasks.md:26:- [x] 3.1 Refactor `DuckDBParquetHandler._collect_dataset_stats` to defer to the new core maintenance stats helper (or remove it if redundant).
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-maintenance-layer-backend-neutral/design.md:8:  - `DuckDBParquetHandler._collect_dataset_stats`
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-maintenance-layer-backend-neutral/design.md:9:  - `DuckDBParquetHandler.compact_parquet_dataset`
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-maintenance-layer-backend-neutral/design.md:10:  - `DuckDBParquetHandler.optimize_parquet_dataset`
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-maintenance-layer-backend-neutral/design.md:135:1. `DuckDBParquetHandler.compact_parquet_dataset`:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-maintenance-layer-backend-neutral/design.md:148:1. `DuckDBParquetHandler.optimize_parquet_dataset`:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-maintenance-layer-backend-neutral/tasks.md.bak:26:- [x] 3.1 Refactor `DuckDBParquetHandler._collect_dataset_stats` to defer to the new core maintenance stats helper (or remove it if redundant).
+/home/volker/coding/fsspeckit/openspec/changes/archive/2026-01-07-update-docs-import-standardization/specs/project-docs/spec.md:14:- **THEN** examples SHALL use `from fsspeckit.datasets import PyarrowDatasetIO, DuckDBParquetHandler`
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-15-add-duckdb-dataset-merge/proposal.md:22:- Add `merge_parquet_dataset` method to `DuckDBParquetHandler` class
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-15-add-duckdb-dataset-merge/proposal.md:44:- Extends existing `DuckDBParquetHandler` functionality
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-15-add-duckdb-dataset-merge/tasks.md:5:- [x] 1.1 Add `merge_parquet_dataset` method to `DuckDBParquetHandler` class
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-refactor-module-layout-packages/tasks.md:22:  - `__init__.py` re-exporting `DuckDBDatasetIO`, `DuckDBParquetHandler`, `create_duckdb_connection`, `MergeStrategy`, helpers.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-fix-package-layout-critical-issues/specs/project-architecture/spec.md:51:- **THEN** they can import `DuckDBParquetHandler` and related dataset
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-fix-package-layout-critical-issues/specs/project-architecture/spec.md:103:  `from fsspeckit.utils import DuckDBParquetHandler`,
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-fix-package-layout-critical-issues/specs/project-docs/spec.md:196:- **THEN** only shipped APIs are referenced (for example `DuckDBParquetHandler`, `filesystem`, storage option factories)
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-fix-package-layout-critical-issues/specs/project-docs/spec.md:264:  (for example, `DuckDBParquetHandler` from `fsspeckit.datasets.duckdb`,
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-add-duckdb-merge-aware-write/proposal.md:12:  `DuckDBDatasetIO` and re-export via `DuckDBParquetHandler`.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-add-duckdb-merge-aware-write/tasks.md:7:- [x] 1.3 Add convenience methods `insert_dataset`, `upsert_dataset`, `update_dataset`, `deduplicate_dataset` on `DuckDBDatasetIO` and ensure `DuckDBParquetHandler` re-exports them.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-15-add-duckdb-merge-aware-write/design.md:18:- Add helper methods on `DuckDBDatasetIO` and ensure `DuckDBParquetHandler` re-exports them for parity with PyArrow.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-02-refactor-docs-accuracy-ia/tasks.md:12:- [x] 3.1 Ensure all docs reference actual functions/classes (e.g., `convert_large_types_to_normal`, `DuckDBParquetHandler`, `sql2pyarrow_filter`) and avoid APIs not present in `src/`.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-02-refactor-docs-accuracy-ia/specs/project-docs/spec.md:12:- **THEN** only shipped APIs are referenced (for example `DuckDBParquetHandler`, `filesystem`, storage option factories)
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-dataset-write/proposal.md:18:- Add `write_parquet_dataset` method to `DuckDBParquetHandler` class
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-dataset-write/proposal.md:35:- Extends existing `DuckDBParquetHandler` functionality
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-dataset-write/tasks.md:5:- [x] 1.1 Add `write_parquet_dataset` method to `DuckDBParquetHandler` class
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-dataset-write/design.md:5:The current `DuckDBParquetHandler.write_parquet` method only supports writing to single parquet files. Many data engineering workflows require writing to parquet datasets - directory structures containing multiple parquet files. This enables incremental updates, large dataset handling, and better parallelism.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-17-add-pyarrow-dataset-merge/proposal.md:5:`DuckDBParquetHandler.merge_parquet_dataset` provides rich merge semantics for parquet
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-17-add-pyarrow-dataset-merge/proposal.md:31:  `DuckDBParquetHandler.merge_parquet_dataset`:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-17-add-pyarrow-dataset-merge/tasks.md:7:        `DuckDBParquetHandler.merge_parquet_dataset`.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-05-refactor-large-modules-structure/tasks.md:24:  - [x] 2.3.3 Maintained the `DuckDBParquetHandler` API and other public entrypoints via imports/re-exports.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-05-refactor-large-modules-structure/design.md:41:  - `from fsspeckit.datasets import DuckDBParquetHandler`
+/home/volker/coding/fsspeckit/openspec/changes/archive/2026-01-07-cleanup-examples-structure/proposal.md:7:- Some examples reference APIs that no longer exist (e.g. `fs.pydala_dataset`, `DuckDBParquetHandler.register_dataset`, `validate_sql_query`).
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-02-update-docs-package-layout/tasks.md:32:    `from fsspeckit.datasets import DuckDBParquetHandler`) while optionally
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-02-update-docs-package-layout/tasks.md:44:  `DuckDBParquetHandler` and related helpers from `fsspeckit.datasets`.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-12-02-update-docs-package-layout/specs/project-docs/spec.md:49:  (for example, `DuckDBParquetHandler` from `fsspeckit.datasets.duckdb`,
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/proposal.md:9:- Add `DuckDBParquetHandler` class to `fsspeckit.utils.duckdb` module
+/home/volker/coding/fsspeckit/openspec/specs/project-architecture/spec.md:51:- **THEN** they can import `DuckDBParquetHandler` and related dataset
+/home/volker/coding/fsspeckit/openspec/specs/project-architecture/spec.md:103:  `from fsspeckit.utils import DuckDBParquetHandler`,
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-simplify-duckdb-dataset-filenames/proposal.md:11:The current implementation of `DuckDBParquetHandler.write_parquet_dataset` provides:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-simplify-duckdb-dataset-filenames/tasks.md:14:- [x] 2.1 Update `DuckDBParquetHandler.write_parquet_dataset` docstring in `src/fsspeckit/utils/duckdb.py` to match the simplified spec:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-merge-layer-backend-neutral/proposal.md:7:- `DuckDBParquetHandler.merge_parquet_dataset` reads the full target dataset into a PyArrow table, performs an in-memory SQL-style merge, then rewrites the dataset. This contradicts the “larger-than-memory” intent of the DuckDB spec, makes behavior harder to reason about for large datasets, and complicates atomicity.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-merge-layer-backend-neutral/proposal.md:22:- Refactor `DuckDBParquetHandler.merge_parquet_dataset` to:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-merge-layer-backend-neutral/tasks.md:24:- [x] 3.1 Refactor `DuckDBParquetHandler.merge_parquet_dataset` to call backend-neutral merge helpers for:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-merge-layer-backend-neutral/design.md:7:- `DuckDBParquetHandler.merge_parquet_dataset` in `src/fsspeckit/utils/duckdb.py`.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-merge-layer-backend-neutral/design.md:24:- Preserve the existing public APIs (`DuckDBParquetHandler.merge_parquet_dataset`, `merge_parquet_dataset_pyarrow`) while improving correctness and scalability.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-merge-layer-backend-neutral/tasks.md.bak:24:- [ ] 3.1 Refactor `DuckDBParquetHandler.merge_parquet_dataset` to call backend-neutral merge helpers for:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-merge-layer-backend-neutral/specs/utils-duckdb/spec.md:7:DuckDBParquetHandler.merge_parquet_dataset SHALL use shared validation and statistics from fsspeckit.core.merge.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-merge-layer-backend-neutral/delta/utils-duckdb-spec-delta.md:14:- Requirement: DuckDBParquetHandler.merge_parquet_dataset SHALL use shared validation and statistics from fsspeckit.core.merge
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-19-refactor-merge-layer-backend-neutral/delta/utils-duckdb-spec-delta.md:110:Existing code using `DuckDBParquetHandler.merge_parquet_dataset` will continue to work unchanged, with improved consistency and performance as a transparent benefit of the refactored implementation.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/specs/utils-duckdb/spec.md:7:The system SHALL provide a `DuckDBParquetHandler` class that can be initialized with either a storage options object or an existing filesystem instance to enable parquet operations with DuckDB.
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/specs/utils-duckdb/spec.md:11:- **WHEN** user creates `DuckDBParquetHandler(storage_options=AwsStorageOptions(...))`
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/specs/utils-duckdb/spec.md:16:- **WHEN** user creates `DuckDBParquetHandler(filesystem=fs)`
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/specs/utils-duckdb/spec.md:21:- **WHEN** user creates `DuckDBParquetHandler()` without parameters
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/specs/utils-duckdb/spec.md:133:- **WHEN** user creates handler with `with DuckDBParquetHandler() as handler:`
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/design.md:40:- Follows patterns used in examples (`with DuckDBParquetHandler() as handler:`)
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/design.md:66:handler = DuckDBParquetHandler(storage_options=AwsStorageOptions(...))
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/design.md:70:handler = DuckDBParquetHandler(filesystem=fs)
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/design.md:73:handler = DuckDBParquetHandler()
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/design.md:135:class DuckDBParquetHandler:
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/design.md:167:    def __enter__(self) -> "DuckDBParquetHandler":
+/home/volker/coding/fsspeckit/openspec/changes/archive/2025-11-04-add-duckdb-parquet-handler/tasks.md:5:- [x] 1.1 Create `src/fsspeckit/utils/duckdb.py` module with `DuckDBParquetHandler` class

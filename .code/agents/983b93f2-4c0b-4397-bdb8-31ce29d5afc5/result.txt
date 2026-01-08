@@ -1,0 +1,50 @@
+I will read the content of `examples/datasets/getting_started/04_pyarrow_merges.py` and `examples/datasets/getting_started/README.md` to check for API drift and documentation accuracy, and also examine `src/fsspeckit/datasets/pyarrow/io.py` to verify the current API state.
+I will read `examples/datasets/getting_started/03_simple_merges.py` to understand its current scope and implementation.
+I will now refactor `examples/datasets/getting_started/04_pyarrow_merges.py` to use `fsspeckit.datasets.PyarrowDatasetHandler` and its `merge` method, replacing the non-existent API calls and updating the accompanying text to accurately reflect the library's usage.
+I will read `examples/datasets/getting_started/01_duckdb_basics.py` and `examples/datasets/getting_started/02_pyarrow_basics.py` to check for any API drift or deprecated usage, ensuring my proposed plan covers all necessary updates.
+The review of the `getting_started` examples reveals that `04_pyarrow_merges.py` is promoting APIs (`fs.insert_dataset`, `fs.upsert_dataset`) that do not exist in the codebase. The correct API is `PyarrowDatasetHandler.merge(...)`. Additionally, this example is missing from the `README.md` learning path.
+
+Here is the plan to fix these issues and improve the reliability of the examples:
+
+### **Plan**
+
+1.  **Refactor `examples/datasets/getting_started/04_pyarrow_merges.py`**
+    *   **Objective:** Align the example with the actual `fsspeckit` API.
+    *   **Changes:**
+        *   Replace the usage of `LocalFileSystem` and hypothetical methods (`fs.insert_dataset`, etc.) with `fsspeckit.datasets.PyarrowDatasetHandler`.
+        *   Update the `demonstrate_*` functions to use `handler.merge(..., strategy='insert/upsert/update')`.
+        *   Rewrite the "Quick Reference" and explanation text to reflect `handler.merge`.
+    *   **Rationale:** The current example confuses users by referencing removed convenience methods.
+
+2.  **Update `examples/datasets/getting_started/README.md`**
+    *   **Objective:** Integrate the merge-aware writes example into the learning path.
+    *   **Changes:**
+        *   Add a section "4. `04_pyarrow_merges.py` - Advanced Merge Operations" to the "Learning Path".
+        *   Highlight that this covers `upsert`, `update`, and `insert` strategies using `PyarrowDatasetHandler`.
+
+3.  **Verify Example Execution**
+    *   **Objective:** Ensure the refactored code runs successfully.
+    *   **Action:** Run `uv run python examples/datasets/getting_started/04_pyarrow_merges.py` after modifications.
+
+### **Detailed Changes for `04_pyarrow_merges.py`**
+
+The file should be updated to look like this (abbreviated):
+
+```python
+from fsspeckit.datasets import PyarrowDatasetHandler
+from fsspec.implementations.local import LocalFileSystem
+
+# ... inside functions ...
+fs = LocalFileSystem()
+handler = PyarrowDatasetHandler(filesystem=fs)
+
+# Instead of fs.upsert_dataset(...)
+handler.merge(
+    data,
+    path,
+    strategy="upsert",
+    key_columns=["id"]
+)
+```
+
+This plan ensures the examples are accurate, runnable, and documented correctly.

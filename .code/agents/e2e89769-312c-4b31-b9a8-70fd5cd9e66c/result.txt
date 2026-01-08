@@ -1,0 +1,206 @@
+[2026-01-07T18:05:02] OpenAI Codex v0.0.0 (research preview)
+[2026-01-07T18:05:02] binary: /home/volker/.cache/just-every/code/0.6.40/code-aarch64-unknown-linux-musl
+--------
+workdir: /home/volker/coding/fsspeckit
+model: gpt-5.2-codex
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: auto
+--------
+[2026-01-07T18:05:02] User instructions:
+Context: Repo: /home/volker/coding/fsspeckit. We updated getting_started examples with dependency checks and README install guidance. Ran examples via uv and they succeeded. There may be API drift in examples (e.g., 04_pyarrow_merges mentions fs.insert_dataset etc which are removed). Identify worthwhile follow-ups that improve reliability and user experience.
+
+Agent: Propose meaningful and useful follow-ups after getting_started examples now run successfully. Consider docs/README improvements, example accuracy vs current APIs, testing, CI checks, and optional refactors. Provide a concise plan with steps and rationale.
+
+Files to consider: /home/volker/coding/fsspeckit/examples/datasets/getting_started/README.md, /home/volker/coding/fsspeckit/examples/datasets/getting_started/04_pyarrow_merges.py, /home/volker/coding/fsspeckit/src/fsspeckit/datasets/pyarrow/io.py
+
+[Running in read-only mode - no modifications allowed]
+
+[2026-01-07T18:05:05] thinking
+
+**Reviewing plan and skills files**
+[2026-01-07T18:05:06] exec cat /home/volker/.code/skills/.system/plan/SKILL.md in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:06] cat /home/volker/.code/skills/.system/plan/SKILL.md succeeded in 2ms:
+---
+name: plan
+description: Generate a plan for how an agent should accomplish a complex coding task. Use when a user asks for a plan, and optionally when they want to save, find, read, update, or delete plan files in $CODEX_HOME/plans (default ~/.codex/plans).
+metadata:
+  short-description: Generate a plan for a complex task
+---
+
+# Plan
+
+## Overview
+
+Draft structured plans that clarify intent, scope, requirements, action items, testing/validation, and risks.
+
+Optionally, save plans to disk as markdown files with YAML frontmatter and free-form content. When drafting in chat, output only the plan body without frontmatter; add frontmatter only when saving to disk. Only write to the plans folder; do not modify the repository codebase.
+
+This skill can also be used to draft codebase or system overviews.
+
+## Core rules
+
+- Resolve the plans directory as `$CODEX_HOME/plans` or `~/.codex/plans` when `CODEX_HOME` is not set.
+[2026-01-07T18:05:06] tokens used: 8,840
+
+[2026-01-07T18:05:09] thinking
+
+**Searching for openspec AGENTS file**
+[2026-01-07T18:05:09] exec cat /home/volker/coding/fsspeckit/openspec/AGENTS.md in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:09] cat /home/volker/coding/fsspeckit/openspec/AGENTS.md succeeded in 4ms:
+# OpenSpec Instructions
+
+Instructions for AI coding assistants using OpenSpec for spec-driven development.
+
+## TL;DR Quick Checklist
+
+- Search existing work: `openspec spec list --long`, `openspec list` (use `rg` only for full-text search)
+- Decide scope: new capability vs modify existing capability
+- Pick a unique `change-id`: kebab-case, verb-led (`add-`, `update-`, `remove-`, `refactor-`)
+- Scaffold: `proposal.md`, `tasks.md`, `design.md` (only if needed), and delta specs per affected capability
+- Write deltas: use `## ADDED|MODIFIED|REMOVED|RENAMED Requirements`; include at least one `#### Scenario:` per requirement
+- Validate: `openspec validate [change-id] --strict` and fix issues
+- Request approval: Do not start implementation until proposal is approved
+
+## Three-Stage Workflow
+
+### Stage 1: Creating Changes
+Create proposal when you need to:
+- Add features or functionality
+- Make breaking changes (API, schema)
+[2026-01-07T18:05:09] tokens used: 10,695
+
+[2026-01-07T18:05:13] thinking
+
+**Planning file review**
+[2026-01-07T18:05:13] exec cat /home/volker/coding/fsspeckit/examples/datasets/getting_started/README.md in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:14] cat /home/volker/coding/fsspeckit/examples/datasets/getting_started/README.md succeeded in 2ms:
+# Getting Started with Datasets
+
+This directory contains beginner-friendly examples that introduce the fundamental concepts of working with datasets using fsspeckit.
+
+## Overview
+
+The examples in this directory are designed to help you:
+- Understand basic dataset operations
+- Learn when to use DuckDB vs PyArrow approaches
+- Master essential data merging techniques
+- Build a foundation for more advanced workflows
+
+## Learning Path
+
+We recommend following the examples in numerical order:
+
+### 1. `01_duckdb_basics.py` - DuckDB Fundamentals
+**Prerequisites**: Basic Python knowledge
+**Time**: 15-20 minutes
+
+[2026-01-07T18:05:14] tokens used: 14,849
+[2026-01-07T18:05:15] exec cat /home/volker/coding/fsspeckit/examples/datasets/getting_started/04_pyarrow_merges.py in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:15] cat /home/volker/coding/fsspeckit/examples/datasets/getting_started/04_pyarrow_merges.py succeeded in 3ms:
+"""
+PyArrow Merge-Aware Writes - Getting Started
+
+This example introduces PyArrow's merge-aware write functionality for efficient dataset operations.
+
+The example covers:
+1. Basic merge-aware write concepts
+2. Strategy selection (insert, upsert, update, etc.)
+3. Key column configuration
+4. Convenience helper functions
+5. Performance benefits over traditional approaches
+"""
+
+import argparse
+import tempfile
+from pathlib import Path
+from typing import Dict, Any
+
+try:
+    import pyarrow as pa
+[2026-01-07T18:05:15] tokens used: 16,717
+[2026-01-07T18:05:17] exec cat /home/volker/coding/fsspeckit/src/fsspeckit/datasets/pyarrow/io.py in /home/volker/coding/fsspeckit
+[2026-01-07T18:05:17] cat /home/volker/coding/fsspeckit/src/fsspeckit/datasets/pyarrow/io.py succeeded in 3ms:
+"""PyArrow dataset I/O and maintenance operations.
+
+This module contains the PyarrowDatasetIO class for reading, writing, and
+maintaining parquet datasets using PyArrow's high-performance engine.
+"""
+
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, Literal, Callable, Iterable
+
+if TYPE_CHECKING:
+    import pyarrow as pa
+    import pyarrow.dataset as ds
+    from fsspec import AbstractFileSystem
+
+    from fsspeckit.core.incremental import MergeResult
+    from fsspeckit.core.merge import MergeStats
+    from fsspeckit.datasets.pyarrow.memory import MemoryMonitor
+    from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+    from fsspeckit.datasets.write_result import WriteDatasetResult
+[2026-01-07T18:05:17] tokens used: 21,522
+
+[2026-01-07T18:05:23] thinking
+
+**Outlining response plan**
+[2026-01-07T18:05:23] codex
+
+Using skill: plan (user asked for a concise plan).
+
+# Plan
+
+Focus on follow-ups that improve reliability and UX now that examples run, with an emphasis on API accuracy and documentation clarity.
+
+## Requirements
+- Ensure getting_started examples reflect current public APIs (no stale `fs.*` helpers).
+- Keep README and example list accurate and runnable with documented install steps.
+- Add lightweight validation so drift is caught early (CI or local script).
+
+## Scope
+- In: `examples/datasets/getting_started/README.md`, `examples/datasets/getting_started/04_pyarrow_merges.py`, `src/fsspeckit/datasets/pyarrow/io.py`, docs references in examples.
+- Out: Major API redesign, new merge features, performance tuning.
+
+## Files and entry points
+- `examples/datasets/getting_started/README.md`
+- `examples/datasets/getting_started/04_pyarrow_merges.py`
+- `src/fsspeckit/datasets/pyarrow/io.py`
+
+## Data model / API changes
+- None planned; align docs/examples to current API or introduce minimal wrappers only if they already exist as intended public API.
+
+## Action items
+[ ] Audit `04_pyarrow_merges.py` for API drift and replace `fs.*_dataset` calls with current supported APIs (likely `PyarrowDatasetHandler.merge(...)` or `write_dataset(...)`), or remove/mark sections as “conceptual” if no API exists.  
+Rationale: avoid teaching non-existent calls.
+
+[ ] Update `examples/datasets/getting_started/README.md` to include `04_pyarrow_merges.py` in the learning path and explicitly note which merge operations are supported today.  
+Rationale: align docs with the expanded example set and reduce confusion.
+
+[ ] Add a small “API compatibility” note in the example (or README) pointing to the real merge entry points (`PyarrowDatasetIO.merge` and `MergeStrategy`), with references to `src/fsspeckit/datasets/pyarrow/io.py`.  
+Rationale: direct readers to authoritative APIs.
+
+[ ] Add a lightweight example check in CI (or a local `scripts/verify_examples.py`) that runs the getting_started scripts under the documented env (uv/pip) with a short timeout.  
+Rationale: catch drift and dependency issues early.
+
+[ ] Consider adding a “public API” section to the dataset docs that lists supported operations and helpers so examples can link to a single stable source.  
+Rationale: reduce duplication and future drift.
+
+## Testing and validation
+- Run the getting_started examples as a CI job or script with `uv run python ...`.
+- Spot-check that outputs match expectations and no import errors occur.
+- If wrappers are added/changed, add unit tests around merge/strategy behaviors.
+
+## Risks and edge cases
+- If `fs.*_dataset` helpers were intended but removed, changing examples may reduce discoverability. Ensure README points to the actual API.
+- CI example runs may be flaky if they depend on system resources; use temp dirs and small data.
+
+## Open questions
+- Should we reintroduce convenience helpers (`insert_dataset`, `upsert_dataset`, etc.) as part of the public API, or keep examples aligned to `PyarrowDatasetIO.merge` only?  
+- Is there a preferred CI job definition for examples (existing workflow or new one)?  
+
+If you want, I can turn this into a saved plan or start implementing the doc/example updates once write access is available.
+[2026-01-07T18:05:35] tokens used: 30,074

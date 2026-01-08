@@ -7,19 +7,21 @@ to prevent common security issues like path traversal and credential leakage in 
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, ClassVar
 
 
 # Known-safe compression codecs for parquet operations
-VALID_COMPRESSION_CODECS = frozenset({
-    "snappy",
-    "gzip",
-    "lz4",
-    "zstd",
-    "brotli",
-    "uncompressed",
-    "none",
-})
+VALID_COMPRESSION_CODECS = frozenset(
+    {
+        "snappy",
+        "gzip",
+        "lz4",
+        "zstd",
+        "brotli",
+        "uncompressed",
+        "none",
+    }
+)
 
 # Patterns that indicate credential-like values in error messages
 _CREDENTIAL_PATTERNS = [
@@ -43,13 +45,102 @@ _CREDENTIAL_PATTERNS = [
 ]
 
 # Characters that should never appear in filesystem paths
-_FORBIDDEN_PATH_CHARS = frozenset({
-    "\x00",  # Null byte
-    "\x01", "\x02", "\x03", "\x04", "\x05", "\x06", "\x07",  # Control chars
-    "\x08", "\x0b", "\x0c", "\x0e", "\x0f",  # More control chars
-    "\x10", "\x11", "\x12", "\x13", "\x14", "\x15", "\x16", "\x17",
-    "\x18", "\x19", "\x1a", "\x1b", "\x1c", "\x1d", "\x1e", "\x1f",
-})
+_FORBIDDEN_PATH_CHARS = frozenset(
+    {
+        "\x00",  # Null byte
+        "\x01",
+        "\x02",
+        "\x03",
+        "\x04",
+        "\x05",
+        "\x06",
+        "\x07",  # Control chars
+        "\x08",
+        "\x0b",
+        "\x0c",
+        "\x0e",
+        "\x0f",  # More control chars
+        "\x10",
+        "\x11",
+        "\x12",
+        "\x13",
+        "\x14",
+        "\x15",
+        "\x16",
+        "\x17",
+        "\x18",
+        "\x19",
+        "\x1a",
+        "\x1b",
+        "\x1c",
+        "\x1d",
+        "\x1e",
+        "\x1f",
+    }
+)
+
+
+class PathValidator:
+    """Secure path validation for DuckDB SQL queries.
+
+    DuckDB's parquet_scan() does not support parameterized file paths,
+    requiring careful validation before SQL string interpolation.
+    """
+
+    # Strict allowlist: alphanumeric, dots, underscores, hyphens, forward slashes, asterisks
+    SAFE_PATH_PATTERN: ClassVar[re.Pattern] = re.compile(r"^[a-zA-Z0-9._/\-*:]+$")
+
+    # Dangerous patterns for SQL injection - allow * for globs
+    DANGEROUS_PATTERNS: ClassVar[re.Pattern] = re.compile(r"'|\"|\;|--|[\x00-\x1f]")
+
+    # Unicode quote variants that could bypass validation
+    UNICODE_QUOTES: ClassVar[re.Pattern] = re.compile(
+        r"[\u0027\u0060\u00b4\u2018\u2019\u201b\u2032\u2035\uff07\uff40]"
+    )
+
+    @classmethod
+    def validate_path_for_sql(cls, path: str, max_length: int = 4096) -> None:
+        """Validate a file path is safe for SQL interpolation.
+
+        Args:
+            path: The file path to validate
+            max_length: Maximum allowed path length
+
+        Raises:
+            ValueError: If the path is unsafe for SQL interpolation
+        """
+        if not path:
+            raise ValueError("Path cannot be empty")
+
+        if len(path) > max_length:
+            raise ValueError(f"Path exceeds maximum length of {max_length}")
+
+        if ".." in path:
+            raise ValueError("Path traversal (..) not allowed")
+
+        if cls.DANGEROUS_PATTERNS.search(path):
+            raise ValueError("Path contains dangerous SQL characters")
+
+        if cls.UNICODE_QUOTES.search(path):
+            raise ValueError("Path contains suspicious Unicode characters")
+
+        if not cls.SAFE_PATH_PATTERN.match(path):
+            raise ValueError(
+                f"Path contains invalid characters. "
+                f"Only alphanumeric, '.', '_', '-', '/', '*', ':' are allowed."
+            )
+
+    @classmethod
+    def escape_for_sql(cls, path: str) -> str:
+        """Defense-in-depth: escape single quotes even after validation.
+
+        Args:
+            path: Already validated path
+
+        Returns:
+            Path with single quotes escaped for SQL string literal
+        """
+        return path.replace("'", "''")
 
 
 def validate_path(path: str, base_dir: str | None = None) -> str:
@@ -88,9 +179,7 @@ def validate_path(path: str, base_dir: str | None = None) -> str:
     # Check for forbidden control characters
     for char in path:
         if char in _FORBIDDEN_PATH_CHARS:
-            raise ValueError(
-                f"Path contains forbidden control character: {repr(char)}"
-            )
+            raise ValueError(f"Path contains forbidden control character: {repr(char)}")
 
     # Check for path traversal when base_dir is specified
     if base_dir is not None:
@@ -108,10 +197,11 @@ def validate_path(path: str, base_dir: str | None = None) -> str:
         path_resolved = os.path.normpath(os.path.abspath(full_path))
 
         # Check if resolved path starts with base directory
-        if not path_resolved.startswith(base_resolved + os.sep) and path_resolved != base_resolved:
-            raise ValueError(
-                f"Path '{path}' escapes base directory '{base_dir}'"
-            )
+        if (
+            not path_resolved.startswith(base_resolved + os.sep)
+            and path_resolved != base_resolved
+        ):
+            raise ValueError(f"Path '{path}' escapes base directory '{base_dir}'")
 
     return path
 
@@ -149,8 +239,7 @@ def validate_compression_codec(codec: str) -> str:
     if normalized not in VALID_COMPRESSION_CODECS:
         valid_list = ", ".join(sorted(VALID_COMPRESSION_CODECS - {"none"}))
         raise ValueError(
-            f"Invalid compression codec: '{codec}'. "
-            f"Must be one of: {valid_list}"
+            f"Invalid compression codec: '{codec}'. Must be one of: {valid_list}"
         )
 
     return normalized
@@ -208,7 +297,9 @@ def scrub_exception(exc: BaseException) -> str:
     return scrub_credentials(str(exc))
 
 
-def validate_columns(columns: list[str] | None, valid_columns: list[str]) -> list[str] | None:
+def validate_columns(
+    columns: list[str] | None, valid_columns: list[str]
+) -> list[str] | None:
     """Validate that requested columns exist in the schema.
 
     This is a helper to prevent column injection in SQL-like operations.
@@ -264,7 +355,9 @@ def safe_format_error(
         parts.append(f": {scrub_exception(error)}")
 
     if context:
-        context_str = ", ".join(f"{k}={scrub_credentials(str(v))}" for k, v in context.items())
+        context_str = ", ".join(
+            f"{k}={scrub_credentials(str(v))}" for k, v in context.items()
+        )
         parts.append(f" ({context_str})")
 
     return " ".join(parts)

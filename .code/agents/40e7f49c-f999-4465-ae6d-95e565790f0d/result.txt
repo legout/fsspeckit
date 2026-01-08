@@ -1,0 +1,91 @@
+Loaded cached Qwen credentials.
+Let me examine the current state of the getting_started examples and identify API drift and other issues that need to be addressed.
+
+Now let me check the 04_pyarrow_merges.py file that was mentioned as having API drift:
+
+Now let me check the current PyArrow IO implementation to understand what APIs are actually available:
+
+Now let me check for any other PyArrow-related files to get a complete picture:
+
+Let me check the PyArrow __init__.py to understand the public API:
+
+Let me also check if there are any example files to understand the current API usage:
+
+Let me check the other example files to see what's consistent across them:
+
+Now I have enough information to identify the key issues and propose meaningful follow-ups. Based on my analysis, I can see that:
+
+1. The example `04_pyarrow_merges.py` is outdated and mentions APIs that have been removed (`fs.insert_dataset`, `fs.upsert_dataset`, etc.)
+2. The actual API available in `PyarrowDatasetIO` is the `merge()` method with different strategies
+3. The examples need to be updated to reflect the current API
+4. The README mentions convenience helpers that don't exist anymore
+
+Here's my plan for meaningful follow-ups:
+
+## Plan for Improving Examples and Documentation
+
+1. **Update 04_pyarrow_merges.py** to reflect the current API with practical examples
+2. **Fix the README** to remove references to deprecated convenience helpers
+3. **Update any other examples** that reference the old API
+4. **Add comprehensive testing** for the examples
+
+Let me first check if there are other examples that need fixing:
+
+Perfect! I've confirmed exactly what needs to be fixed. Now I'll provide a comprehensive plan for improving the reliability and user experience of the getting_started examples:
+
+## Follow-Up Plan: Improve Examples & Documentation
+
+### 1. Update 04_pyarrow_merges.py to Current API
+
+**Problem**: The example shows deprecated convenience helper methods that have been removed from the API.
+
+**Solution**: Update the example to show the current `merge()` API with practical code examples:
+
+```python
+# Instead of:
+fs.upsert_dataset(data, 'customers/', key_columns='customer_id')
+
+# Should be:
+from fsspeckit.datasets import PyarrowDatasetHandler
+handler = PyarrowDatasetHandler()
+handler.merge(data, 'customers/', strategy="upsert", key_columns=['customer_id'])
+```
+
+### 2. Fix README References
+
+**Problem**: README mentions non-existent convenience helpers in documentation and code patterns.
+
+**Solution**: Update documentation to reflect current API:
+- Remove references to `fs.insert_dataset()`, `fs.upsert_dataset()`, etc.
+- Update code patterns to show `handler.merge(..., strategy='...')`
+- Fix the strategy selection guide to match actual API
+
+### 3. Add Real Implementation Examples
+
+**Problem**: The 04_pyarrow_merges.py example shows stubbed implementations rather than actual merge operations.
+
+**Solution**: Add real working examples of:
+- `strategy='insert'` - inserting new records only
+- `strategy='upsert'` - inserting new records, updating existing ones
+- `strategy='update'` - updating existing records only
+- Proper error handling and validation
+
+### 4. Enhance Error Handling and Validation
+
+**Problem**: Users might encounter unclear error messages when using wrong parameters.
+
+**Solution**: Add validation examples showing:
+- Required parameters for each strategy
+- Common mistakes and their resolutions
+- How to handle schema mismatches
+
+### 5. Add Test Coverage for Examples
+
+**Problem**: Examples might silently become outdated as the API evolves.
+
+**Solution**: Create tests that validate examples run correctly:
+- Automated tests that execute code snippets from examples
+- Verify expected behavior for different merge strategies
+- Prevent future API drift
+
+These follow-ups will significantly improve the reliability and user experience by ensuring examples match the current API, reducing confusion for new users, and providing clear guidance on how to properly use the merge functionality.

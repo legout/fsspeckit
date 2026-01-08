@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 from fsspeckit.common.logging import get_logger
 from fsspeckit.common.optional import _DUCKDB_AVAILABLE
 from fsspeckit.common.security import (
+    PathValidator,
     safe_format_error,
     validate_compression_codec,
     validate_path,
@@ -33,7 +34,10 @@ from fsspeckit.core.merge import (
 from fsspeckit.core.merge import (
     MergeStrategy as CoreMergeStrategy,
 )
-from fsspeckit.datasets.duckdb.connection import DuckDBConnection
+from fsspeckit.datasets.duckdb.connection import (
+    DuckDBConnection,
+    create_duckdb_connection,
+)
 from fsspeckit.datasets.duckdb.helpers import _unregister_duckdb_table_safely
 from fsspeckit.datasets.exceptions import (
     DatasetFileError,
@@ -44,6 +48,199 @@ from fsspeckit.datasets.base import BaseDatasetHandler
 from fsspeckit.datasets.path_utils import normalize_path, validate_dataset_path
 
 logger = get_logger(__name__)
+
+
+def collect_dataset_stats_duckdb(
+    path: str,
+    filesystem: AbstractFileSystem | None = None,
+    partition_filter: list[str] | None = None,
+) -> dict[str, Any]:
+    """Collect file-level statistics for a parquet dataset using shared core logic.
+
+    This function delegates to the shared ``fsspeckit.core.maintenance.collect_dataset_stats``
+    function, ensuring consistent dataset discovery and statistics across both DuckDB
+    and PyArrow backends.
+
+    The helper walks the given dataset directory on the provided filesystem,
+    discovers parquet files (recursively), and returns basic statistics:
+
+    - Per-file path, size in bytes, and number of rows
+    - Aggregated total bytes and total rows
+
+    The function is intentionally streaming/metadata-driven and never
+    materializes the full dataset as a single table.
+
+    Args:
+        path: Root directory of the parquet dataset.
+        filesystem: Optional fsspec filesystem. If omitted, a local "file"
+            filesystem is used.
+        partition_filter: Optional list of partition prefix filters
+            (e.g. ["date=2025-11-04"]). Only files whose path relative to
+            ``path`` starts with one of these prefixes are included.
+
+    Returns:
+        Dict with keys:
+
+        - ``files``: list of ``{"path", "size_bytes", "num_rows"}`` dicts
+        - ``total_bytes``: sum of file sizes
+        - ``total_rows``: sum of row counts
+
+    Raises:
+        FileNotFoundError: If the path does not exist or no parquet files
+            match the optional partition filter.
+
+    Note:
+        This is a thin wrapper around the shared core function. See
+        :func:`fsspeckit.core.maintenance.collect_dataset_stats` for the
+        authoritative implementation.
+    """
+    from fsspeckit.core.maintenance import collect_dataset_stats
+
+    return collect_dataset_stats(
+        path=path,
+        filesystem=filesystem,
+        partition_filter=partition_filter,
+    )
+
+
+def compact_parquet_dataset_duckdb(
+    path: str,
+    target_mb_per_file: int | None = None,
+    target_rows_per_file: int | None = None,
+    partition_filter: list[str] | None = None,
+    compression: str | None = None,
+    dry_run: bool = False,
+    filesystem: AbstractFileSystem | None = None,
+) -> dict[str, Any]:
+    """Compact a parquet dataset directory into fewer larger files using DuckDB and shared planning.
+
+    Groups small files based on size (MB) and/or row thresholds, rewrites grouped
+    files into new parquet files, and optionally changes compression. Supports a
+    dry-run mode that returns the compaction plan without modifying files.
+
+    The implementation uses the shared core planning algorithm for consistent
+    behavior across backends. It processes data in a group-based, streaming fashion
+    using DuckDB's native SQL COPY operations, which avoids loading all files into
+    PyArrow memory before writing.
+
+    Args:
+        path: Dataset root directory (local path or fsspec URL).
+        target_mb_per_file: Optional max output size per file; must be > 0.
+        target_rows_per_file: Optional max rows per output file; must be > 0.
+        partition_filter: Optional list of partition prefixes (e.g. ``["date=2025-11-15"]``)
+            used to limit both stats collection and rewrites to matching paths.
+        compression: Optional parquet compression codec; defaults to ``"snappy"``.
+        dry_run: When ``True`` the function returns a plan + before/after stats
+            without reading or writing any parquet data.
+        filesystem: Optional ``fsspec.AbstractFileSystem`` to reuse existing FS clients.
+
+    Returns:
+        A stats dictionary describing before/after file counts, total bytes,
+        rewritten bytes, and optional ``planned_groups`` when ``dry_run`` is enabled.
+        The structure follows the canonical ``MaintenanceStats`` format from the shared core.
+
+    Raises:
+        ValueError: If thresholds are invalid or no files match partition filter.
+        FileNotFoundError: If the path does not exist.
+
+    Example:
+        ```python
+        result = compact_parquet_dataset_duckdb(
+            "/path/to/dataset",
+            target_mb_per_file=64,
+            dry_run=True,
+        )
+        print(f"Files before: {result['before_file_count']}")
+        print(f"Files after: {result['after_file_count']}")
+        ```
+
+    Note:
+        This function delegates dataset discovery and compaction planning to the
+        shared ``fsspeckit.core.maintenance`` module, ensuring consistent behavior
+        across DuckDB and PyArrow backends.
+    """
+    from fsspec import filesystem as fsspec_filesystem
+
+    from fsspeckit.core.maintenance import MaintenanceStats, plan_compaction_groups
+
+    fs = filesystem or fsspec_filesystem("file")
+
+    # Get dataset stats using shared logic
+    stats = collect_dataset_stats_duckdb(
+        path=path, filesystem=fs, partition_filter=partition_filter
+    )
+    files = stats["files"]
+
+    # Use shared compaction planning
+    plan_result = plan_compaction_groups(
+        file_infos=files,
+        target_mb_per_file=target_mb_per_file,
+        target_rows_per_file=target_rows_per_file,
+    )
+
+    groups = plan_result["groups"]
+    planned_stats = plan_result["planned_stats"]
+
+    # Update planned stats with compression info
+    planned_stats.compression_codec = compression
+    planned_stats.dry_run = dry_run
+
+    # If dry run, return the plan
+    if dry_run:
+        result = planned_stats.to_dict()
+        result["planned_groups"] = plan_result["planned_groups"]
+        return result
+
+    # Execute compaction
+    if not groups:
+        return planned_stats.to_dict()
+
+    # Create DuckDB connection
+    conn = create_duckdb_connection(filesystem=fs).connection
+
+    # Execute the compaction using DuckDB SQL COPY
+    for group in groups:
+        # Build parquet_scan union query for this group
+        file_paths = [file_info.path for file_info in group.files]
+
+        # Validate and escape file paths for SQL
+        escaped_paths = []
+        for fp in file_paths:
+            PathValidator.validate_path_for_sql(fp)
+            escaped_paths.append(PathValidator.escape_for_sql(fp))
+
+        # Build union query
+        if len(escaped_paths) == 1:
+            source_query = f"SELECT * FROM parquet_scan('{escaped_paths[0]}')"
+        else:
+            union_queries = " UNION ALL ".join(
+                [f"SELECT * FROM parquet_scan('{ep}')" for ep in escaped_paths]
+            )
+            source_query = f"({union_queries})"
+
+        # Generate output path
+        output_path = f"{path.rstrip('/')}/compacted-{uuid.uuid4().hex[:16]}.parquet"
+        PathValidator.validate_path_for_sql(output_path)
+        escaped_output = PathValidator.escape_for_sql(output_path)
+
+        # Build COPY command with compression
+        copy_command = f"COPY {source_query} TO '{escaped_output}'"
+        options = []
+        if compression:
+            options.append(f"COMPRESSION {compression}")
+        if options:
+            copy_command += f" ({', '.join(options)})"
+
+        # Execute COPY command
+        conn.execute(copy_command)
+
+    # Remove original files
+    for group in groups:
+        for file_info in group.files:
+            fs.rm(file_info.path)
+
+    return planned_stats.to_dict()
+
 
 # DuckDB exception types for specific error handling
 _DUCKDB_EXCEPTIONS = {}
@@ -222,65 +419,6 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         finally:
             # Clean up temporary table
             _unregister_duckdb_table_safely(conn, "data_table")
-
-    def write_parquet_dataset(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        basename_template: str | None = None,
-        schema: pa.Schema | None = None,
-        partition_by: str | list[str] | None = None,
-        compression: str | None = "snappy",
-        max_rows_per_file: int | None = 5_000_000,
-        row_group_size: int | None = 500_000,
-        use_threads: bool = False,
-        strategy: str | CoreMergeStrategy | None = None,
-        key_columns: list[str] | str | None = None,
-        mode: Literal["append", "overwrite"] | None = "append",
-        rewrite_mode: Literal["full", "incremental"] | None = "full",
-    ) -> MergeStats | None:
-        """Write a parquet dataset using DuckDB with optional merge strategies.
-
-        When strategy is provided, the function delegates to merge logic to apply
-        merge semantics directly on the incoming data. This allows for one-step merge
-        operations without requiring separate staging and merge steps.
-
-        Args:
-            data: PyArrow table or list of tables to write
-            path: Output directory path
-            basename_template: Template for file names
-            schema: Optional schema to enforce
-            partition_by: Column(s) to partition by
-            compression: Compression codec
-            max_rows_per_file: Maximum rows per file
-            row_group_size: Rows per row group
-            use_threads: Whether to use parallel writing
-            strategy: Optional merge strategy:
-                - 'insert': Only insert new records
-                - 'upsert': Insert or update existing records
-                - 'update': Only update existing records
-                - 'full_merge': Full replacement with source
-                - 'deduplicate': Remove duplicates
-            key_columns: Key columns for merge operations (required for relational strategies)
-            mode: Write mode (default: 'append'):
-                - 'append': Add new files without deleting existing ones (safer default)
-                - 'overwrite': Replace existing parquet files with new ones
-            rewrite_mode: Rewrite mode for merge strategies:
-                - 'full': Rewrite entire dataset (default, backward compatible)
-                - 'incremental': Only rewrite files affected by merge (requires strategy in {'upsert', 'update'})
-
-        Returns:
-            MergeStats if strategy is provided, None otherwise
-
-        Note:
-            **Mode/Strategy Precedence**: When both `mode` and `strategy` are provided, `strategy` takes precedence
-            and `mode` is ignored. A warning is emitted when `mode` is explicitly provided alongside `strategy`.
-            For merge operations, the strategy semantics control the behavior regardless of the mode setting.
-            rewrite_mode='incremental' is only supported for 'upsert' and 'update' strategies.
-        """
-        raise NotImplementedError(
-            "DuckDBDatasetIO.write_parquet_dataset() legacy API has been removed; "
-        )
 
     def write_dataset(
         self,

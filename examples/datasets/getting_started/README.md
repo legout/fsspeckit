@@ -64,6 +64,47 @@ We recommend following the examples in numerical order:
 - Memory-efficient merging
 - Performance trade-offs
 
+### 4. `04_pyarrow_merges.py` - Merge-Aware Writes
+**Prerequisites**: Completion of PyArrow basics
+**Time**: 20-30 minutes
+
+**What you'll learn:**
+- Insert, update, and upsert strategies with `PyarrowDatasetIO.merge`
+- Key column selection and merge semantics
+- Practical merge workflows for incremental data
+
+**Key concepts:**
+- Merge strategies (`insert`, `update`, `upsert`)
+- Key column best practices
+- Incremental dataset updates
+
+### 5. `05_duckdb_upserts.py` - DuckDB UPSERT Operations
+**Prerequisites**: Completion of DuckDB basics
+**Time**: 20-30 minutes
+
+**What you'll learn:**
+- `INSERT ... ON CONFLICT DO UPDATE` patterns
+- Batched upserts and conflict resolution
+- Comparing DuckDB UPSERTs to PyArrow merges
+
+**Key concepts:**
+- SQL-based upserts
+- Conflict resolution strategies
+- Batch processing
+
+### 6. `06_pyarrow_maintenance.py` - Dataset Maintenance
+**Prerequisites**: Completion of PyArrow basics
+**Time**: 15-20 minutes
+
+**What you'll learn:**
+- Dataset stats collection
+- Compaction and optimization workflows
+
+**Key concepts:**
+- Maintenance operations
+- File count reduction
+- Optimization with compaction
+
 ## Key Differences: DuckDB vs PyArrow
 
 ### Use DuckDB When:
@@ -158,15 +199,23 @@ After completing these examples, you'll be ready for:
 ## Prerequisites Installation
 
 ```bash
-# Core dependencies
-pip install fsspeckit[datasets] pyarrow
+# Recommended (from repo root)
+python -m venv .venv
+source .venv/bin/activate
+pip install -e ".[datasets]"
 
-# Optional for advanced examples
-pip install pandas polars duckdb
+# If you use uv instead of pip
+uv sync
 
-# Development dependencies
-pip install jupyter matplotlib seaborn  # For visualization
+# Development dependencies (optional)
+pip install jupyter matplotlib seaborn
 ```
+
+This installs the required runtime dependencies for the examples, including
+`pyarrow`, `duckdb`, `pandas`, and `polars`.
+
+When using uv, run the examples with `uv run python examples/datasets/getting_started/01_duckdb_basics.py`
+to ensure the managed environment is used.
 
 ## Getting Help
 

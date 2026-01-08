@@ -23,7 +23,7 @@ from fsspec import filesystem as fsspec_filesystem
 
 from fsspeckit.common.logging import get_logger
 from fsspeckit.common.optional import _import_pyarrow
-from fsspeckit.core.merge import MergeStrategy
+from fsspeckit.core.merge import MergeStats, MergeStrategy
 from fsspeckit.datasets.base import BaseDatasetHandler
 from fsspeckit.datasets.exceptions import (
     DatasetFileError,
@@ -411,7 +411,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         from fsspeckit.datasets.pyarrow.dataset import (
             PerformanceMonitor,
             _create_composite_key_array,
-            _create_string_key_array,
+            _create_fallback_key_array,
             _filter_by_key_membership,
             _make_struct_safe,
             _table_drop_duplicates,
@@ -427,10 +427,6 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         monitor.start_op("initialization")
 
         pa_mod = _import_pyarrow()
-        import pyarrow as pa
-        import pyarrow.compute as pc
-        import pyarrow.dataset as ds
-        import pyarrow.parquet as pq
 
         if isinstance(key_columns, str):
             key_columns = [key_columns]
@@ -487,6 +483,9 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         monitor.start_op("source_deduplication")
         source_table = _dedupe_source_last_wins(source_table)
         monitor.end_op()
+
+        # Validate no null keys in source
+        validate_no_null_keys(source_table, key_cols)
 
         # Keep source keys as PyArrow Table/Array for vectorized operations
         source_key_table = source_table.select(key_cols)
@@ -805,8 +804,13 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                         filesystem=self._filesystem,
                         compression=compression or "snappy",
                     ) as writer:
+                        from fsspeckit.datasets.pyarrow.dataset import (
+                            merge_upsert_pyarrow,
+                            merge_update_pyarrow,
+                        )
+
                         if strategy == "upsert":
-                            self._merge_upsert_pyarrow(
+                            merge_upsert_pyarrow(
                                 existing_dataset,
                                 source_for_file,
                                 key_cols,
@@ -816,7 +820,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                                 writer=writer,
                             )
                         else:  # strategy == "update"
-                            self._merge_update_pyarrow(
+                            merge_update_pyarrow(
                                 existing_dataset,
                                 source_for_file,
                                 key_cols,
@@ -834,8 +838,13 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                     monitor.start_op("in_memory_merge")
                     target_table = pq.read_table(file_path, filesystem=self._filesystem)
 
+                    from fsspeckit.datasets.pyarrow.dataset import (
+                        merge_upsert_pyarrow,
+                        merge_update_pyarrow,
+                    )
+
                     if strategy == "upsert":
-                        updated_table = self._merge_upsert_pyarrow(
+                        updated_table = merge_upsert_pyarrow(
                             target_table,
                             source_for_file,
                             key_cols,
@@ -843,7 +852,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                             memory_monitor=monitor._memory_monitor,
                         )
                     else:
-                        updated_table = self._merge_update_pyarrow(
+                        updated_table = merge_update_pyarrow(
                             target_table,
                             source_for_file,
                             key_cols,
@@ -951,103 +960,6 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             metrics=metrics,
         )
 
-    def write_parquet_dataset(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        basename_template: str | None = None,
-        schema: pa.Schema | None = None,
-        partition_by: str | list[str] | None = None,
-        compression: str | None = "snappy",
-        max_rows_per_file: int | None = 5_000_000,
-        row_group_size: int | None = 500_000,
-        strategy: str | None = None,
-        key_columns: list[str] | str | None = None,
-        mode: Literal["append", "overwrite"] | None = "append",
-        rewrite_mode: Literal["full", "incremental"] | None = "full",
-    ) -> MergeStats | None:
-        """Write a parquet dataset using PyArrow with optional merge strategies.
-
-        When strategy is provided, the function performs an in-memory merge
-        and writes the result back to the dataset.
-
-        Args:
-            data: PyArrow table or list of tables to write
-            path: Output directory path
-            basename_template: Template for file names (default: part-{i}.parquet)
-            schema: Optional schema to enforce
-            partition_by: Column(s) to partition by
-            compression: Compression codec (default: snappy)
-            max_rows_per_file: Maximum rows per file (default: 5,000,000)
-            row_group_size: Rows per row group (default: 500,000)
-            strategy: Optional merge strategy:
-                - 'insert': Only insert new records
-                - 'upsert': Insert or update existing records
-                - 'update': Only update existing records
-                - 'full_merge': Full replacement with source
-                - 'deduplicate': Remove duplicates
-            key_columns: Key columns for merge operations (required for relational strategies)
-            mode: Write mode:
-                - 'append': Add new files without deleting existing ones (default, safer)
-                - 'overwrite': Replace existing parquet files with new ones
-            rewrite_mode: Rewrite mode for merge strategies:
-                - 'full': Rewrite entire dataset (default, backward compatible)
-                - 'incremental': Only rewrite files affected by merge (requires strategy in {'upsert', 'update'})
-
-        Returns:
-            None (merge stats are not returned for PyArrow handler)
-
-        Note:
-            **Mode/Strategy Precedence**: When both mode and strategy are provided, strategy takes precedence
-            and mode is ignored. A warning is emitted when mode is explicitly provided alongside strategy.
-            For merge operations, the strategy semantics control the behavior regardless of the mode setting.
-        """
-        raise NotImplementedError(
-            "write_parquet_dataset has been removed. Use write_dataset(...) for append/overwrite writes "
-            "or merge(...) for insert/update/upsert."
-        )
-
-    def merge_parquet_dataset(
-        self,
-        sources: list[str],
-        output_path: str,
-        target: str | None = None,
-        strategy: str | MergeStrategy = "deduplicate",
-        key_columns: list[str] | str | None = None,
-        compression: str | None = None,
-        verbose: bool = False,
-        **kwargs: Any,
-    ) -> MergeStats:
-        """Merge multiple parquet datasets using PyArrow.
-
-        Args:
-            sources: List of source dataset paths
-            output_path: Path for merged output
-            target: Target dataset path (for upsert/update strategies)
-            strategy: Merge strategy to use (default: deduplicate)
-            key_columns: Key columns for merging
-            compression: Output compression codec
-            verbose: Print progress information
-            **kwargs: Additional arguments
-
-        Returns:
-            MergeStats with merge statistics
-
-        Example:
-            ```python
-            io = PyarrowDatasetIO()
-            stats = io.merge_parquet_dataset(
-                sources=["dataset1/", "dataset2/"],
-                output_path="merged/",
-                strategy="deduplicate",
-                key_columns=["id"],
-            )
-            ```
-        """
-        raise NotImplementedError(
-            "merge_parquet_dataset has been removed. Use merge(...) for incremental merges."
-        )
-
     def compact_parquet_dataset(
         self,
         path: str,
@@ -1142,422 +1054,6 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             filesystem=self._filesystem,
             verbose=verbose,
         )
-
-    def insert_dataset(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        key_columns: list[str] | str,
-        **kwargs: Any,
-    ) -> None:
-        """Insert-only dataset write.
-
-        Convenience method that calls write_parquet_dataset with strategy='insert'.
-
-        Args:
-            data: PyArrow table or list of tables to write
-            path: Output directory path
-            key_columns: Key columns for merge (required)
-            **kwargs: Additional arguments passed to write_parquet_dataset
-
-        Raises:
-            ValueError: If key_columns is not provided
-        """
-        raise NotImplementedError(
-            "insert_dataset has been removed. Use merge(..., strategy='insert') instead."
-        )
-
-    def upsert_dataset(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        key_columns: list[str] | str,
-        **kwargs: Any,
-    ) -> None:
-        """Insert-or-update dataset write.
-
-        Convenience method that calls write_parquet_dataset with strategy='upsert'.
-
-        Args:
-            data: PyArrow table or list of tables to write
-            path: Output directory path
-            key_columns: Key columns for merge (required)
-            **kwargs: Additional arguments passed to write_parquet_dataset
-
-        Raises:
-            ValueError: If key_columns is not provided
-        """
-        raise NotImplementedError(
-            "upsert_dataset has been removed. Use merge(..., strategy='upsert') instead."
-        )
-
-    def update_dataset(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        key_columns: list[str] | str,
-        **kwargs: Any,
-    ) -> None:
-        """Update-only dataset write.
-
-        Convenience method that calls write_parquet_dataset with strategy='update'.
-
-        Args:
-            data: PyArrow table or list of tables to write
-            path: Output directory path
-            key_columns: Key columns for merge (required)
-            **kwargs: Additional arguments passed to write_parquet_dataset
-
-        Raises:
-            ValueError: If key_columns is not provided
-        """
-        raise NotImplementedError(
-            "update_dataset has been removed. Use merge(..., strategy='update') instead."
-        )
-
-    def deduplicate_dataset(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        key_columns: list[str] | str | None = None,
-        **kwargs: Any,
-    ) -> None:
-        """Deduplicate dataset write.
-
-        Convenience method that calls write_parquet_dataset with strategy='deduplicate'.
-
-        Args:
-            data: PyArrow table or list of tables to write
-            path: Output directory path
-            key_columns: Key columns for deduplication (optional)
-            **kwargs: Additional arguments passed to write_parquet_dataset
-        """
-        raise NotImplementedError(
-            "deduplicate_dataset has been removed. Use a dedicated dataset maintenance API instead."
-        )
-
-    def _write_parquet_dataset_incremental(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        strategy: MergeStrategy,
-        key_columns: list[str] | str,
-        basename_template: str | None = None,
-        schema: pa.Schema | None = None,
-        partition_by: str | list[str] | None = None,
-        compression: str | None = "snappy",
-        max_rows_per_file: int | None = 5_000_000,
-        row_group_size: int | None = 500_000,
-    ) -> None:
-        """Internal: Incremental rewrite for UPSERT/UPDATE strategies using PyArrow.
-
-        Only rewrites files that might contain the keys being updated,
-        preserving other files unchanged.
-
-        Args:
-            data: Source data to merge
-            path: Target dataset path
-            strategy: Merge strategy (UPSERT or UPDATE)
-            key_columns: Key columns for matching
-            basename_template: Template for file names
-            schema: Optional schema to enforce
-            partition_by: Column(s) to partition by
-            compression: Compression codec
-            max_rows_per_file: Maximum rows per file
-            row_group_size: Rows per row group
-        """
-        import pyarrow.dataset as pds
-
-        # Convert data to single table if it's a list
-        if isinstance(data, list):
-            combined_data = pa.concat_tables(data, promote_options="permissive")
-        else:
-            combined_data = data
-
-        # Extract source keys for planning
-        if isinstance(key_columns, str):
-            key_columns = [key_columns]
-
-        # For now, use a simplified approach that reads all data
-        # In a full implementation, this would use metadata analysis
-        logger.info("Using PyArrow incremental rewrite (simplified implementation)")
-
-        # Read existing dataset
-        try:
-            existing_dataset = pds.dataset(
-                path,
-                filesystem=self._filesystem,
-                format="parquet",
-            )
-            existing_table = existing_dataset.to_table()
-
-            # Apply merge semantics
-            if strategy == MergeStrategy.UPSERT:
-                merged_table = self._merge_upsert_pyarrow(
-                    existing_table, combined_data, key_columns
-                )
-            else:  # UPDATE
-                merged_table = self._merge_update_pyarrow(
-                    existing_table, combined_data, key_columns
-                )
-
-            # Write result using standard writer
-            self._write_dataset_standard(
-                data=merged_table,
-                path=path,
-                basename_template=basename_template,
-                schema=schema,
-                partition_by=partition_by,
-                compression=compression,
-                max_rows_per_file=max_rows_per_file,
-                row_group_size=row_group_size,
-                mode="overwrite",
-            )
-
-        except Exception as e:
-            # If incremental fails, fall back to full merge
-            logger.warning(
-                "incremental_rewrite_failed_falling_back_to_full_merge",
-                error=str(e),
-                path=path,
-                operation="merge",
-            )
-            # NOTE: _perform_merge_in_memory is not defined in PyarrowDatasetIO.
-            # This is a legacy call that should be replaced with a proper full merge
-            # implementation if needed. For now, we preserve the call but add logging.
-            self._perform_merge_in_memory(
-                data=data,
-                path=path,
-                strategy=strategy,
-                key_columns=key_columns,
-                compression=compression,
-                max_rows_per_file=max_rows_per_file,
-                row_group_size=row_group_size,
-                partition_by=partition_by,
-            )
-
-    def _merge_upsert_pyarrow(
-        self,
-        existing: pa.Table | ds.Dataset,
-        source: pa.Table,
-        key_columns: list[str],
-        chunk_size: int = 100_000,
-        max_memory_mb: int = 1024,
-        memory_monitor: MemoryMonitor | None = None,
-        writer: pq.ParquetWriter | None = None,
-        progress_callback: Callable[[int, int], None] | None = None,
-    ) -> pa.Table | None:
-        """Perform UPSERT merge using PyArrow operations with streaming support.
-
-        Args:
-            existing: Existing data (Table or Dataset)
-            source: Source data to merge (Table)
-            key_columns: Columns to use as merge keys
-            chunk_size: Number of rows per processing chunk
-            max_memory_mb: Maximum PyArrow memory to use in MB
-            memory_monitor: Optional MemoryMonitor for enhanced tracking
-            writer: Optional ParquetWriter for streaming output
-            progress_callback: Optional progress callback
-
-        Returns:
-            Merged Table if writer is None, else None
-        """
-        pa_mod = _import_pyarrow()
-        import pyarrow.compute as pc
-
-        from fsspeckit.datasets.pyarrow.dataset import process_in_chunks
-
-        # Align source schema with existing
-        existing_schema = existing.schema
-        source_aligned = source
-        for field in existing_schema:
-            if field.name not in source_aligned.column_names:
-                source_aligned = source_aligned.append_column(
-                    field.name, pa_mod.nulls(len(source_aligned), type=field.type)
-                )
-        source_aligned = source_aligned.select(existing_schema.names).cast(
-            existing_schema
-        )
-
-        # Prepare source keys for filtering
-        use_string_fallback = False
-        if len(key_columns) == 1:
-            source_keys = source_aligned.column(key_columns[0])
-        else:
-            try:
-                # Primary approach: StructArray for vectorized matching
-                source_keys = _create_composite_key_array(source_aligned, key_columns)
-                # Test if is_in works with this StructArray
-                if source_keys.length() > 0:
-                    pc.is_in(source_keys.slice(0, 1), value_set=source_keys.slice(0, 1))
-            except Exception:
-                use_string_fallback = True
-                source_keys = _create_string_key_array(source_aligned, key_columns)
-
-        def _process_chunk(chunk: pa.Table) -> pa.Table:
-            if len(key_columns) == 1:
-                chunk_keys = chunk.column(key_columns[0])
-            elif use_string_fallback:
-                chunk_keys = _create_string_key_array(chunk, key_columns)
-            else:
-                chunk_keys = _create_composite_key_array(chunk, key_columns)
-
-            mask = pc.invert(pc.is_in(chunk_keys, source_keys))
-            return chunk.filter(mask)
-
-        if writer:
-            # Streaming mode
-            for chunk in process_in_chunks(
-                existing,
-                chunk_size,
-                max_memory_mb,
-                progress_callback=progress_callback,
-                memory_monitor=memory_monitor,
-            ):
-                filtered = _process_chunk(chunk)
-                if filtered.num_rows > 0:
-                    writer.write_table(filtered)
-            writer.write_table(source_aligned)
-            return None
-        else:
-            # Batch mode
-            if isinstance(existing, pa_mod.Table) and existing.num_rows <= chunk_size:
-                filtered_existing = _process_chunk(existing)
-            else:
-                chunks = []
-                for chunk in process_in_chunks(
-                    existing,
-                    chunk_size,
-                    max_memory_mb,
-                    progress_callback=progress_callback,
-                    memory_monitor=memory_monitor,
-                ):
-                    chunks.append(_process_chunk(chunk))
-                filtered_existing = pa_mod.concat_tables(
-                    chunks, promote_options="permissive"
-                )
-            return pa_mod.concat_tables(
-                [filtered_existing, source_aligned], promote_options="permissive"
-            )
-
-    def _merge_update_pyarrow(
-        self,
-        existing: pa.Table | ds.Dataset,
-        source: pa.Table,
-        key_columns: list[str],
-        chunk_size: int = 100_000,
-        max_memory_mb: int = 1024,
-        memory_monitor: MemoryMonitor | None = None,
-        writer: pq.ParquetWriter | None = None,
-        progress_callback: Callable[[int, int], None] | None = None,
-    ) -> pa.Table | None:
-        """Perform UPDATE merge using PyArrow operations with streaming support.
-
-        Args:
-            existing: Existing data (Table or Dataset)
-            source: Source data to merge (Table)
-            key_columns: Columns to use as merge keys
-            chunk_size: Number of rows per processing chunk
-            max_memory_mb: Maximum PyArrow memory to use in MB
-            memory_monitor: Optional MemoryMonitor for enhanced tracking
-            writer: Optional ParquetWriter for streaming output
-            progress_callback: Optional progress callback
-
-        Returns:
-            Merged Table if writer is None, else None
-        """
-        pa_mod = _import_pyarrow()
-        import pyarrow.compute as pc
-
-        from fsspeckit.datasets.pyarrow.dataset import (
-            _filter_by_key_membership,
-            _make_struct_safe,
-            _table_drop_duplicates,
-            process_in_chunks,
-        )
-
-        # Align source schema with existing
-        existing_schema = existing.schema
-        source_aligned = source
-        for field in existing_schema:
-            if field.name not in source_aligned.column_names:
-                source_aligned = source_aligned.append_column(
-                    field.name, pa_mod.nulls(len(source_aligned), type=field.type)
-                )
-        source_aligned = source_aligned.select(existing_schema.names).cast(
-            existing_schema
-        )
-
-        # Pass 1: find which source rows are in existing
-        existing_keys_table = None
-        for chunk in process_in_chunks(
-            existing,
-            chunk_size,
-            max_memory_mb,
-            progress_callback=progress_callback,
-            memory_monitor=memory_monitor,
-        ):
-            chunk_keys = chunk.select(key_columns)
-            # Deduplicate within chunk to keep existing_keys_table smaller
-            chunk_keys = _table_drop_duplicates(chunk_keys, subset=key_columns)
-
-            if existing_keys_table is None:
-                existing_keys_table = chunk_keys
-            else:
-                # Only add keys we haven't seen yet
-                new_keys = _filter_by_key_membership(
-                    chunk_keys, key_columns, existing_keys_table, keep_matches=False
-                )
-                if new_keys.num_rows > 0:
-                    existing_keys_table = pa_mod.concat_tables(
-                        [existing_keys_table, new_keys]
-                    )
-
-        # Now filter source to keep only rows that exist in 'existing'
-        if existing_keys_table is None:
-            source_in_existing = source_aligned.schema.empty_table()
-        else:
-            source_in_existing = _filter_by_key_membership(
-                source_aligned, key_columns, existing_keys_table, keep_matches=True
-            )
-
-        def _process_chunk_existing(chunk: pa.Table) -> pa.Table:
-            # Rows in existing NOT in source
-            return _filter_by_key_membership(
-                chunk, key_columns, source_aligned, keep_matches=False
-            )
-
-        if writer:
-            # Pass 2: Streaming output
-            for chunk in process_in_chunks(
-                existing,
-                chunk_size,
-                max_memory_mb,
-                progress_callback=progress_callback,
-                memory_monitor=memory_monitor,
-            ):
-                filtered = _process_chunk_existing(chunk)
-                if filtered.num_rows > 0:
-                    writer.write_table(filtered)
-            writer.write_table(source_in_existing)
-            return None
-        else:
-            # Pass 2: Batch mode
-            chunks = []
-            for chunk in process_in_chunks(
-                existing,
-                chunk_size,
-                max_memory_mb,
-                progress_callback=progress_callback,
-                memory_monitor=memory_monitor,
-            ):
-                chunks.append(_process_chunk_existing(chunk))
-            filtered_existing = pa_mod.concat_tables(
-                chunks, promote_options="permissive"
-            )
-            return pa_mod.concat_tables(
-                [filtered_existing, source_in_existing], promote_options="permissive"
-            )
 
 
 class PyarrowDatasetHandler(PyarrowDatasetIO):

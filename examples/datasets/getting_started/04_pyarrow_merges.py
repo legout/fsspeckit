@@ -7,18 +7,47 @@ The example covers:
 1. Basic merge-aware write concepts
 2. Strategy selection (insert, upsert, update, etc.)
 3. Key column configuration
-4. Convenience helper functions
+4. Practical merge strategy examples
 5. Performance benefits over traditional approaches
 """
 
 import argparse
+import os
 import tempfile
 from pathlib import Path
 from typing import Dict, Any
 
-import pyarrow as pa
-import pyarrow.dataset as pds
-from fsspec.implementations.local import LocalFileSystem
+os.environ.setdefault("fsspeckit_LOG_LEVEL", "WARNING")
+
+try:
+    import pyarrow as pa
+    import pyarrow.dataset as pds
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "Missing dependency 'pyarrow'. Install with: pip install -e \".[datasets]\" "
+        "(or run `uv sync` then `uv run python ...`)."
+    ) from exc
+
+try:
+    from fsspec.implementations.local import LocalFileSystem
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "Missing dependency 'fsspec'. Install with: pip install -e \".[datasets]\" "
+        "(or run `uv sync` then `uv run python ...`)."
+    ) from exc
+
+try:
+    from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+    from fsspeckit.common import setup_logging
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "Missing fsspeckit dataset dependencies. Install with: pip install -e \".[datasets]\" "
+        "(or run `uv sync` then `uv run python ...`)."
+    ) from exc
+
+setup_logging(disable=True)
+
+os.environ.setdefault("FSSPECKIT_LOG_LEVEL", "INFO")
 
 
 def create_simple_customer_data() -> Dict[str, pa.Table]:
@@ -116,7 +145,7 @@ def explain_merge_concepts(interactive: bool = False):
     print("\n🔑 Key Concepts:")
     print("   • STRATEGY: How to handle new vs existing data")
     print("   • KEY_COLUMNS: Which columns identify unique records")
-    print("   • CONVENIENCE HELPERS: Shortcut functions for common strategies")
+    print("   • MERGE API: Use io.merge(...) with a strategy")
 
     if interactive:
         input("\nPress Enter to continue...")
@@ -133,6 +162,7 @@ def demonstrate_upsert_basics():
     print("   • Most common CDC (Change Data Capture) pattern")
 
     fs = LocalFileSystem()
+    io = PyarrowDatasetIO(filesystem=fs)
     data = create_simple_customer_data()
 
     with tempfile.TemporaryDirectory() as temp_dir:
@@ -140,12 +170,8 @@ def demonstrate_upsert_basics():
 
         # Step 1: Create initial customer dataset
         print("\n📥 Step 1: Creating initial customer dataset...")
-        import pyarrow.parquet as pq
-
         customer_path.mkdir(parents=True, exist_ok=True)
-        pq.write_table(
-            data["existing_customers"], str(customer_path / "customers.parquet")
-        )
+        io.write_dataset(data["existing_customers"], str(customer_path), mode="overwrite")
 
         # Show initial data
         initial_dataset = pds.dataset(str(customer_path), filesystem=fs)
@@ -155,12 +181,15 @@ def demonstrate_upsert_basics():
         print("\n📝 Step 2: Applying UPSERT with customer updates...")
         print("   Customer 2 (Bob) exists → will be updated")
         print("   Customers 4,5 are new → will be inserted")
-
-        # For demonstration, we'll use a simple write since merge-aware writes
-        # are not fully implemented in this example
-        print("   (Upsert functionality would go here in full implementation)")
-        updated_data = data["customer_updates"]
-        pq.write_table(updated_data, str(customer_path / "customers_updated.parquet"))
+        result = io.merge(
+            data["customer_updates"],
+            path=str(customer_path),
+            strategy="upsert",
+            key_columns=["customer_id"],
+        )
+        print(
+            f"   ✅ Merge result: inserted={result.inserted}, updated={result.updated}"
+        )
 
         # Step 3: Verify results
         print("\n🔍 Step 3: Verifying UPSERT results...")
@@ -176,66 +205,52 @@ def demonstrate_upsert_basics():
             print(f"      📇 Customer {customer_id}: {name} ({email})")
 
 
-def demonstrate_convenience_helpers():
-    """Demonstrate convenience helper functions."""
-    print("\n🛠️  Convenience Helper Functions")
+def demonstrate_strategy_examples():
+    """Demonstrate merge strategies with the current API."""
+    print("\n🛠️  Merge Strategy Examples")
     print("=" * 50)
 
-    print("\n📋 Why Use Convenience Helpers?")
-    print(
-        "   • More readable code - `fs.upsert_dataset()` vs `fs.write_pyarrow_dataset(..., strategy='upsert')`"
-    )
-    print("   • Less error-prone - Can't forget strategy name")
-    print("   • Better IDE support - Function signatures are specific")
-
-    import pyarrow.parquet as pq
-
     fs = LocalFileSystem()
+    io = PyarrowDatasetIO(filesystem=fs)
     data = create_simple_customer_data()
 
     with tempfile.TemporaryDirectory() as temp_dir:
-        # Create separate datasets for each helper
-        datasets = {
-            "insert_demo": ("INSERT", data["new_products"], "product_id"),
-            "update_demo": ("UPDATE", data["price_updates"], "product_id"),
-            "dedup_demo": ("DEDUPLICATE", data["duplicate_log_entries"], "log_id"),
-        }
+        temp_path = Path(temp_dir)
 
-        for demo_name, (strategy_name, demo_data, key_col) in datasets.items():
-            demo_path = Path(temp_dir) / demo_name
-            demo_path.mkdir(parents=True, exist_ok=True)
+        # INSERT example
+        insert_path = temp_path / "insert_demo"
+        insert_path.mkdir(parents=True, exist_ok=True)
+        print("\n📝 INSERT Example:")
+        print("   Adds new records only")
+        insert_result = io.merge(
+            data["new_products"],
+            path=str(insert_path),
+            strategy="insert",
+            key_columns=["product_id"],
+        )
+        print(f"   ✅ Inserted: {insert_result.inserted}")
 
-            print(f"\n📝 {strategy_name} Helper Demo:")
-            print(f"   Using: fs.{strategy_name.lower()}_dataset()")
-            print(f"   Key column: {key_col}")
-            print(f"   Records: {len(demo_data)}")
-
-            # Create initial dataset if needed for UPDATE demo
-            if strategy_name == "UPDATE":
-                initial_products = pa.Table.from_pydict(
-                    {
-                        "product_id": [101, 102, 103],
-                        "name": ["Laptop Pro", "Wireless Mouse", "Mechanical Keyboard"],
-                        "price": [999.99, 29.99, 89.99],  # Original prices
-                        "category": ["Electronics"] * 3,
-                    }
-                )
-                pq.write_table(initial_products, str(demo_path / "products.parquet"))
-                print("   Created initial dataset for UPDATE demo")
-
-            # Use convenience helper (simplified for demo)
-            print(
-                f"   Using {strategy_name.lower()} strategy for {len(demo_data)} records"
-            )
-            pq.write_table(
-                demo_data, str(demo_path / f"{strategy_name.lower()}_result.parquet")
-            )
-
-            # Show results
-            if demo_path.exists():
-                result_dataset = pds.dataset(str(demo_path), filesystem=fs)
-                result_count = result_dataset.count_rows()
-                print(f"   ✅ Result: {result_count} records")
+        # UPDATE example
+        update_path = temp_path / "update_demo"
+        update_path.mkdir(parents=True, exist_ok=True)
+        print("\n📝 UPDATE Example:")
+        print("   Updates existing records only")
+        initial_products = pa.Table.from_pydict(
+            {
+                "product_id": [101, 102, 103],
+                "name": ["Laptop Pro", "Wireless Mouse", "Mechanical Keyboard"],
+                "price": [999.99, 29.99, 89.99],
+                "category": ["Electronics"] * 3,
+            }
+        )
+        io.write_dataset(initial_products, str(update_path), mode="overwrite")
+        update_result = io.merge(
+            data["price_updates"],
+            path=str(update_path),
+            strategy="update",
+            key_columns=["product_id"],
+        )
+        print(f"   ✅ Updated: {update_result.updated}")
 
 
 def demonstrate_strategy_selection():
@@ -248,31 +263,19 @@ def demonstrate_strategy_selection():
             "description": "Add new records, ignore existing ones",
             "use_cases": ["Event logs", "Audit trails", "Incremental loads"],
             "key_required": True,
-            "example": "fs.insert_dataset(data, 'events/', key_columns='event_id')",
+            "example": "io.merge(data, 'events/', strategy='insert', key_columns=['event_id'])",
         },
         "UPSERT": {
             "description": "Add new records, update existing ones",
             "use_cases": ["Customer sync", "CDC", "Data synchronization"],
             "key_required": True,
-            "example": "fs.upsert_dataset(data, 'customers/', key_columns='customer_id')",
+            "example": "io.merge(data, 'customers/', strategy='upsert', key_columns=['customer_id'])",
         },
         "UPDATE": {
             "description": "Update existing records only",
             "use_cases": ["Price updates", "Status changes", "Dimension tables"],
             "key_required": True,
-            "example": "fs.update_dataset(data, 'products/', key_columns='product_id')",
-        },
-        "FULL_MERGE": {
-            "description": "Replace entire dataset",
-            "use_cases": ["Full sync", "Snapshot replacement", "Dataset rebuild"],
-            "key_required": False,
-            "example": "fs.write_pyarrow_dataset(data, 'inventory/', strategy='full_merge')",
-        },
-        "DEDUPLICATE": {
-            "description": "Remove duplicate records",
-            "use_cases": ["Data cleanup", "Log deduplication", "Duplicate removal"],
-            "key_required": False,  # Optional - can deduplicate exact rows
-            "example": "fs.deduplicate_dataset(data, 'transactions/', key_columns='transaction_id')",
+            "example": "io.merge(data, 'products/', strategy='update', key_columns=['product_id'])",
         },
     }
 
@@ -297,8 +300,6 @@ def demonstrate_strategy_selection():
     print("   • Need to add NEW records only? → Use INSERT")
     print("   • Need to add NEW + update EXISTING? → Use UPSERT")
     print("   • Need to update EXISTING records only? → Use UPDATE")
-    print("   • Need to replace EVERYTHING? → Use FULL_MERGE")
-    print("   • Need to remove duplicates? → Use DEDUPLICATE")
 
 
 def demonstrate_key_columns():
@@ -378,7 +379,7 @@ def main():
     # Run all tutorial sections
     explain_merge_concepts(interactive=args.interactive)
     demonstrate_upsert_basics()
-    demonstrate_convenience_helpers()
+    demonstrate_strategy_examples()
     demonstrate_strategy_selection()
     demonstrate_key_columns()
     performance_benefits()
@@ -388,16 +389,12 @@ def main():
     print("   • Try merge-aware writes with your own data")
     print("   • Explore advanced features (composite keys, custom ordering)")
     print("   • Check out the comprehensive merge guide: docs/how-to/merge-datasets.md")
-    print("   • See full examples: examples/pyarrow/pyarrow_merge_example.py")
+    print("   • See more examples: docs/how-to/merge-operations-examples.md")
 
     print("\n🔗 Quick Reference:")
-    print("   fs.insert_dataset(data, path, key_columns)     # Insert only")
-    print("   fs.upsert_dataset(data, path, key_columns)      # Insert or update")
-    print("   fs.update_dataset(data, path, key_columns)     # Update only")
-    print("   fs.deduplicate_dataset(data, path, key_columns) # Remove duplicates")
-    print(
-        "   fs.write_pyarrow_dataset(data, path, strategy='full_merge') # Replace all"
-    )
+    print("   io.merge(data, path, strategy='insert', key_columns=[...])")
+    print("   io.merge(data, path, strategy='upsert', key_columns=[...])")
+    print("   io.merge(data, path, strategy='update', key_columns=[...])")
 
 
 if __name__ == "__main__":

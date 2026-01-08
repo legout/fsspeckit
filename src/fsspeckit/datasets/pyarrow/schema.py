@@ -26,21 +26,6 @@ from fsspeckit.common.schema import (
     standardize_schema_timezones,
 )
 
-# Keep _normalize_datetime_string for backwards compatibility (not in common.schema)
-# TODO: Consider moving this to common.schema if needed elsewhere
-def _normalize_datetime_string(s: str) -> str:
-    """Normalize datetime string format.
-
-    Args:
-        s: Datetime string
-
-    Returns:
-        Normalized datetime string
-    """
-    # Simple normalization - strip whitespace
-    return s.strip()
-
-
 __all__ = [
     # Schema utilities
     "cast_schema",
@@ -51,6 +36,4 @@ __all__ = [
     "dominant_timezone_per_column",
     "standardize_schema_timezones_by_majority",
     "standardize_schema_timezones",
-    # Internal function kept for backwards compatibility
-    "_normalize_datetime_string",
 ]

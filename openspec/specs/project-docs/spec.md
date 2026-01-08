@@ -401,19 +401,21 @@ The core documentation guides (Quickstart, API guide, Advanced Usage, Utils refe
 
 ### Requirement: Provide comprehensive merge strategy guidance
 
-Users SHALL have access to comprehensive documentation explaining when and how to use each merge strategy.
+Users SHALL have access to comprehensive documentation explaining when and how to use the `merge()` method with each merge strategy.
 
 #### Scenario: Strategy selection guidance
 - **WHEN** a user needs to perform merge operations
-- **THEN** documentation SHALL provide clear guidance on selecting appropriate merge strategy
-- **AND** SHALL include real-world use cases for each strategy
-- **AND** SHALL explain the behavior of each strategy with existing and new data
+- **THEN** documentation SHALL demonstrate the `merge()` method signature:
+  `io.merge(data, path, strategy='insert'|'update'|'upsert', key_columns=...)`
+- **AND** SHALL provide clear guidance on selecting the appropriate strategy
+- **AND** SHALL explain incremental file-level rewrite behavior
+- **AND** SHALL document the `MergeResult` return type with its fields
 
 #### Scenario: Practical examples for all strategies
 - **WHEN** a user wants to implement merge operations
-- **THEN** documentation SHALL include working examples for all merge strategies
-- **AND** SHALL show before/after data states
-- **AND** SHALL demonstrate common patterns like composite keys and custom ordering
+- **THEN** documentation SHALL include working examples using `io.merge(data, path, strategy=..., key_columns=...)`
+- **AND** SHALL show `MergeResult` field access patterns
+- **AND** SHALL demonstrate common patterns like composite keys and partition handling
 
 ### Requirement: Ensure discoverability of merge functionality
 
@@ -431,7 +433,7 @@ Users SHALL have access to comprehensive documentation explaining when and how t
 
 #### Scenario: DuckDB strategy selection guidance
 - **WHEN** a user needs to perform merge operations with DuckDB
-- **THEN** documentation SHALL provide clear guidance on selecting appropriate merge strategy
+- **THEN** documentation SHALL demonstrate `DuckDBDatasetIO.merge()` method
 - **AND** SHALL include real-world use cases for each strategy
 - **AND** SHALL explain DuckDB-specific behavior of each strategy with existing and new data
 
@@ -457,35 +459,17 @@ DuckDB merge-aware write functionality SHALL be easily discoverable through docu
 
 The documentation SHALL include comprehensive coverage of PyArrow class-based dataset handlers (`PyarrowDatasetIO`, `PyarrowDatasetHandler`) with same level of detail as DuckDB handler documentation.
 
-#### Scenario: API reference includes PyArrow classes
-- **WHEN** a user reads `docs/api/fsspeckit.datasets.md`
-- **THEN** they SHALL find complete documentation for `PyarrowDatasetIO` and `PyarrowDatasetHandler` classes
-- **AND** all methods SHALL have parameter tables, return types, and examples
-- **AND** documentation format SHALL match DuckDB class documentation structure.
-
-#### Scenario: Dataset handlers guide shows both PyArrow approaches
-- **WHEN** a user reads `docs/dataset-handlers.md`
-- **THEN** they SHALL see both function-based and class-based PyArrow approaches documented
-- **AND** class-based approach SHALL include strengths, features, and usage examples
-- **AND** backend comparison table SHALL include PyArrow class-based approach.
-
-#### Scenario: Getting started tutorial includes PyArrow examples
+#### Scenario: Getting started tutorial includes correct PyArrow examples
 - **WHEN** a user follows `docs/tutorials/getting-started.md`
-- **THEN** the "Your First Dataset Operation" section SHALL include PyArrow examples alongside DuckDB
-- **AND** domain package structure examples SHALL include PyArrow handler imports
-- **AND** common use cases SHALL show PyArrow handler usage.
+- **THEN** the "Your First Dataset Operation" section SHALL show:
+  - `io.write_dataset(data, path, mode='append')` for writes
+  - `io.merge(data, path, strategy='upsert', key_columns=[...])` for merges
+- **AND** SHALL demonstrate `WriteDatasetResult` and `MergeResult` usage
 
-#### Scenario: API guide capability overview includes PyArrow classes
-- **WHEN** a user reads `docs/reference/api-guide.md`
-- **THEN** the "Dataset Operations" capability SHALL list `PyarrowDatasetIO` and `PyarrowDatasetHandler`
-- **AND** domain package organization SHALL describe PyArrow class-based functionality
-- **AND** usage patterns SHALL include PyArrow handler examples.
-
-#### Scenario: How-to guides demonstrate class-based PyArrow usage
+#### Scenario: How-to guides demonstrate current APIs
 - **WHEN** a user reads `docs/how-to/read-and-write-datasets.md` or `docs/how-to/merge-datasets.md`
-- **THEN** they SHALL find examples using `PyarrowDatasetIO` and `PyarrowDatasetHandler`
-- **AND** backend selection guidance SHALL include class-based PyArrow approach
-- **AND** import statements SHALL show new PyArrow class imports.
+- **THEN** all examples SHALL use `write_dataset()` and `merge()` methods
+- **AND** import statements SHALL show correct PyArrow class imports
 
 ### Requirement: PyArrow Approach Guidance Documentation
 
@@ -502,4 +486,186 @@ The documentation SHALL provide clear guidance on when to use function-based vs 
 - **THEN** function-based and class-based approaches SHALL cross-reference each other
 - **AND** examples SHALL show equivalent operations in both approaches
 - **AND** import statements SHALL be clearly differentiated.
+
+### Requirement: Examples Are Curated and Reference Only Supported APIs
+
+The repository SHALL maintain an `examples/` directory whose runnable scripts
+reference only APIs that exist in `src/` and do not require private credentials
+or network access by default.
+
+#### Scenario: Obsolete example trees are removed
+- **WHEN** an example directory references non-existent helpers (for example `fs.pydala_dataset`) or out-of-date public APIs
+- **THEN** the directory SHALL be removed from the runnable example suite (or migrated to docs-only narrative)
+- **AND** the remaining `examples/README.md` SHALL not reference removed content.
+
+#### Scenario: Examples install guidance matches maintained set
+- **WHEN** a user follows installation instructions in `examples/README.md` or `examples/requirements.txt`
+- **THEN** the documented dependencies SHALL be sufficient to run the maintained examples
+- **AND** the guidance SHALL avoid requiring cloud credentials or external services by default.
+
+### Requirement: Example Runner Supports Non-Interactive Validation
+
+The project SHALL provide an example runner/validator that can execute the
+maintained example suite in a non-interactive environment.
+
+#### Scenario: Running a specific example by path
+- **WHEN** a user runs `examples/run_examples.py --file <path>`
+- **THEN** the runner SHALL accept both relative and absolute paths
+- **AND** it SHALL resolve paths relative to the `examples/` directory, not the current working directory.
+
+#### Scenario: CI-friendly operation
+- **WHEN** the runner executes the example suite without a TTY
+- **THEN** it SHALL not block on interactive prompts
+- **AND** it SHALL provide deterministic pass/fail exit codes.
+
+### Requirement: Dataset write documentation uses write_dataset API
+
+The documentation SHALL demonstrate the `write_dataset()` method for append and overwrite operations.
+
+#### Scenario: Write operations use write_dataset
+- **WHEN** a user reads `docs/how-to/read-and-write-datasets.md`
+- **THEN** append examples SHALL use `io.write_dataset(data, path, mode='append')`
+- **AND** overwrite examples SHALL use `io.write_dataset(data, path, mode='overwrite')`
+- **AND** examples SHALL demonstrate accessing `WriteDatasetResult` fields
+- **AND** examples SHALL show per-file metadata from the result
+
+#### Scenario: Clear separation of write vs merge
+- **WHEN** a user reads dataset documentation
+- **THEN** documentation SHALL clearly distinguish:
+  - Write operations (append/overwrite): `write_dataset()`
+  - Merge operations (insert/update/upsert): `merge()`
+- **AND** SHALL explain when to use each approach
+
+### Requirement: Document WriteDatasetResult type
+
+The documentation SHALL include comprehensive coverage of the `WriteDatasetResult` type returned by write operations.
+
+#### Scenario: WriteDatasetResult field documentation
+- **WHEN** a user reads dataset write documentation
+- **THEN** they SHALL find documentation for `WriteDatasetResult` with its fields:
+  - `files`: list of `FileWriteMetadata` (path, row_count, size_bytes)
+  - `total_rows`: total rows written
+  - `mode`: the write mode used ('append' or 'overwrite')
+  - `backend`: the backend used ('pyarrow' or 'duckdb')
+
+#### Scenario: WriteDatasetResult usage examples
+- **WHEN** a user implements write operations
+- **THEN** documentation SHALL show how to:
+  - Access result fields for logging and monitoring
+  - Iterate over written files for downstream processing
+  - Check operation success via result counts
+
+### Requirement: Document MergeResult type
+
+The documentation SHALL include comprehensive coverage of the `MergeResult` type returned by merge operations.
+
+#### Scenario: MergeResult field documentation
+- **WHEN** a user reads merge documentation
+- **THEN** they SHALL find documentation for `MergeResult` with its fields:
+  - `strategy`: the merge strategy used
+  - `source_count`, `target_count_before`, `target_count_after`: row counts
+  - `inserted`, `updated`, `deleted`: operation counts
+  - `files`: list of `MergeFileMetadata`
+  - `rewritten_files`, `inserted_files`, `preserved_files`: file path lists
+
+#### Scenario: MergeResult usage examples
+- **WHEN** a user implements merge operations
+- **THEN** documentation SHALL show how to:
+  - Access result fields for logging and monitoring
+  - Verify operation success via inserted/updated counts
+  - Identify which files were affected by the merge
+
+### Requirement: Consistent import path documentation
+
+The documentation SHALL use consistent import patterns that prefer the shortest valid path while remaining clear about package organization.
+
+#### Scenario: Core symbols use top-level imports
+- **WHEN** documentation demonstrates filesystem or storage options usage
+- **THEN** examples SHALL prefer `from fsspeckit import filesystem, AwsStorageOptions`
+- **AND** SHALL NOT show multiple alternative import paths for the same symbol
+
+#### Scenario: Dataset handlers use package imports
+- **WHEN** documentation demonstrates dataset operations
+- **THEN** examples SHALL use `from fsspeckit.datasets import PyarrowDatasetIO, DuckDBParquetHandler`
+- **AND** SHALL show consistent patterns across all how-to guides and tutorials
+
+#### Scenario: SQL utilities use module imports
+- **WHEN** documentation demonstrates SQL filter translation
+- **THEN** examples SHALL use `from fsspeckit.sql.filters import sql2pyarrow_filter, sql2polars_filter`
+- **AND** SHALL be consistent across all documentation files
+
+### Requirement: Import hierarchy documentation
+
+The documentation SHALL include a brief section explaining the import path hierarchy for discoverability.
+
+#### Scenario: Import patterns section exists
+- **WHEN** a user reads `docs/explanation/concepts.md`
+- **THEN** they SHALL find a section explaining import patterns:
+  - Top-level: `from fsspeckit import ...` for core symbols (filesystem, storage options)
+  - Package-level: `from fsspeckit.datasets import ...` for dataset handlers
+  - Module-level: `from fsspeckit.sql.filters import ...` for specific utilities
+
+#### Scenario: No deprecated import comments
+- **WHEN** a user reads documentation examples
+- **THEN** they SHALL NOT find "Legacy import (still works but deprecated)" comments
+- **AND** SHALL NOT find multiple alternative import paths shown for the same operation
+
+### Requirement: Local-First Examples Respect DirFileSystem Base Paths
+
+Examples that operate on temporary local data SHALL be written to respect the
+default `DirFileSystem` base-path semantics of `fsspeckit.filesystem()`.
+
+#### Scenario: Temp data is readable via rooted filesystem
+- **WHEN** an example creates files under a temporary directory
+- **THEN** it SHALL create its filesystem rooted at that directory (for example `filesystem(temp_dir, ...)`)
+- **AND** it SHALL use relative patterns within that base for glob/exists/read operations.
+
+#### Scenario: JSON examples use consistent read/write options
+- **WHEN** an example writes dict-like JSON data and then reads it back
+- **THEN** it SHALL use compatible `read_json` options (for example `as_dataframe=False`) or write data in a format matching the default read mode.
+
+### Requirement: Common and SQL Examples Match Public API Surface
+
+The examples under `examples/common/` and `examples/sql/` SHALL use only public,
+currently supported APIs and demonstrate correct usage patterns.
+
+#### Scenario: Logging examples use supported logging helpers
+- **WHEN** a user runs the logging example(s)
+- **THEN** they SHALL configure logging using `fsspeckit.common.logging.setup_logging`
+- **AND** obtain a logger via `fsspeckit.common.logging.get_logger` (or equivalent supported pattern).
+
+#### Scenario: SQL filter examples supply required schema
+- **WHEN** a user runs SQL filter examples that call `sql2pyarrow_filter` or `sql2polars_filter`
+- **THEN** the examples SHALL provide the schema argument required by the current function signatures
+- **AND** the examples SHALL run offline against a locally created dataset.
+
+### Requirement: Getting Started Examples Run Offline by Default
+
+The `examples/datasets/getting_started/` scripts SHALL run successfully in a
+clean environment using local temporary data and current dependency APIs.
+
+#### Scenario: PyArrow compatibility
+- **WHEN** a user runs a getting-started script using a supported PyArrow version
+- **THEN** the script SHALL use supported table construction APIs (for example `pa.Table.from_pylist`)
+- **AND** it SHALL not depend on deprecated behaviors that break on upgrade.
+
+#### Scenario: Non-interactive execution
+- **WHEN** a user runs the scripts in a non-interactive environment
+- **THEN** the scripts SHALL complete without waiting for `input()`
+- **AND** optional tutorial pauses SHALL be gated behind an explicit interactive flag.
+
+### Requirement: Examples Are Safe to Run (No Destructive Cleanup)
+
+Example scripts that create temporary files/directories SHALL clean up only the
+paths they created and MUST NOT delete broad parent directories.
+
+#### Scenario: Safe cleanup behavior
+- **WHEN** a schema/workflow example creates a temporary directory for its data
+- **THEN** cleanup SHALL remove only that directory
+- **AND** it SHALL not attempt to delete shared system paths such as `/tmp`.
+
+#### Scenario: Workflow examples are local-first
+- **WHEN** a workflow example demonstrates cloud-style datasets
+- **THEN** it SHALL run offline by default using local simulation
+- **AND** any real-cloud execution SHALL be gated behind explicit configuration.
 

@@ -22,9 +22,21 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-import pyarrow as pa
+try:
+    import pyarrow as pa
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "Missing dependency 'pyarrow'. Install with: pip install -e \".[datasets]\" "
+        "(or run `uv sync` then `uv run python ...`)."
+    ) from exc
 
-from fsspeckit.datasets import DuckDBParquetHandler
+try:
+    from fsspeckit.datasets import DuckDBParquetHandler
+except ModuleNotFoundError as exc:
+    raise SystemExit(
+        "Missing fsspeckit dataset dependencies. Install with: pip install -e \".[datasets]\" "
+        "(or run `uv sync` then `uv run python ...`)."
+    ) from exc
 
 
 def create_sample_sales_data() -> pa.Table:

@@ -1,0 +1,32 @@
+I will start by listing the files in `examples/datasets/getting_started/` and then examine `04_pyarrow_merges.py` to identify any API drift or deprecated calls.
+I will read `examples/datasets/getting_started/04_pyarrow_merges.py` and `src/fsspeckit/datasets/pyarrow/io.py` to compare the example code with the current API implementation.
+I will read `examples/datasets/getting_started/03_simple_merges.py` to check for any similar issues with removed API calls or placeholder implementations.
+I will read `examples/datasets/getting_started/01_duckdb_basics.py` and `examples/datasets/getting_started/05_duckdb_upserts.py` to check for any deprecated or removed API calls.
+I will read `examples/datasets/getting_started/README.md` to ensure it correctly reflects the current API and provides accurate instructions for users.
+I will read `docs/how-to/merge-datasets.md` to check for any outdated API references and ensure the documentation is consistent with the current implementation.
+I will read `examples/datasets/getting_started/02_pyarrow_basics.py` to check for any outdated API usage or placeholder logic.
+I will search for the definitions of `optimize_parquet_dataset_pyarrow` and `compact_parquet_dataset_pyarrow` to see if they are still the recommended way to optimize datasets or if they have been integrated into `PyarrowDatasetIO`.
+I will read `.github/workflows/ci.yml` to check if the examples are currently being tested in the CI pipeline and determine if I should add a job to run them.
+I will read `examples/test_examples.py` to see if it already includes tests for the examples in the `getting_started` directory.
+I will read `tests/test_pyarrow_integration.py` and `tests/test_pyarrow_performance.py` to see how the merge logic is currently tested and ensure that the examples align with these existing tests.
+I will search for any remaining mentions of the removed API methods, such as `insert_dataset`, `upsert_dataset`, `update_dataset`, and `deduplicate_dataset`, in the `docs/` directory to ensure the documentation is fully up to date.
+I will check `src/fsspeckit/datasets/duckdb/io.py` or similar files to see if the convenience methods like `upsert_dataset` are also removed from the DuckDB implementation.
+I will search for the definitions of `DuckDBDatasetIO` and `DuckDBParquetHandler` to locate their implementation files.
+I will read `src/fsspeckit/datasets/duckdb/dataset.py` to check the status of the `upsert_dataset` and related convenience methods in the `DuckDBDatasetIO` class.
+The following follow-ups are recommended to ensure the `fsspeckit` examples and documentation are accurate, reliable, and aligned with the latest API:
+
+### 1. Refactor `getting_started` Examples to Use Modern APIs
+*   **Update `04_pyarrow_merges.py`**: Replace placeholder logic (currently using `pq.write_table`) with the high-level `PyarrowDatasetIO.merge(..., strategy='upsert', ...)` API. Remove references to deprecated convenience methods like `insert_dataset` and `upsert_dataset`.
+*   **Enhance `03_simple_merges.py`**: Add a section showcasing how the `merge()` method simplifies manual PyArrow table concatenation and persistence into a single, robust operation.
+*   **Modernize `01_duckdb_basics.py` & `05_duckdb_upserts.py`**: Ensure these examples use the `DuckDBDatasetIO` object-oriented interface consistently, as this is the recommended pattern.
+
+### 2. Update Documentation for Accuracy
+*   **Revise `getting_started/README.md`**: Include `04_pyarrow_merges.py` and `05_duckdb_upserts.py` in the learning path. Update the "Basic Patterns" section to feature the `DatasetIO.merge()` method instead of manual concatenation.
+*   **Clean up API Docs**: Audit and update `docs/api/fsspeckit.datasets.md` and `docs/api/fsspeckit.core.ext.md` to remove or mark as removed the legacy convenience methods (`insert_dataset`, `upsert_dataset`, etc.) that now raise `NotImplementedError`.
+
+### 3. Strengthen Reliability and Maintenance
+*   **Integrate Example Testing in CI**: Add a step to `.github/workflows/ci.yml` that executes the example test suite: `uv run python examples/test_examples.py --include-runtime`. This will proactively catch breaking API changes.
+*   **Verify Cross-Backend Consistency**: Ensure that the `merge()` functionality demonstrated in the examples behaves identically across both PyArrow and DuckDB backends, highlighting the "one API, two engines" value proposition.
+
+### 4. Technical Debt Cleanup
+*   **Audit Legacy Mentions**: Perform a final search across the entire `docs/` and `examples/` directories for any remaining references to the removed `write_parquet_dataset` and related convenience methods to ensure a clean user experience.
