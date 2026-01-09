@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fsspeckit"
-version = "0.9.0"
+version = "0.10.0"
 description = "Enhanced utilities and extensions for fsspec, storage_options and obstore with multi-format I/O support."
 readme = "README.md"
 license = "MIT"
