@@ -383,22 +383,8 @@ The DuckDB dataset IO SHALL provide `merge(..., strategy=...)` with `strategy in
 - **THEN** it SHOULD prefer parquet metadata (`duckdb.parquet_metadata(...)` or `pyarrow.parquet.read_metadata`)
 - **AND** MAY use `COPY ... RETURN_STATS` as an optimization but MUST NOT depend on it for correctness
 
-### Requirement: Single Canonical Incremental Merge Path (DuckDB)
-The DuckDB backend SHALL implement incremental merge semantics in one place and SHALL reuse it across APIs.
-
-#### Scenario: `write_parquet_dataset(rewrite_mode="incremental")` delegates to `merge`
-- **GIVEN** a DuckDB handler supports both `merge(...)` and `write_parquet_dataset(..., rewrite_mode="incremental")`
-- **WHEN** user calls `write_parquet_dataset(source, path, strategy="update"|"upsert", rewrite_mode="incremental")`
-- **THEN** the handler SHOULD delegate to the same incremental merge implementation used by `merge(...)`
-
 ### Requirement: `merge` Supports Insert, Update, Upsert (PyArrow)
 The PyArrow dataset IO SHALL provide `merge(..., strategy=...)` with `strategy in {"insert","update","upsert"}`.
-
-#### Scenario: Insert appends only new keys
-- **GIVEN** a target dataset exists with key `id=1`
-- **WHEN** user calls `merge(source, path, strategy="insert", key_columns=["id"])` with keys `id=1` and `id=2`
-- **THEN** the system SHALL write parquet file(s) containing only rows for `id=2`
-- **AND** SHALL NOT rewrite existing parquet files
 
 #### Scenario: Update rewrites only affected files
 - **GIVEN** a target dataset exists with many parquet files
@@ -406,13 +392,6 @@ The PyArrow dataset IO SHALL provide `merge(..., strategy=...)` with `strategy i
 - **THEN** the system SHALL rewrite only parquet files that actually contain keys present in `source`
 - **AND** SHALL preserve all other parquet files unchanged
 - **AND** SHALL NOT write inserts for keys not present in the target
-
-#### Scenario: Upsert rewrites affected files and appends inserts
-- **GIVEN** a target dataset exists with many parquet files
-- **WHEN** user calls `merge(source, path, strategy="upsert", key_columns=["id"])`
-- **THEN** the system SHALL rewrite only parquet files that actually contain keys present in `source`
-- **AND** SHALL write additional new parquet file(s) for keys not present in the target
-- **AND** SHALL preserve all other parquet files unchanged
 
 ### Requirement: Merge Returns File Metadata (PyArrow)
 `merge` SHALL return metadata for files it rewrites or writes.

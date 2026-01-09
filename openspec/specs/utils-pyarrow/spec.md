@@ -5,32 +5,14 @@ TBD - created by archiving change add-pyarrow-dataset-merge. Update Purpose afte
 ## Requirements
 ### Requirement: Merge Parquet Dataset with Strategies (PyArrow)
 
-The system SHALL provide a `merge_parquet_dataset_pyarrow` helper that merges a
+The system SHALL provide a `merge` method in `PyarrowDatasetIO` that merges a
 source table or parquet dataset into a target parquet dataset directory using
 PyArrow only, with configurable merge strategies.
 
 #### Scenario: UPSERT with single key column
-
-- **WHEN** user calls  
-  `merge_parquet_dataset_pyarrow(source, target_path, key_columns=["id"], strategy="upsert")`
-- **AND** `source` contains ids [1, 2, 3] where id=1,2 exist in the target
-  dataset
-- **THEN** the helper rewrites the target dataset so that rows for id=1,2 are
-  updated with source values, id=3 is inserted, and all other rows are
-  preserved.
-
-#### Scenario: INSERT / UPDATE / FULL_MERGE / DEDUPLICATE
-
-- **WHEN** the caller selects `strategy="insert"|"update"|"full_merge"|"deduplicate"`
-- **THEN** the behavior for inserts, updates, deletes, and deduplication SHALL
-  match the semantics defined by the DuckDB merge capability:
-  - INSERT: insert only rows not present in the target.
-  - UPDATE: update only rows already present; ignore new ones.
-  - FULL_MERGE: insert new, update matching rows, and delete rows missing from
-    the source (full sync).
-  - DEDUPLICATE: deduplicate the source on `key_columns` (keeping the preferred
-    record according to `dedup_order_by`) and then perform an UPSERT-style
-    merge.
+- **WHEN** user calls `io.merge(source, target_path, key_columns=["id"], strategy="upsert")`
+- **AND** `source` contains ids [1, 2, 3] where id=1,2 exist in the target dataset
+- **THEN** the helper rewrites the target dataset so that rows for id=1,2 are updated with source values, id=3 is inserted, and all other rows are preserved.
 
 ### Requirement: Merge Statistics Reporting (PyArrow)
 

@@ -42,6 +42,14 @@ Python versions that match `pyproject.toml`.
 - **THEN** the docs state Python 3.11+ to match `requires-python` in
   `pyproject.toml`.
 
+#### Scenario: DuckDB version requirement is accurate
+
+- **WHEN** a user checks the DuckDB version prerequisites for `fsspeckit`
+- **THEN** the documentation states `duckdb>=1.4.0` to match the actual
+  dependency requirement in `pyproject.toml` for the `datasets` and `sql` extras
+- **AND** the version reflects the need for native MERGE statement support
+  introduced in DuckDB 1.4.0.
+
 ### Requirement: API Docs Reflect Current Package Namespace
 
 API and logging documentation that comes from docstrings SHALL describe the

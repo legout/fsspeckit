@@ -10,8 +10,6 @@ This package contains dataset-specific functionality including:
 import warnings
 from typing import Any
 
-from .duckdb import MergeStrategy
-
 _DEPRECATED_IMPORTS = {
     "duckdb_dataset": ("fsspeckit.datasets.duckdb.dataset", None),
     "duckdb_connection": ("fsspeckit.datasets.duckdb.connection", "DuckDBConnection"),

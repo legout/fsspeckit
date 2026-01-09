@@ -3,236 +3,13 @@
 ## Purpose
 TBD - created by archiving change add-duckdb-dataset-write. Update Purpose after archive.
 ## Requirements
-### Requirement: Write Parquet Dataset with Unique Filenames
-
-The system SHALL provide a `write_parquet_dataset` method that writes PyArrow tables to parquet dataset directories with automatically generated unique filenames using a UUID-based mechanism.
-
-#### Scenario: Write dataset with default UUID filenames
-
-- **WHEN** user calls `handler.write_parquet_dataset(table, "/path/to/dataset/")`
-- **THEN** method creates dataset directory if it doesn't exist
-- **AND** writes parquet file with UUID-based filename (e.g., "part-a1b2c3d4.parquet")
-- **AND** file contains all data from the table
-
-#### Scenario: Write large table split into multiple files
-
-- **WHEN** user calls `handler.write_parquet_dataset(table, path, max_rows_per_file=1000)`
-- **AND** table has more than 1000 rows
-- **THEN** method splits table into multiple files with ~1000 rows each
-- **AND** each file has unique UUID-based filename
-- **AND** reading the dataset returns all original data
-
-#### Scenario: Write with custom basename template
-
-- **WHEN** user calls `handler.write_parquet_dataset(table, path, basename_template="data_{}.parquet")`
-- **THEN** method generates filenames using the template with UUID-based unique identifiers
-- **AND** files are named like "data_a1b2c3d4.parquet", "data_e5f6g7h8.parquet", etc.
-- **AND** each filename contains a unique UUID token ensuring no collisions
-
-#### Scenario: Write empty table to dataset
-
-- **WHEN** user calls `handler.write_parquet_dataset(empty_table, path)`
-- **THEN** method creates at least one file with the schema
-- **AND** file contains zero rows but preserves column structure
-- **AND** filename follows UUID-based unique naming pattern
-
-### Requirement: Dataset Write Mode - Overwrite
-
-The system SHALL support `mode="overwrite"` to replace existing dataset contents with new data.
-
-#### Scenario: Overwrite existing dataset
-
-- **WHEN** dataset directory contains existing parquet files
-- **AND** user calls `handler.write_parquet_dataset(table, path, mode="overwrite")`
-- **THEN** method deletes all existing parquet files in the directory
-- **AND** writes new parquet file(s) with new data
-- **AND** only new data is present in the dataset
-
-#### Scenario: Overwrite non-existent dataset
-
-- **WHEN** dataset directory does not exist
-- **AND** user calls `handler.write_parquet_dataset(table, path, mode="overwrite")`
-- **THEN** method creates directory and writes data
-- **AND** behaves same as initial write
-
-#### Scenario: Overwrite preserves non-parquet files
-
-- **WHEN** dataset directory contains non-parquet files (e.g., "_metadata", ".txt")
-- **AND** user calls `handler.write_parquet_dataset(table, path, mode="overwrite")`
-- **THEN** method only deletes files matching parquet pattern
-- **AND** preserves non-parquet files
-
-### Requirement: Dataset Write Mode - Append
-
-The system SHALL support `mode="append"` to add new data files to existing dataset without modifying existing files.
-
-#### Scenario: Append to existing dataset
-
-- **WHEN** dataset directory contains existing parquet files
-- **AND** user calls `handler.write_parquet_dataset(table, path, mode="append")`
-- **THEN** method writes new parquet file(s) with unique names
-- **AND** preserves all existing parquet files
-- **AND** reading dataset returns combined data from old and new files
-
-#### Scenario: Append to empty directory
-
-- **WHEN** dataset directory exists but is empty
-- **AND** user calls `handler.write_parquet_dataset(table, path, mode="append")`
-- **THEN** method writes new data files
-- **AND** behaves same as initial write
-
-#### Scenario: Append to non-existent dataset
-
-- **WHEN** dataset directory does not exist
-- **AND** user calls `handler.write_parquet_dataset(table, path, mode="append")`
-- **THEN** method creates directory and writes data
-- **AND** behaves same as initial write
-
-#### Scenario: Append multiple times
-
-- **WHEN** user calls `write_parquet_dataset` multiple times with `mode="append"`
-- **THEN** each call adds new files with unique names
-- **AND** no filename collisions occur
-- **AND** all data is preserved and readable
-
-### Requirement: Dataset Write Validation
-
-The system SHALL validate inputs and provide clear error messages for invalid dataset write operations with specific exception types.
-
-#### Scenario: Invalid mode error
-
-- **WHEN** user provides invalid mode value (not "overwrite" or "append")
-- **THEN** method raises ValueError with clear message listing valid modes
-- **AND** error message includes the invalid value that was provided
-
-#### Scenario: Invalid max_rows_per_file error
-
-- **WHEN** user provides max_rows_per_file <= 0
-- **THEN** method raises ValueError indicating minimum value must be > 0
-- **AND** error message includes the invalid value that was provided
-
-#### Scenario: Path is file not directory error
-
-- **WHEN** user provides path to existing file (not directory) for dataset operations
-- **THEN** method raises ValueError or NotADirectoryError with clear message indicating path must be directory
-- **AND** error message includes the problematic path
-
-#### Scenario: Remote storage write permission error
-
-- **WHEN** user attempts to write to remote storage without write permissions
-- **THEN** method raises exception with clear authentication/permission error message
-- **AND** original permission error details are preserved
-
-### Requirement: Dataset Write Performance
-
-The system SHALL optimize dataset write operations for performance and efficiency.
-
-#### Scenario: Parallel file writes
-
-- **WHEN** writing large table split into multiple files
-- **THEN** method leverages DuckDB's parallel execution where possible
-- **AND** writes multiple files efficiently
-
-#### Scenario: Memory efficient splitting
-
-- **WHEN** table is split using max_rows_per_file
-- **THEN** method streams data without loading entire table into memory multiple times
-- **AND** memory usage remains reasonable for large datasets
-
-### Requirement: Unique Filename Generation
-
-The system SHALL generate unique filenames using UUID-based identifiers that avoid collisions across multiple writes without requiring sequential numbering or timestamp-based ordering.
-
-#### Scenario: UUID-based filename uniqueness
-
-- **WHEN** method generates filenames using default UUID strategy
-- **THEN** filenames are globally unique using short UUID tokens
-- **AND** format is "part-{uuid}.parquet" where uuid is an 8-character UUID fragment
-- **AND** no collision management or sequential state is required
-
-#### Scenario: Custom template with UUID insertion
-
-- **WHEN** method uses basename_template with {} placeholder
-- **THEN** {} is replaced with a unique UUID token
-- **AND** template structure is preserved (e.g., "data_{}.parquet" → "data_a1b2c3d4.parquet")
-- **AND** each call generates different UUID tokens
-
-#### Scenario: Filename collision prevention
-
-- **WHEN** multiple concurrent writes to same dataset occur
-- **THEN** UUID-based generation ensures no collisions
-- **AND** each write produces unique filenames without coordination
-- **AND** no sequential state or timestamp ordering is required
-
-### Requirement: Dataset Write with Compression
-
-The system SHALL support configurable compression for dataset writes.
-
-#### Scenario: Write dataset with custom compression
-
-- **WHEN** user calls `handler.write_parquet_dataset(table, path, compression="gzip")`
-- **THEN** all files in dataset use gzip compression
-- **AND** compression applies to all files uniformly
-
-#### Scenario: Write dataset with different compression per file
-
-- **WHEN** writing multiple files with max_rows_per_file
-- **THEN** all files use same compression codec specified
-- **AND** dataset maintains consistent compression across files
-
-### Requirement: Dataset Read Compatibility
-
-The system SHALL ensure datasets written by `write_parquet_dataset` are readable by existing `read_parquet` method.
-
-#### Scenario: Read written dataset
-
-- **WHEN** dataset is written using `write_parquet_dataset`
-- **AND** user calls `read_parquet(dataset_path)`
-- **THEN** method reads all files in dataset
-- **AND** returns complete table with all data
-- **AND** schema matches original table schema
-
-#### Scenario: Read appended dataset
-
-- **WHEN** multiple writes with `mode="append"` create multiple files
-- **AND** user calls `read_parquet(dataset_path)`
-- **THEN** method reads all files including appended ones
-- **AND** returns complete table with all data from all writes
-
-### Requirement: DuckDB Parquet Handler Initialization
-
-The system SHALL provide a `DuckDBParquetHandler` class that can be initialized with either a storage options object or an existing filesystem instance to enable parquet operations with DuckDB.
-
-#### Scenario: Initialize with storage options
-
-- **WHEN** user creates `DuckDBParquetHandler(storage_options=AwsStorageOptions(...))`
-- **THEN** handler creates filesystem from storage options and registers it in DuckDB connection
-
-#### Scenario: Initialize with filesystem instance
-
-- **WHEN** user creates `DuckDBParquetHandler(filesystem=fs)`
-- **THEN** handler uses provided filesystem and registers it in DuckDB connection
-
-#### Scenario: Initialize with default filesystem
-
-- **WHEN** user creates `DuckDBParquetHandler()` without parameters
-- **THEN** handler creates default local filesystem for operations
-
 ### Requirement: Filesystem Registration in DuckDB
+The system SHALL register fsspec filesystem instances in DuckDB connections to enable operations on remote storage systems. This is managed by `DuckDBConnection`.
 
-The system SHALL register fsspec filesystem instances in DuckDB connections using `.register_filesystem(fs)` to enable operations on remote storage systems.
-
-#### Scenario: Register S3 filesystem
-
-- **WHEN** handler is initialized with S3 storage options
-- **THEN** S3 filesystem is registered in DuckDB connection via `.register_filesystem(fs)`
-- **AND** DuckDB can access S3 paths using the registered filesystem
-
-#### Scenario: Register local filesystem
-
-- **WHEN** handler is initialized with local storage options or no options
-- **THEN** local filesystem is registered in DuckDB connection
-- **AND** DuckDB can access local paths
+#### Scenario: Register filesystem via DuckDBConnection
+- **WHEN** `DuckDBConnection` is initialized with a filesystem
+- **THEN** it SHALL register the filesystem with the active DuckDB connection
+- **AND** DuckDB SHALL be able to access paths using the registered filesystem
 
 ### Requirement: Read Parquet Files and Datasets
 
@@ -291,52 +68,20 @@ The system SHALL provide a `write_parquet` method that writes PyArrow tables to 
 - **AND** writes parquet file successfully
 
 ### Requirement: SQL Query Execution
+The system SHALL provide an `execute_sql` method on `DuckDBConnection` that executes SQL queries using the managed DuckDB connection and returns results.
 
-The system SHALL provide an `execute_sql` method that executes SQL queries on parquet files using DuckDB and returns results as PyArrow tables.
-
-#### Scenario: Execute SQL query on parquet file
-
-- **WHEN** user calls `handler.execute_sql("SELECT * FROM parquet_scan('file.parquet') WHERE col > 10")`
-- **THEN** method executes query using DuckDB
-- **AND** returns PyArrow table with query results
-
-#### Scenario: Execute parameterized query
-
-- **WHEN** user calls `handler.execute_sql(query, parameters=[value1, value2])`
-- **AND** query contains parameter placeholders (`?`)
-- **THEN** method safely binds parameters to query
-- **AND** executes parameterized query
-- **AND** returns PyArrow table with results
-
-#### Scenario: Execute aggregation query
-
-- **WHEN** user executes SQL with GROUP BY, aggregate functions, or window functions
-- **THEN** method returns PyArrow table with aggregated results
-- **AND** leverages DuckDB's analytical query capabilities
-
-#### Scenario: Execute query on remote parquet
-
-- **WHEN** query references remote parquet path (s3://, gs://, etc.)
-- **AND** filesystem is registered
-- **THEN** method executes query on remote data
-- **AND** returns PyArrow table with results
+#### Scenario: Execute SQL query via connection manager
+- **WHEN** user calls `connection.execute_sql("SELECT * FROM ...")`
+- **THEN** method executes query using the managed DuckDB connection
+- **AND** returns results as a DuckDB result object (which can fetch Arrow tables)
 
 ### Requirement: Context Manager Support
+`DuckDBConnection` SHALL implement the context manager protocol for automatic resource cleanup and connection management.
 
-The system SHALL implement context manager protocol for automatic resource cleanup and connection management.
-
-#### Scenario: Use with statement
-
-- **WHEN** user creates handler with `with DuckDBParquetHandler() as handler:`
-- **THEN** handler initializes DuckDB connection on enter
-- **AND** automatically closes connection on exit
-- **AND** resources are properly cleaned up even if exceptions occur
-
-#### Scenario: Manual resource management
-
-- **WHEN** user creates handler without context manager
-- **THEN** handler still functions correctly
-- **AND** user can manually close connection if needed
+#### Scenario: Use DuckDBConnection with statement
+- **WHEN** user uses `with DuckDBConnection(fs) as conn:`
+- **THEN** connection is automatically closed on exit
+- **AND** resources are properly cleaned up
 
 ### Requirement: Type Safety and Documentation
 
@@ -677,39 +422,13 @@ The system SHALL provide comprehensive documentation and examples for all merge 
 - **AND** include performance best practices
 
 ### Requirement: Parquet Dataset Compaction
-The system SHALL provide a `compact_parquet_dataset` method that consolidates small parquet files in a dataset directory into fewer larger files according to configured thresholds while preserving all rows and schema.
+The system SHALL provide a `compact_parquet_dataset_duckdb` function that consolidates small parquet files using DuckDB's native SQL `COPY` command for efficient, streaming data movement.
 
-#### Scenario: Compact dataset by target file size
-- **WHEN** user calls `handler.compact_parquet_dataset(path, target_mb_per_file=128)`
-- **THEN** method groups existing small files so output files are approximately 128MB
-- **AND** total row count remains unchanged
-- **AND** number of parquet files decreases
-
-#### Scenario: Compact dataset by target rows per file
-- **WHEN** user calls `handler.compact_parquet_dataset(path, target_rows_per_file=1_000_000)`
-- **THEN** method rewrites dataset so each output file has <= 1,000,000 rows
-- **AND** schema is preserved across all files
-
-#### Scenario: Dry run compaction plan
-- **WHEN** user calls `handler.compact_parquet_dataset(path, target_mb_per_file=256, dry_run=True)`
-- **THEN** method returns planned file groups and estimated output file count
-- **AND** existing files are not modified
-
-#### Scenario: Recompression during compaction
-- **WHEN** user calls `handler.compact_parquet_dataset(path, target_mb_per_file=128, compression="zstd")`
-- **THEN** rewritten parquet files use zstd compression
-- **AND** all data is preserved
-
-#### Scenario: Partition-limited compaction
-- **WHEN** user calls `handler.compact_parquet_dataset(path, partition_filter=["date=2025-11-04"])`
-- **THEN** only files under matching partition paths are considered
-- **AND** other partitions remain unchanged
-
-#### Scenario: No-op when already optimized
-- **WHEN** dataset has few large files above threshold
-- **AND** user calls `compact_parquet_dataset` with same threshold
-- **THEN** method performs no rewrite
-- **AND** returns statistics indicating zero files compacted
+#### Scenario: Compact dataset using DuckDB SQL
+- **WHEN** `compact_parquet_dataset_duckdb` is called
+- **THEN** it SHALL use DuckDB SQL `COPY (SELECT * FROM parquet_scan(...)) TO ...`
+- **AND** it SHALL support recompression during compaction
+- **AND** it SHALL preserve all data and schema
 
 ### Requirement: Parquet Dataset Z-Order Optimization
 The system SHALL provide an `optimize_parquet_dataset` method that rewrites a dataset ordering rows by a multi-column clustering key (z-order approximation) improving locality for selective predicate queries.
@@ -1037,23 +756,12 @@ DuckDB helper modules SHALL share a single canonical implementation for unregist
 - **AND** no module SHALL maintain its own divergent copy of this logic.
 
 ### Requirement: Parquet Dataset Deduplication Maintenance (DuckDB)
-The system SHALL provide `deduplicate_parquet_dataset` to deduplicate an existing parquet dataset directory.
+The system SHALL provide a `deduplicate_parquet_dataset` method that removes duplicate rows from an existing dataset using DuckDB's native SQL capabilities (`DISTINCT` or `DISTINCT ON`).
 
-#### Scenario: Deduplicate by key columns
-- **GIVEN** a dataset contains duplicate keys under `key_columns=["id"]`
-- **WHEN** user calls `handler.deduplicate_parquet_dataset(path, key_columns=["id"])`
-- **THEN** the dataset SHALL be rewritten so that only one row per key remains
-- **AND** the resulting dataset SHALL remain readable by `read_parquet`
-
-#### Scenario: Deduplicate by exact row
-- **GIVEN** a dataset contains exact duplicate rows
-- **WHEN** user calls `handler.deduplicate_parquet_dataset(path, key_columns=None)`
-- **THEN** the dataset SHALL be rewritten so that exact duplicate rows are removed
-
-#### Scenario: Dry run returns plan only
-- **WHEN** user calls `handler.deduplicate_parquet_dataset(path, key_columns=["id"], dry_run=True)`
-- **THEN** the method SHALL NOT write or delete any files
-- **AND** SHALL return statistics including `before_file_count` and an estimated `after_file_count`
+#### Scenario: Deduplicate dataset using DuckDB SQL
+- **WHEN** `deduplicate_parquet_dataset` is called
+- **THEN** it SHALL use DuckDB SQL to identify and remove duplicates
+- **AND** it SHALL support ordering to specify which record to keep when duplicates are found
 
 ### Requirement: Optimize Supports Optional Deduplication Step (DuckDB)
 The system SHALL allow callers to request deduplication during `optimize_parquet_dataset`.

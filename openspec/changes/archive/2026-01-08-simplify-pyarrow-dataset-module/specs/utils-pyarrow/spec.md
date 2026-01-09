@@ -11,8 +11,4 @@ PyArrow only, with configurable merge strategies.
 - **AND** `source` contains ids [1, 2, 3] where id=1,2 exist in the target dataset
 - **THEN** the helper rewrites the target dataset so that rows for id=1,2 are updated with source values, id=3 is inserted, and all other rows are preserved.
 
-## REMOVED Requirements
 
-### Requirement: Local Schema Utilities in PyArrow Package
-**Reason**: Replaced by shared utilities in `fsspeckit.common.schema`.
-**Migration**: Use `from fsspeckit.common.schema import ...`.

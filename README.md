@@ -339,7 +339,7 @@ For detailed migration instructions, see the [Migration Guide](docs/migration-0.
 - `orjson>=3.8.0` - Fast JSON processing
 - `polars>=0.19.0` - Fast DataFrames (required for `fsspeckit.common.polars`)
 - `pyarrow>=10.0.0` - Columnar data (required for `fsspeckit.datasets.pyarrow`)
-- `duckdb>=0.9.0` - SQL analytics (required for `fsspeckit.datasets.DuckDBParquetHandler`)
+- `duckdb>=1.4.0` - SQL analytics (required for `fsspeckit.datasets.DuckDBParquetHandler`)
 - `sqlglot>=20.0.0` - SQL parsing (required for `fsspeckit.sql.filters`)
 - `pandas>=1.5.0` - Data analysis (optional, for compatibility)
 - `joblib>=1.3.0` - Parallel processing (optional)

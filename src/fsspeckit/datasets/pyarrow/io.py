@@ -103,6 +103,49 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 if file_info.endswith(".parquet"):
                     self._filesystem.rm(file_info)
 
+    def _normalize_filters(
+        self,
+        filters: Any,
+        path: str,
+    ) -> Any:
+        """Normalize filters parameter to PyArrow-compatible format.
+
+        Converts SQL-like string filters to PyArrow compute expressions
+        for API alignment with DuckDB backend. Passes through native
+        PyArrow expressions and DNF tuples unchanged.
+
+        Args:
+            filters: Filter specification (SQL string, PyArrow expression, or DNF tuples)
+            path: Path to dataset/file (used for schema resolution)
+
+        Returns:
+            Normalized filter suitable for PyArrow API
+
+        Raises:
+            ValueError: If SQL string parsing fails
+        """
+        if filters is None:
+            return None
+        if not isinstance(filters, str):
+            return filters
+
+        import pyarrow.parquet as pq
+        import pyarrow.dataset as ds
+
+        if self._filesystem.isfile(path):
+            schema = pq.read_schema(path, filesystem=self._filesystem)
+        else:
+            dataset = ds.dataset(
+                path,
+                filesystem=self._filesystem,
+                format="parquet",
+            )
+            schema = dataset.schema
+
+        from fsspeckit.sql.filters import sql2pyarrow_filter
+
+        return sql2pyarrow_filter(filters, schema)
+
     def read_parquet(
         self,
         path: str,
@@ -115,7 +158,11 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         Args:
             path: Path to parquet file or directory
             columns: Optional list of columns to read
-            filters: Optional row filter expression
+            filters: Optional row filter expression. Accepts PyArrow compute expressions,
+                DNF tuples, or SQL-like strings (converted to PyArrow expressions).
+                Note: DuckDB backend only accepts SQL WHERE clause strings.. Accepts PyArrow compute expressions,
+                DNF tuples, or SQL-like strings (converted to PyArrow expressions).
+                Note: DuckDB backend only accepts SQL WHERE clause strings.
             use_threads: Whether to use parallel reading (default: True)
 
         Returns:

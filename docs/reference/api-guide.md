@@ -285,7 +285,7 @@ fsspeckit uses lazy imports for optional dependencies:
 
 | Feature | Required Package | Install Command |
 |---------|-----------------|-----------------|
-| Dataset operations | `duckdb>=0.9.0` | `pip install duckdb` |
+| Dataset operations | `duckdb>=1.4.0` | `pip install duckdb` |
 | PyArrow operations | `pyarrow>=10.0.0` | `pip install pyarrow` |
 | Polars support | `polars>=0.19.0` | `pip install polars` |
 | SQL filtering | `sqlglot>=20.0.0` | `pip install sqlglot` |

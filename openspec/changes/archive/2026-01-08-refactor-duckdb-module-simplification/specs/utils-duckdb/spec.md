@@ -33,7 +33,7 @@ The system SHALL provide a `compact_parquet_dataset_duckdb` function that consol
 - **AND** it SHALL support recompression during compaction
 - **AND** it SHALL preserve all data and schema
 
-### Requirement: Parquet Dataset Deduplication
+### Requirement: Parquet Dataset Deduplication Maintenance (DuckDB)
 The system SHALL provide a `deduplicate_parquet_dataset` method that removes duplicate rows from an existing dataset using DuckDB's native SQL capabilities (`DISTINCT` or `DISTINCT ON`).
 
 #### Scenario: Deduplicate dataset using DuckDB SQL

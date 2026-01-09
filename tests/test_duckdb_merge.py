@@ -516,9 +516,7 @@ class TestMergeEdgeCases:
             }
         )
         dataset_path = str(temp_dir / "dataset")
-        duckdb_io._write_parquet_dataset_standard(
-            data=initial_data, path=dataset_path, mode="overwrite"
-        )
+        duckdb_io.write_dataset(data=initial_data, path=dataset_path, mode="overwrite")
 
         # Upsert with composite key
         upsert_data = pa.table(
@@ -608,4 +606,379 @@ class TestMergeEdgeCases:
                 strategy="upsert",
                 key_columns=["id"],
                 partition_columns=["partition"],
+            )
+
+
+class TestMergeVersionDetection:
+    """Tests for DuckDB version detection and MERGE support."""
+
+    def test_get_duckdb_version(self, duckdb_io):
+        """Test that version detection returns correct tuple."""
+        version = duckdb_io._get_duckdb_version()
+
+        # Version should be a 3-tuple
+        assert isinstance(version, tuple)
+        assert len(version) == 3
+
+        # All parts should be integers
+        assert all(isinstance(v, int) for v in version)
+
+        # Version should be >= 1.0.0 (current minimum)
+        assert version >= (1, 0, 0)
+
+    def test_supports_merge_with_new_version(self, duckdb_io):
+        """Test that _supports_merge returns True for modern DuckDB."""
+        version = duckdb_io._get_duckdb_version()
+
+        # If version is >= 1.4.0, should support MERGE
+        supports = duckdb_io._supports_merge()
+
+        if version >= (1, 4, 0):
+            assert supports is True
+        else:
+            assert supports is False
+
+    def test_select_merge_implementation_with_auto_detect(self, duckdb_io):
+        """Test auto-detection selects correct implementation."""
+        impl = duckdb_io._select_merge_implementation(use_merge=None)
+
+        # Based on version, should select MERGE or UNION ALL
+        version = duckdb_io._get_duckdb_version()
+        if version >= (1, 4, 0):
+            assert impl == duckdb_io._merge_using_duckdb_merge
+        else:
+            assert impl == duckdb_io._merge_using_union_all
+
+    def test_select_merge_implementation_with_explicit_merge(self, duckdb_io):
+        """Test explicit use_merge=True forces MERGE."""
+        version = duckdb_io._get_duckdb_version()
+
+        if version >= (1, 4, 0):
+            impl = duckdb_io._select_merge_implementation(use_merge=True)
+            assert impl == duckdb_io._merge_using_duckdb_merge
+        else:
+            # Should raise error if MERGE requested but not available
+            try:
+                duckdb_io._select_merge_implementation(use_merge=True)
+                assert False, "Should have raised DatasetMergeError"
+            except Exception as e:
+                assert "DuckDB MERGE requested but not available" in str(e)
+
+    def test_select_merge_implementation_with_explicit_union(self, duckdb_io):
+        """Test explicit use_merge=False forces UNION ALL."""
+        impl = duckdb_io._select_merge_implementation(use_merge=False)
+        assert impl == duckdb_io._merge_using_union_all
+
+    def test_get_duckdb_version_invalid_format(self, duckdb_io, monkeypatch):
+        """Test version detection handles malformed version strings."""
+
+        def mock_version_query(*args, **kwargs):
+            return [("invalid-version-string",)]
+
+        monkeypatch.setattr(
+            duckdb_io._connection.connection,
+            "execute",
+            mock_version_query,
+        )
+
+        with pytest.raises(ValueError, match="Invalid version format"):
+            duckdb_io._get_duckdb_version()
+
+    def test_get_duckdb_version_empty_string(self, duckdb_io, monkeypatch):
+        """Test version detection handles empty version strings."""
+
+        def mock_version_query(*args, **kwargs):
+            return [("",)]
+
+        monkeypatch.setattr(
+            duckdb_io._connection.connection,
+            "execute",
+            mock_version_query,
+        )
+
+        with pytest.raises(ValueError, match="Invalid version string"):
+            duckdb_io._get_duckdb_version()
+
+    def test_get_duckdb_version_wrong_parts_count(self, duckdb_io, monkeypatch):
+        """Test version detection handles version with wrong parts count."""
+
+        def mock_version_query(*args, **kwargs):
+            return [("1.2",)]
+
+        monkeypatch.setattr(
+            duckdb_io._connection.connection,
+            "execute",
+            mock_version_query,
+        )
+
+        with pytest.raises(ValueError, match="Invalid version format"):
+            duckdb_io._get_duckdb_version()
+
+
+class TestMergeUsingDuckDBMerge:
+    """Tests specifically for MERGE statement implementation."""
+
+    def test_merge_using_duckdb_merge_upsert(self, temp_dir, duckdb_io):
+        """Test MERGE UPSERT strategy updates existing and inserts new."""
+        # Create initial dataset
+        initial = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "value": [100, 200, 300],
+            }
+        )
+        initial_path = str(temp_dir / "initial.parquet")
+        duckdb_io.write_parquet(initial, initial_path)
+
+        # Source data with updates and inserts
+        source = pa.table(
+            {
+                "id": [2, 4, 5],
+                "name": ["Bob_Updated", "Diana", "Eve"],
+                "value": [250, 400, 500],
+            }
+        )
+
+        # Read initial
+        existing = duckdb_io.read_parquet(initial_path)
+
+        # Execute MERGE with UPSERT
+        from fsspeckit.core.merge import MergeStrategy
+
+        merged, updated, inserted = duckdb_io._merge_using_duckdb_merge(
+            existing, source, ["id"], MergeStrategy.UPSERT
+        )
+
+        # Verify counts
+        assert updated == 1, f"Expected 1 update, got {updated}"
+        assert inserted == 2, f"Expected 2 inserts, got {inserted}"
+        assert len(merged) == 5, f"Expected 5 total rows, got {len(merged)}"
+
+        # Verify data
+        names = merged.column("name").to_pylist()
+        assert "Bob_Updated" in names, "Updated row should be present"
+        assert "Diana" in names, "New row should be inserted"
+        assert "Eve" in names, "New row should be inserted"
+
+    def test_merge_using_duckdb_merge_insert(self, temp_dir, duckdb_io):
+        """Test MERGE INSERT strategy only inserts new keys."""
+        # Create initial dataset
+        initial = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "value": [100, 200, 300],
+            }
+        )
+        initial_path = str(temp_dir / "initial.parquet")
+        duckdb_io.write_parquet(initial, initial_path)
+
+        # Source data with mix of existing and new keys
+        source = pa.table(
+            {
+                "id": [2, 4, 5],
+                "name": ["Bob_New", "Diana", "Eve"],
+                "value": [250, 400, 500],
+            }
+        )
+
+        # Read initial
+        existing = duckdb_io.read_parquet(initial_path)
+
+        # Execute MERGE with INSERT
+        from fsspeckit.core.merge import MergeStrategy
+
+        merged, updated, inserted = duckdb_io._merge_using_duckdb_merge(
+            existing, source, ["id"], MergeStrategy.INSERT
+        )
+
+        # Verify counts
+        assert updated == 0, f"Expected 0 updates, got {updated}"
+        assert inserted == 2, f"Expected 2 inserts, got {inserted}"
+        assert len(merged) == 5, f"Expected 5 total rows, got {len(merged)}"
+
+        # Verify data
+        names = merged.column("name").to_pylist()
+        assert "Alice" in names, "Existing row should be preserved"
+        assert "Bob" in names, "Existing row should NOT be updated"
+        assert "Bob_New" not in names, "Existing key should NOT be inserted"
+        assert "Diana" in names, "New row should be inserted"
+        assert "Eve" in names, "New row should be inserted"
+
+    def test_merge_using_duckdb_merge_update(self, temp_dir, duckdb_io):
+        """Test MERGE UPDATE strategy only updates existing keys."""
+        # Create initial dataset
+        initial = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+                "value": [100, 200, 300],
+            }
+        )
+        initial_path = str(temp_dir / "initial.parquet")
+        duckdb_io.write_parquet(initial, initial_path)
+
+        # Source data with mix of existing and new keys
+        source = pa.table(
+            {
+                "id": [2, 4, 5],
+                "name": ["Bob_Updated", "Diana", "Eve"],
+                "value": [250, 400, 500],
+            }
+        )
+
+        # Read initial
+        existing = duckdb_io.read_parquet(initial_path)
+
+        # Execute MERGE with UPDATE
+        from fsspeckit.core.merge import MergeStrategy
+
+        merged, updated, inserted = duckdb_io._merge_using_duckdb_merge(
+            existing, source, ["id"], MergeStrategy.UPDATE
+        )
+
+        # Verify counts
+        assert updated == 1, f"Expected 1 update, got {updated}"
+        assert inserted == 0, f"Expected 0 inserts, got {inserted}"
+        assert len(merged) == 3, f"Expected 3 total rows, got {len(merged)}"
+
+        # Verify data
+        names = merged.column("name").to_pylist()
+        assert "Alice" in names, "Unmatched row should be preserved"
+        assert "Bob_Updated" in names, "Existing row should be updated"
+        assert "Charlie" in names, "Unmatched row should be preserved"
+        assert "Diana" not in names, "New key should NOT be inserted"
+        assert "Eve" not in names, "New key should NOT be inserted"
+
+    def test_merge_using_duckdb_merge_multi_column_keys(self, temp_dir, duckdb_io):
+        """Test MERGE with composite key columns."""
+        # Create initial dataset
+        initial = pa.table(
+            {
+                "id": [1, 2, 3],
+                "category": ["A", "B", "C"],
+                "name": ["Alice", "Bob", "Charlie"],
+                "value": [100, 200, 300],
+            }
+        )
+        initial_path = str(temp_dir / "initial.parquet")
+        duckdb_io.write_parquet(initial, initial_path)
+
+        # Source data with updates and inserts
+        source = pa.table(
+            {
+                "id": [2, 4],
+                "category": ["B", "D"],
+                "name": ["Bob_Updated", "Diana"],
+                "value": [250, 400],
+            }
+        )
+
+        # Read initial
+        existing = duckdb_io.read_parquet(initial_path)
+
+        # Execute MERGE with UPSERT
+        from fsspeckit.core.merge import MergeStrategy
+
+        merged, updated, inserted = duckdb_io._merge_using_duckdb_merge(
+            existing, source, ["id", "category"], MergeStrategy.UPSERT
+        )
+
+        # Verify counts
+        assert updated == 1, f"Expected 1 update, got {updated}"
+        assert inserted == 1, f"Expected 1 insert, got {inserted}"
+        assert len(merged) == 4, f"Expected 4 total rows, got {len(merged)}"
+
+        # Verify data
+        names = merged.column("name").to_pylist()
+        assert "Bob_Updated" in names, "Existing composite key should be updated"
+        assert "Diana" in names, "New composite key should be inserted"
+
+
+class TestMergeRoutingWithUseMerge:
+    """Tests for merge() routing with use_merge parameter."""
+
+    def test_merge_with_use_merge_true_forces_merge(self, temp_dir, duckdb_io):
+        source = pa.table({"id": [1, 2], "value": ["updated_1", "new_2"]})
+        initial = pa.table({"id": [1, 3], "value": ["original_1", "original_3"]})
+        initial_path = str(temp_dir / "initial.parquet")
+        duckdb_io.write_parquet(initial, initial_path)
+
+        result = duckdb_io.merge(
+            source,
+            "dataset",
+            strategy="upsert",
+            key_columns=["id"],
+            use_merge=True,
+        )
+
+        assert result.strategy == "upsert"
+        assert result.inserted == 1
+        assert result.updated == 1
+
+    def test_merge_with_use_merge_false_forces_union_all(self, temp_dir, duckdb_io):
+        source = pa.table({"id": [1, 2], "value": ["updated_1", "new_2"]})
+        initial = pa.table({"id": [1, 3], "value": ["original_1", "original_3"]})
+        initial_path = str(temp_dir / "initial.parquet")
+        duckdb_io.write_parquet(initial, initial_path)
+
+        result = duckdb_io.merge(
+            source,
+            "dataset",
+            strategy="upsert",
+            key_columns=["id"],
+            use_merge=False,
+        )
+
+        assert result.strategy == "upsert"
+        assert result.inserted == 1
+        assert result.updated == 1
+
+    def test_merge_with_use_merge_none_auto_detects(self, temp_dir, duckdb_io):
+        source = pa.table({"id": [1, 2], "value": ["updated_1", "new_2"]})
+        initial = pa.table({"id": [1, 3], "value": ["original_1", "original_3"]})
+        initial_path = str(temp_dir / "initial.parquet")
+        duckdb_io.write_parquet(initial, initial_path)
+
+        result = duckdb_io.merge(
+            source,
+            "dataset",
+            strategy="upsert",
+            key_columns=["id"],
+            use_merge=None,
+        )
+
+        assert result.strategy == "upsert"
+        assert result.inserted == 1
+        assert result.updated == 1
+
+    def test_merge_rejects_invalid_identifier_in_key_columns(self, temp_dir, duckdb_io):
+        source = pa.table({"id": [1], "value": ["test"]})
+        initial = pa.table({"id": [1], "value": ["original"]})
+        initial_path = str(temp_dir / "initial.parquet")
+        duckdb_io.write_parquet(initial, initial_path)
+
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            duckdb_io.merge(
+                source,
+                "dataset",
+                strategy="upsert",
+                key_columns=["invalid-column"],
+                use_merge=True,
+            )
+
+    def test_merge_with_invalid_key_columns_list(self, temp_dir, duckdb_io):
+        source = pa.table({"id": [1], "value": ["test"]})
+        initial = pa.table({"id": [1], "value": ["original"]})
+        initial_path = str(temp_dir / "initial.parquet")
+        duckdb_io.write_parquet(initial, initial_path)
+
+        with pytest.raises(ValueError, match="Invalid SQL identifier"):
+            duckdb_io.merge(
+                source,
+                "dataset",
+                strategy="upsert",
+                key_columns=["valid", "invalid-name"],
+                use_merge=True,
             )

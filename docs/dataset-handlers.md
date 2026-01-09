@@ -374,3 +374,15 @@ The `DatasetHandler` protocol is defined in `fsspeckit.datasets.interfaces` and 
 - Validation logic is shared in `fsspeckit.core.merge` and `fsspeckit.core.maintenance`
 - Backend-specific optimizations are applied within each handler
 - The protocol ensures consistent behavior across backends while allowing for backend-specific extensions
+
+## Backend-Specific Differences
+
+| Feature | DuckDB | PyArrow |
+|----------|--------|----------|
+| **Filters** | SQL WHERE clause strings (`str`) only | PyArrow compute expressions, DNF tuples, or SQL-like strings (converted to expressions) |
+| **Merge backend** | `use_merge` parameter (DuckDB 1.4.0+ MERGE SQL vs UNION ALL fallback) | Streaming/in-memory merge knobs (merge_chunk_size_rows, enable_streaming_merge, merge_max_memory_mb, etc.) |
+| **Write backend** | `use_threads` parameter (write_parquet only) | No threading control (PyArrow handles internally) |
+| **Optimization features** | SQL-based query optimization | Advanced deduplication with AdaptiveKeyTracker, vectorized multi-key processing |
+| **Best for** | Complex merge logic, very large datasets, SQL-based workflows | Partitioned datasets, predicate pushdown, memory-constrained environments |
+
+**Note:** These differences reflect backend-specific optimizations rather than incompatibilities. Both backends provide the same core API surface (write_dataset, merge, compact_parquet_dataset, optimize_parquet_dataset) with identical shared parameters.

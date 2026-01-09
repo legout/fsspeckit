@@ -87,8 +87,13 @@ class PathValidator:
     requiring careful validation before SQL string interpolation.
     """
 
-    # Strict allowlist: alphanumeric, dots, underscores, hyphens, forward slashes, asterisks
-    SAFE_PATH_PATTERN: ClassVar[re.Pattern] = re.compile(r"^[a-zA-Z0-9._/\-*:]+$")
+    # Strict allowlist: alphanumeric, dots, underscores, hyphens, forward slashes, asterisks, equals signs (for Hive partitions)
+    SAFE_PATH_PATTERN: ClassVar[re.Pattern] = re.compile(r"^[a-zA-Z0-9._/\-*:=]+$")
+
+    # Pattern for valid SQL identifiers (column names, table names)
+    SQL_IDENTIFIER_PATTERN: ClassVar[re.Pattern] = re.compile(
+        r"^[a-zA-Z_][a-zA-Z0-9_]*$"
+    )
 
     # Dangerous patterns for SQL injection - allow * for globs
     DANGEROUS_PATTERNS: ClassVar[re.Pattern] = re.compile(r"'|\"|\;|--|[\x00-\x1f]")
@@ -128,6 +133,34 @@ class PathValidator:
             raise ValueError(
                 f"Path contains invalid characters. "
                 f"Only alphanumeric, '.', '_', '-', '/', '*', ':' are allowed."
+            )
+
+    @classmethod
+    def validate_sql_identifier(cls, identifier: str) -> None:
+        """Validate that an identifier is safe for SQL use.
+
+        SQL identifiers (column names, table names) must follow strict naming
+        rules to prevent injection and ensure compatibility.
+
+        Args:
+            identifier: The SQL identifier to validate
+
+        Raises:
+            ValueError: If identifier contains invalid characters
+
+        Examples:
+            >>> PathValidator.validate_sql_identifier("column_name")
+            None
+            >>> PathValidator.validate_sql_identifier("column-name")
+            ValueError: Invalid SQL identifier
+        """
+        if not identifier:
+            raise ValueError("SQL identifier cannot be empty")
+
+        if not cls.SQL_IDENTIFIER_PATTERN.match(identifier):
+            raise ValueError(
+                f"Invalid SQL identifier '{identifier}'. "
+                f"Must start with letter or underscore, followed by letters, numbers, or underscores only."
             )
 
     @classmethod
