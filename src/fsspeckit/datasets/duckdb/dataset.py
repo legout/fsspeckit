@@ -25,8 +25,8 @@ from fsspeckit.common.security import (
     safe_format_error,
     validate_compression_codec,
     validate_path,
+    validate_columns,
 )
-from fsspeckit.common.validation import validate_columns
 from fsspeckit.core.merge import (
     MergeStats,
     calculate_merge_stats,
@@ -1361,6 +1361,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             strategy=strategy,
             key_columns=key_columns,
             rewrite_plan=rewrite_plan,
+            matched_keys_by_file=matched_keys_by_file,
             compression=compression,
             max_rows_per_file=max_rows_per_file,
             row_group_size=row_group_size,
@@ -1393,6 +1394,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
 
             import re
 
+            version_str = version_str.lstrip("v")
             version_pattern = re.compile(r"^\d+\.\d+\.\d+$")
             if not version_pattern.match(version_str):
                 raise ValueError(f"Invalid version format: {version_str}")
@@ -1509,6 +1511,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         strategy: CoreMergeStrategy,
         key_columns: list[str],
         rewrite_plan: Any,  # IncrementalRewritePlan
+        matched_keys_by_file: dict[str, set[object]] | None = None,
         compression: str | None = "snappy",
         max_rows_per_file: int | None = 5_000_000,
         row_group_size: int | None = 500_000,
@@ -1530,10 +1533,31 @@ class DuckDBDatasetIO(BaseDatasetHandler):
 
             for affected_file in rewrite_plan.affected_files:
                 existing_data = self._read_parquet_file(affected_file, fs)
+                file_matched = (
+                    matched_keys_by_file.get(affected_file, set())
+                    if matched_keys_by_file
+                    else set()
+                )
 
                 if merge_impl == self._merge_using_duckdb_merge:
+                    import pyarrow as pa_mod
+
+                    match_col_name = "__fsspeckit_match"
+                    if match_col_name in data.column_names:
+                        raise ValueError(
+                            f"Source contains reserved column: {match_col_name}"
+                        )
+
+                    source_with_match = data.append_column(
+                        match_col_name, pa_mod.array([True] * data.num_rows)
+                    )
+
+                    source_for_file = _select_rows_by_keys(
+                        source_with_match, set(file_matched)
+                    )
+
                     merged_data, file_updated, file_inserted = merge_impl(
-                        existing_data, data, key_columns, strategy
+                        existing_data, source_for_file, key_columns, strategy
                     )
                     updated_rows += file_updated
                     inserted_rows += file_inserted
@@ -1708,66 +1732,78 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             PathValidator.validate_sql_identifier(col)
 
         conn = self._connection.connection
-        conn.register("existing_merge", existing_data)
-        conn.register("source_merge", source_data)
+        temp_target_name = f"temp_target_{uuid.uuid4().hex[:16]}"
+        temp_source_name = f"temp_source_{uuid.uuid4().hex[:16]}"
+        temp_actions_name = f"temp_actions_{uuid.uuid4().hex[:16]}"
 
         try:
-            key_conditions = " AND ".join([f'e."{c}" = s."{c}"' for c in key_columns])
+            key_conditions = " AND ".join([f't."{c}" = s."{c}"' for c in key_columns])
+
+            conn.register("existing_data", existing_data)
+            conn.execute(
+                f"CREATE TEMP TABLE {temp_target_name} AS SELECT * FROM existing_data"
+            )
+            conn.register("source_data", source_data)
+            conn.execute(
+                f"CREATE TEMP TABLE {temp_source_name} AS SELECT * FROM source_data"
+            )
 
             if strategy == CoreMergeStrategy.INSERT:
                 merge_sql = f"""
-                    MERGE INTO existing_merge AS e
-                        USING source_merge AS s
+                    MERGE INTO {temp_target_name} AS t
+                        USING {temp_source_name} AS s
                         ON ({key_conditions})
                         WHEN NOT MATCHED BY TARGET THEN INSERT BY NAME
                     """
-
-                result_table = conn.execute(merge_sql).fetch_arrow_table()
+                conn.execute(merge_sql)
+                result_table = conn.execute(
+                    f"SELECT * FROM {temp_target_name} ORDER BY {''.join([f't.{c}, ' for c in key_columns])[:-2]}"
+                ).fetch_arrow_table()
                 updated_count = 0
-                inserted_count = len(result_table)
+                inserted_count = len(result_table) - len(existing_data)
 
             elif strategy == CoreMergeStrategy.UPDATE:
                 merge_sql = f"""
-                    MERGE INTO existing_merge AS e
-                        USING source_merge AS s
+                    MERGE INTO {temp_target_name} AS t
+                        USING {temp_source_name} AS s
                         ON ({key_conditions})
                         WHEN MATCHED THEN UPDATE SET *
                     """
-
-                result_table = conn.execute(merge_sql).fetch_arrow_table()
-                updated_count = len(result_table)
+                conn.execute(merge_sql)
+                result_table = conn.execute(
+                    f"SELECT * FROM {temp_target_name} ORDER BY {''.join([f't.{c}, ' for c in key_columns])[:-2]}"
+                ).fetch_arrow_table()
+                updated_count = self._count_updated_rows(
+                    existing_data, result_table, key_columns
+                )
                 inserted_count = 0
 
             else:  # UPSERT
                 merge_sql = f"""
-                    MERGE INTO existing_merge AS e
-                        USING source_merge AS s
+                    MERGE INTO {temp_target_name} AS t
+                        USING {temp_source_name} AS s
                         ON ({key_conditions})
                         WHEN MATCHED THEN UPDATE SET *
                         WHEN NOT MATCHED BY TARGET THEN INSERT BY NAME
+                        RETURNING *, merge_action
                     """
-
-                result_table = conn.execute(merge_sql).fetch_arrow_table()
-
-                existing_count = len(existing_data)
-                final_count = len(result_table)
+                merge_result = conn.execute(merge_sql).fetch_arrow_table()
 
                 updated_count = 0
                 inserted_count = 0
+                for row in merge_result.to_pylist():
+                    merge_action = row[-1]
+                    if merge_action == "UPDATE":
+                        updated_count += 1
+                    elif merge_action == "INSERT":
+                        inserted_count += 1
 
-                if final_count > existing_count:
-                    inserted_count = final_count - existing_count
-                    updated_count = self._count_updated_rows(
-                        existing_data, result_table, key_columns
-                    )
-                elif final_count < existing_count:
-                    updated_count = self._count_updated_rows(
-                        existing_data, result_table, key_columns
-                    )
+                import pyarrow as pa
+
+                if len(merge_result.column_names) > len(existing_data.column_names):
+                    result_table = merge_result.drop_columns(["merge_action"])
                 else:
-                    updated_count = self._count_updated_rows(
-                        existing_data, result_table, key_columns
-                    )
+                    result_table = merge_result
 
             return (result_table, updated_count, inserted_count)
 
@@ -1787,8 +1823,13 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                 f"MERGE operation failed: {safe_format_error(e)}"
             ) from e
         finally:
-            _unregister_duckdb_table_safely(conn, "existing_merge")
-            _unregister_duckdb_table_safely(conn, "source_merge")
+            _unregister_duckdb_table_safely(conn, "existing_data")
+            _unregister_duckdb_table_safely(conn, "source_data")
+            _unregister_duckdb_table_safely(conn, temp_target_name)
+            _unregister_duckdb_table_safely(conn, temp_source_name)
+            _unregister_duckdb_table_safely(
+                conn, temp_actions_name, ignore_if_not_exists=True
+            )
 
     def _count_updated_rows(
         self,
