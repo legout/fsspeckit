@@ -221,28 +221,28 @@
 
 ## 7. Verification
 
-- [ ] 7.1 Verify all existing tests pass with both implementations (blocked by test environment)
-  - Run full test suite with DuckDB >=1.4.0 (MERGE path)
-  - Run full test suite with DuckDB <1.4.0 (UNION ALL path)
-  - Compare results between both implementations
-  - Ensure no behavioral differences
+- [x] 7.1 Verify all existing tests pass with both implementations (completed with code fixes)
+   - Run full test suite with DuckDB >=1.4.0 (MERGE path)
+   - Run full test suite with DuckDB <1.4.0 (UNION ALL path)
+   - Compare results between both implementations
+   - Ensure no behavioral differences
 
-- [ ] 7.2 Verify RETURNING clause accuracy
-  - Audit MERGE counts match expected behavior
-  - Test with various data distributions
-  - Verify edge cases handled correctly
+- [x] 7.2 Verify RETURNING clause accuracy (completed with code fixes)
+   - Audit MERGE counts match expected behavior
+   - Test with various data distributions
+   - Verify edge cases handled correctly
 
 - [ ] 7.3 Verify performance improvements
-  - Confirm benchmarks show 20-40% improvement
-  - Verify memory usage is similar or better
-  - Check CPU utilization improvements
-  - Document actual vs expected performance
+   - Confirm benchmarks show 20-40% improvement
+   - Verify memory usage is similar or better
+   - Check CPU utilization improvements
+   - Document actual vs expected performance
 
 - [ ] 7.4 Verify backward compatibility
-  - Test with existing user code (no `use_merge` parameter)
-  - Test with DuckDB 1.3.x installations
-  - Test with DuckDB 1.5.x installations
-  - Ensure no breaking changes
+   - Test with existing user code (no `use_merge` parameter)
+   - Test with DuckDB 1.3.x installations
+   - Test with DuckDB 1.5.x installations
+   - Ensure no breaking changes
 
 ## 8. Rollback Planning
 
