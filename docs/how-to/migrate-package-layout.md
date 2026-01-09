@@ -54,7 +54,7 @@ optimized = opt_dtype(table)
 
 | Old Import | New Import | Notes |
 |------------|-----------|-------|
-| `from fsspeckit.utils import DuckDBParquetHandler` | `from fsspeckit.datasets.duckdb import DuckDBParquetHandler` | Direct import |
+| `from fsspeckit.utils import DuckDBParquetHandler` | `from fsspeckit.datasets.duckdb import DuckDBDatasetIO` | Direct import |
 | `from fsspeckit.datasets.pyarrow import ...` | `from fsspeckit.datasets.pyarrow import ...` | No change needed - re-exports from common.schema |
 
 #### Example Migration
@@ -68,9 +68,9 @@ handler = DuckDBParquetHandler()
 
 **After:**
 ```python
-from fsspeckit.datasets.duckdb import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 
-handler = DuckDBParquetHandler()
+io = DuckDBDatasetIO()
 ```
 
 ### Logging Utilities
@@ -120,7 +120,7 @@ handler = DuckDBParquetHandler()
 
 ```python
 import pyarrow as pa
-from fsspeckit.datasets.duckdb import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 from fsspeckit.common.logging import setup_logging
 from fsspeckit.common.schema import cast_schema, opt_dtype
 
@@ -131,7 +131,7 @@ setup_logging(level="INFO")
 table = pa.table({"id": [1, 2, 3], "value": [1.0, 2.0, 3.0]})
 optimized_table = opt_dtype(table)
 
-handler = DuckDBParquetHandler()
+io = DuckDBDatasetIO()
 ```
 
 ## When to Migrate

@@ -42,7 +42,8 @@ The following imports are supported for backwards compatibility:
 - `pl` - from `fsspeckit.common.polars`
 - `sync_dir` - from `fsspeckit.common.misc`
 - `sync_files` - from `fsspeckit.common.misc`
-- `DuckDBParquetHandler` - from `fsspeckit.datasets`
+- `DuckDBDatasetIO` - from `fsspeckit.datasets.duckdb`
+- `PyarrowDatasetIO` - from `fsspeckit.datasets.pyarrow`
 - `Progress` - from `fsspeckit.utils.misc` (shim for `rich.progress.Progress`)
 
 #### Migration Path

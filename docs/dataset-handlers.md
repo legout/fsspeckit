@@ -386,3 +386,5 @@ The `DatasetHandler` protocol is defined in `fsspeckit.datasets.interfaces` and 
 | **Best for** | Complex merge logic, very large datasets, SQL-based workflows | Partitioned datasets, predicate pushdown, memory-constrained environments |
 
 **Note:** These differences reflect backend-specific optimizations rather than incompatibilities. Both backends provide the same core API surface (write_dataset, merge, compact_parquet_dataset, optimize_parquet_dataset) with identical shared parameters.
+
+For complete API signatures and parameters, see the [generated API documentation](../api/fsspeckit.datasets.md).

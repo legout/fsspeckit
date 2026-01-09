@@ -236,7 +236,7 @@ The `fsspeckit.utils` module provides backwards compatibility. For new code, use
 | Legacy Import | Domain Package | Recommended Import |
 |---------------|----------------|-------------------|
 | `from fsspeckit.utils import run_parallel` | Common | `from fsspeckit.common.misc import run_parallel` |
-| `from fsspeckit.utils import DuckDBParquetHandler` | Datasets | `from fsspeckit.datasets import DuckDBParquetHandler` |
+| `from fsspeckit.utils import DuckDBParquetHandler` | Datasets | `from fsspeckit.datasets.duckdb import DuckDBDatasetIO` |
 | `from fsspeckit.utils import sql2pyarrow_filter` | SQL | `from fsspeckit.sql.filters import sql2pyarrow_filter` |
 | `from fsspeckit.utils import AwsStorageOptions` | Storage Options | `from fsspeckit.storage_options import AwsStorageOptions` |
 | `from fsspeckit.utils import dict_to_dataframe` | Common | `from fsspeckit.common.types import dict_to_dataframe` |
@@ -295,13 +295,13 @@ fsspeckit uses lazy imports for optional dependencies:
 
 ```python
 # Imports work even without dependencies
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 from fsspeckit.sql.filters import sql2pyarrow_filter
 
 # Dependencies are required when actually using features
 try:
-    handler = DuckDBParquetHandler()
-    handler.write_parquet_dataset(data, "path/")
+    io = DuckDBDatasetIO()
+    io.write_dataset(data, "path/")
 except ImportError as e:
     print(f"Install with: pip install duckdb")
 ```

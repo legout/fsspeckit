@@ -59,7 +59,7 @@ pip install pyarrow polars duckdb sqlglot
 
 - **PyArrow**: Required for `fsspeckit.datasets.pyarrow` operations
 - **Polars**: Required for Polars-specific utilities in `fsspeckit.common.polars`
-- **DuckDB**: Required for `fsspeckit.datasets.DuckDBParquetHandler`
+- **DuckDB**: Required for `fsspeckit.datasets.duckdb.DuckDBDatasetIO`
 - **SQLglot**: Required for SQL filter translation in `fsspeckit.sql.filters`
 
 If you attempt to use a feature requiring an optional dependency that isn't installed, you'll receive a clear error message indicating which package to install.

@@ -24,21 +24,15 @@ nav:
       - Multi-Key Performance: how-to/multi-key-performance.md
       - Merge Operations Examples: how-to/merge-operations-examples.md
       - Migrate Package Layout: how-to/migrate-package-layout.md
-      - Optimize Memory Monitoring Performance: how-to/optimize-memory-monitoring-performance.md
-  - API Reference:
-      - API Guide: reference/api-guide.md
-      - Reference Index: reference/index.md
-      - Utils Reference: reference/utils.md
-      - Adaptive Key Tracking Reference: reference/adaptive-key-tracking.md
-      - Multi-Key API Reference: reference/multi-key-api.md
-      - Dataset Handlers: dataset-handlers.md
-      - Installation: installation.md
-  - API Reference:
-      - API Guide: reference/api-guide.md
-      - Utils Reference: reference/utils.md
-      - Adaptive Key Tracking Reference: reference/adaptive-key-tracking.md
-      - Multi-Key API Reference: reference/multi-key-api.md
-      - Installation: installation.md
+       - Optimize Memory Monitoring Performance: how-to/optimize-memory-monitoring-performance.md
+   - API Reference:
+       - API Guide: reference/api-guide.md
+       - Utils Reference: reference/utils.md
+       - Adaptive Key Tracking Reference: reference/adaptive-key-tracking.md
+       - Multi-Key API Reference: reference/multi-key-api.md
+       - Dataset Handlers: dataset-handlers.md
+       - Installation: installation.md
+       - Generated API:
       - Generated API:
           - api/index.md
           - Domain Packages:

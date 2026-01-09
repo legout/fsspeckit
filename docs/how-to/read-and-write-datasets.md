@@ -2,6 +2,8 @@
 
 This guide covers how to read and write datasets in various formats using fsspeckit's extended I/O helpers and dataset operations.
 
+For detailed backend-specific differences (filter types, handler methods, etc.), see [Dataset Handler Interface](../dataset-handlers.md).
+
 ## Reading JSON Data
 
 ### Single JSON Files

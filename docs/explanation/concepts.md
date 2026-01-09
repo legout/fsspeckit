@@ -17,7 +17,8 @@ Use top-level imports when working with frequently-used core functionality. Thes
 
 **Package-Level Imports**: For domain-specific features
 ```python
-from fsspeckit.datasets import PyarrowDatasetIO, DuckDBParquetHandler
+from fsspeckit.datasets import PyarrowDatasetIO
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 from fsspeckit.storage_options import storage_options_from_env
 from fsspeckit.sql.filters import sql2pyarrow_filter, sql2polars_filter
 ```

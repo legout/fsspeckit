@@ -30,7 +30,7 @@ This page explains the `fsspeckit.utils` module as a backwards-compatible façad
 
 | Legacy Import | Domain Package | Recommended Import |
 |---------------|----------------|-------------------|
-| `from fsspeckit.utils import DuckDBParquetHandler` | Datasets | `from fsspeckit.datasets import DuckDBParquetHandler` |
+| `from fsspeckit.utils import DuckDBParquetHandler` | Datasets | `from fsspeckit.datasets.duckdb import DuckDBDatasetIO` |
 
 ### SQL Filtering
 
@@ -165,12 +165,12 @@ partitions = get_partitions_from_path("/data/year=2023/month=01/file.parquet")
 from fsspeckit.utils import DuckDBParquetHandler
 
 # Recommended (new code)
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 
 # Usage
-handler = DuckDBParquetHandler(storage_options=storage_options)
-handler.write_parquet_dataset(data, "s3://bucket/dataset/")
-result = handler.execute_sql("SELECT * FROM parquet_scan('s3://bucket/dataset/')")
+io = DuckDBDatasetIO()
+io.write_dataset(data, "s3://bucket/dataset/")
+result = io.read_parquet("s3://bucket/dataset/")
 ```
 
 ### SQL Filtering
@@ -236,11 +236,11 @@ Gradually update imports to domain packages:
 ```python
 # Mix of legacy and new imports during transition
 from fsspeckit.utils import run_parallel  # Legacy
-from fsspeckit.datasets import DuckDBParquetHandler  # New
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO  # New
 
 # Both work together
 results = run_parallel(process_func, data_list)
-handler = DuckDBParquetHandler()
+io = DuckDBDatasetIO()
 ```
 
 ### Phase 3: Complete Migration
@@ -250,13 +250,13 @@ Fully migrate to domain packages:
 ```python
 # All imports from domain packages
 from fsspeckit.common.misc import run_parallel
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 from fsspeckit.storage_options import AwsStorageOptions
 from fsspeckit.sql.filters import sql2pyarrow_filter
 
 # Clean, discoverable imports
 results = run_parallel(process_func, data_list)
-handler = DuckDBParquetHandler()
+io = DuckDBDatasetIO()
 aws_options = AwsStorageOptions(...)
 filter_expr = sql2pyarrow_filter("id > 100", schema)
 ```
@@ -267,7 +267,7 @@ filter_expr = sql2pyarrow_filter("id > 100", schema)
 
 ```python
 # Clear what you're importing from
-from fsspeckit.datasets import DuckDBParquetHandler  # Obvious: dataset operations
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO  # Obvious: dataset operations
 from fsspeckit.sql.filters import sql2pyarrow_filter  # Obvious: SQL filtering
 from fsspeckit.common.misc import run_parallel  # Obvious: general utilities
 ```
@@ -276,10 +276,10 @@ from fsspeckit.common.misc import run_parallel  # Obvious: general utilities
 
 ```python
 # Domain packages provide better type hints
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 
 # IDE shows proper type information
-handler: DuckDBParquetHandler = DuckDBParquetHandler()
+io: DuckDBDatasetIO = DuckDBDatasetIO()
 ```
 
 ### Reduced Import Conflicts
@@ -320,7 +320,7 @@ from fsspeckit.utils import dict_to_dataframe, DuckDBParquetHandler
 
 ```python
 # Recommended: Import from domain packages
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 from fsspeckit.common.misc import run_parallel
 from fsspeckit.storage_options import AwsStorageOptions
 from fsspeckit.sql.filters import sql2pyarrow_filter
@@ -337,7 +337,7 @@ from fsspeckit.datasets import DuckDBParquetHandler  # Migrate this
 from fsspeckit.utils import run_parallel  # Keep this for now
 
 # Option 3: Full migration (best for active development)
-from fsspeckit.datasets import DuckDBParquetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 from fsspeckit.common.misc import run_parallel
 ```
 
@@ -348,10 +348,10 @@ from fsspeckit.common.misc import run_parallel
 class MyDataProcessor:
     def __init__(self):
         # Clear dependencies
-        from fsspeckit.datasets import DuckDBParquetHandler
+        from fsspeckit.datasets.duckdb import DuckDBDatasetIO
         from fsspeckit.common.misc import run_parallel
         
-        self.handler = DuckDBParquetHandler()
+        self.io = DuckDBDatasetIO()
         self.run_parallel = run_parallel
 ```
 

@@ -44,5 +44,6 @@ The `fsspeckit.utils` module provides a backwards-compatible façade that re-exp
 *   [`fsspeckit.utils.types`](fsspeckit.utils.types.md) - Type definitions and utilities
 
 > **Migration Tip**: For new code, prefer importing directly from domain packages:
-> - `from fsspeckit.datasets import DuckDBParquetHandler` instead of `from fsspeckit.utils import DuckDBParquetHandler`
+> - `from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection`
+> - `from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler`
 > - `from fsspeckit.common.logging import setup_logging` instead of `from fsspeckit.utils import setup_logging`

@@ -486,4 +486,118 @@ result = apply_filter_with_fallback(dataset, "id > 100", schema)
 6. **Performance Testing**: Test filter performance on large datasets
 7. **Incremental Filtering**: Apply multiple simple filters instead of one complex filter
 
+## Dataset Read Filters
+
+When reading datasets with `DuckDBDatasetIO` or `PyarrowDatasetIO`, filter types differ between backends:
+
+### DuckDB Dataset Read Filters
+
+DuckDB requires **SQL WHERE clause strings only** for the `filters` parameter in `read_parquet()`:
+
+```python
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
+
+io = DuckDBDatasetIO()
+
+# DuckDB: filters must be SQL WHERE strings
+table = io.read_parquet(
+    "dataset/",
+    filters="id > 100 AND category IN ('A', 'B', 'C')"
+)
+```
+
+**Filter Type Requirements:**
+- `filters: str | None` (SQL WHERE clause string only)
+- Runtime validation: `TypeError` raised if non-string filter provided
+- Examples:
+  - `filters="id > 100"`
+  - `filters="category = 'HIGH' AND value > 500"`
+  - `filters="timestamp >= '2023-01-01' AND status = 'ACTIVE'"`
+  - `filters=None` (no filter)
+
+**Error Handling:**
+```python
+try:
+    table = io.read_parquet("dataset/", filters=["id > 100"])  # Wrong type!
+except TypeError as e:
+    print(f"Filter error: {e}")
+    # Use string instead: filters="id > 100"
+```
+
+### PyArrow Dataset Read Filters
+
+PyArrow supports **multiple filter types** for the `filters` parameter in `read_parquet()`:
+
+```python
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+import pyarrow as pa
+
+io = PyarrowDatasetIO()
+
+# PyArrow: Multiple filter types supported
+# 1. PyArrow expressions
+table = io.read_parquet(
+    "dataset/",
+    filters=pa.compute.field("id") > 100
+)
+
+# 2. DNF tuples (disjunctive normal form)
+table = io.read_parquet(
+    "dataset/",
+    filters=[("category", "=", "A"), ("value", ">", 100)]
+)
+
+# 3. SQL-like strings (converted to expressions)
+table = io.read_parquet(
+    "dataset/",
+    filters="id > 100 AND category = 'A'"
+)
+```
+
+**Filter Type Options:**
+- PyArrow compute expressions: `pa.compute.field("column") > value`
+- DNF tuples: `[("col", "op", "val"), ("col2", "op", "val2"), ...]`
+- SQL-like strings: `"column = 'value' AND column2 > 100"` (converted to expressions)
+
+### Choosing Filter Approach
+
+**Use SQL strings when:**
+- Familiar with SQL syntax
+- Writing complex boolean logic
+- Sharing filter logic across frameworks
+- Working with DuckDB backend (only option)
+
+**Use PyArrow expressions when:**
+- Maximum type safety
+- Avoiding SQL parsing overhead
+- Building filters programmatically
+- Working with PyArrow backend
+
+**Use DNF tuples when:**
+- Need explicit filter structure
+- Building filters from configuration
+- Working with structured filter languages
+
+### Cross-Backend Compatibility
+
+For cross-backend code, use SQL strings for maximum compatibility:
+
+```python
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+
+duckdb_io = DuckDBDatasetIO()
+pyarrow_io = PyarrowDatasetIO()
+
+# Same SQL filter works for both backends
+sql_filter = "id > 100 AND category = 'HIGH'"
+
+duckdb_table = duckdb_io.read_parquet("dataset/", filters=sql_filter)
+pyarrow_table = pyarrow_io.read_parquet("dataset/", filters=sql_filter)
+```
+
+**Note:** PyArrow converts SQL strings to expressions internally, so performance is equivalent to direct expressions.
+
+For more information on backend-specific differences, see [Dataset Handler Interface](../dataset-handlers.md).
+
 For more information on dataset operations, see [Read and Write Datasets](read-and-write-datasets.md).

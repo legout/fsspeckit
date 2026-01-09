@@ -4,6 +4,8 @@ This guide covers dataset merge operations using fsspeckit's `merge()` method fo
 
 > **Package Structure Note:** fsspeckit uses a package-based structure. DuckDB functionality is under `datasets.duckdb` and PyArrow under `datasets.pyarrow`.
 
+For detailed backend-specific differences (filter types, merge parameters, etc.), see [Dataset Handler Interface](../dataset-handlers.md).
+
 ## Understanding merge()
 
 The `merge()` method performs incremental dataset updates by selectively rewriting only the files affected by key matches. This is more efficient than full dataset rewrites for incremental updates.
