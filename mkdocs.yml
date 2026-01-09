@@ -25,17 +25,16 @@ nav:
       - Merge Operations Examples: how-to/merge-operations-examples.md
       - Migrate Package Layout: how-to/migrate-package-layout.md
        - Optimize Memory Monitoring Performance: how-to/optimize-memory-monitoring-performance.md
-   - API Reference:
-       - API Guide: reference/api-guide.md
-       - Utils Reference: reference/utils.md
-       - Adaptive Key Tracking Reference: reference/adaptive-key-tracking.md
-       - Multi-Key API Reference: reference/multi-key-api.md
-       - Dataset Handlers: dataset-handlers.md
-       - Installation: installation.md
-       - Generated API:
-      - Generated API:
-          - api/index.md
-          - Domain Packages:
+    - API Reference:
+        - API Guide: reference/api-guide.md
+        - Utils Reference: reference/utils.md
+        - Adaptive Key Tracking Reference: reference/adaptive-key-tracking.md
+        - Multi-Key API Reference: reference/multi-key-api.md
+        - Dataset Handlers: dataset-handlers.md
+        - Installation: installation.md
+        - Generated API:
+           - api/index.md
+           - Domain Packages:
               - fsspeckit.datasets: api/fsspeckit.datasets.md
               - fsspeckit.datasets.pyarrow.adaptive_tracker: api/fsspeckit.datasets.pyarrow.adaptive_tracker.md
               - fsspeckit.datasets.pyarrow.memory: api/fsspeckit.datasets.pyarrow.memory.md
