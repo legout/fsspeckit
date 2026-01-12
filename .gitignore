@@ -26,3 +26,4 @@ examples/var/
 examples/temp_multicloud_data/
 openspec/pyarrow-optimization-implementation-plan.md
 validate_fixes.py
+dataset/
