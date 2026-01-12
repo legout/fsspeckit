@@ -1102,42 +1102,17 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             verbose=verbose,
         )
 
+    def __enter__(self) -> "PyarrowDatasetIO":
+        """Enter context manager.
 
-class PyarrowDatasetHandler(PyarrowDatasetIO):
-    """Convenience wrapper for PyArrow dataset operations.
-
-    This class provides a familiar interface for users coming from DuckDBParquetHandler.
-    It inherits all methods from PyarrowDatasetIO.
-
-    Example:
-        ```python
-        from fsspeckit.datasets import PyarrowDatasetHandler
-
-        handler = PyarrowDatasetHandler()
-
-        # Read parquet
-        table = handler.read_parquet("/path/to/data.parquet")
-
-        # Merge into dataset
-        handler.merge(table, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
-        ```
-    """
-
-    def __init__(
-        self,
-        filesystem: AbstractFileSystem | None = None,
-    ) -> None:
-        """Initialize PyArrow dataset handler.
-
-        Args:
-            filesystem: Optional fsspec filesystem instance
+        Provided for API symmetry with DuckDB. PyArrow has no connection
+        to close, so this is a no-op context manager.
         """
-        super().__init__(filesystem=filesystem)
-
-    def __enter__(self) -> "PyarrowDatasetHandler":
-        """Enter context manager."""
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Exit context manager (no-op for PyArrow, kept for API symmetry)."""
+        """Exit context manager (no-op for PyArrow).
+
+        Kept for API symmetry with DuckDBDatasetIO. No resources to clean up.
+        """
         pass

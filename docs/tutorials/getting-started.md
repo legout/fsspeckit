@@ -152,7 +152,7 @@ print(query_result)
 ### PyArrow Approach
 
 ```python
-from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
 import pyarrow as pa
 
 # Initialize I/O handler
@@ -184,15 +184,13 @@ merge_result = io.merge(
 )
 print(f"Inserted: {merge_result.inserted}, Updated: {merge_result.updated}")
 
-# Handler wrapper approach for reading and maintenance
-with PyarrowDatasetHandler() as handler:
-    # Read dataset with column selection
-    table = handler.read_parquet("s3://bucket/my-dataset/", columns=["category", "value"])
-    print(f"Read {table.num_rows} rows with columns: {table.column_names}")
-    
-    # Compact dataset
-    stats = handler.compact_parquet_dataset("s3://bucket/my-dataset/", target_mb_per_file=64)
-    print(f"Compaction stats: {stats}")
+# Reading and maintenance operations
+table = io.read_parquet("s3://bucket/my-dataset/", columns=["category", "value"])
+print(f"Read {table.num_rows} rows with columns: {table.column_names}")
+
+# Compact dataset
+stats = io.compact_parquet_dataset("s3://bucket/my-dataset/", target_mb_per_file=64)
+print(f"Compaction stats: {stats}")
 ```
 
 ## Domain Package Structure
@@ -209,7 +207,7 @@ from fsspeckit.storage_options import storage_options_from_env
 
 # Dataset operations - I/O handlers
 from fsspeckit.datasets import DuckDBDatasetIO, DuckDBDatasetHandler
-from fsspeckit.datasets import PyarrowDatasetIO, PyarrowDatasetHandler
+from fsspeckit.datasets import PyarrowDatasetIO
 
 # SQL filter translation
 from fsspeckit.sql.filters import sql2pyarrow_filter, sql2polars_filter

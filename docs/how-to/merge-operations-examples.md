@@ -94,10 +94,10 @@ print(f"New records inserted: {len(inserted_rows)}")
 The PyArrow backend now includes optimized merge operations with vectorized performance improvements:
 
 ```python
-from fsspeckit.datasets.pyarrow.io import PyarrowDatasetHandler
+from fsspeckit.datasets.pyarrow.io import PyarrowDatasetIO
 
 # Initialize PyArrow handler
-pyarrow_handler = PyarrowDatasetHandler()
+pyarrow_handler = PyarrowDatasetIO()
 
 # Perform merge with optimized operations
 merge_result = pyarrow_handler.merge(

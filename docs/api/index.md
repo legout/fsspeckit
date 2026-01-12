@@ -45,5 +45,5 @@ The `fsspeckit.utils` module provides a backwards-compatible façade that re-exp
 
 > **Migration Tip**: For new code, prefer importing directly from domain packages:
 > - `from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection`
-> - `from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler`
+> - `from fsspeckit.datasets.pyarrow import PyarrowDatasetIO`
 > - `from fsspeckit.common.logging import setup_logging` instead of `from fsspeckit.utils import setup_logging`

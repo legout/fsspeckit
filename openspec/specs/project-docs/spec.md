@@ -465,7 +465,7 @@ DuckDB merge-aware write functionality SHALL be easily discoverable through docu
 
 ### Requirement: PyArrow Dataset Handler Class Documentation
 
-The documentation SHALL include comprehensive coverage of PyArrow class-based dataset handlers (`PyarrowDatasetIO`, `PyarrowDatasetHandler`) with same level of detail as DuckDB handler documentation.
+The documentation SHALL include comprehensive coverage of PyArrow class-based dataset handlers (`PyarrowDatasetIO`) with same level of detail as DuckDB handler documentation.
 
 #### Scenario: Getting started tutorial includes correct PyArrow examples
 - **WHEN** a user follows `docs/tutorials/getting-started.md`

@@ -21,6 +21,7 @@ _DEPRECATED_IMPORTS = {
     "DuckDBConnection": ("fsspeckit.datasets.duckdb.connection", "DuckDBConnection"),
     "DuckDBDatasetIO": ("fsspeckit.datasets.duckdb.dataset", None),
     "MergeStrategy": ("fsspeckit.core.merge", None),
+    "PyarrowDatasetHandler": ("fsspeckit.datasets.pyarrow.io", "PyarrowDatasetIO"),
 }
 
 
@@ -58,9 +59,8 @@ from .pyarrow import (
     optimize_parquet_dataset_pyarrow,
     opt_dtype as opt_dtype_pa,
     unify_schemas as unify_schemas_pa,
-    # New handler classes
+    # Dataset I/O class
     PyarrowDatasetIO,
-    PyarrowDatasetHandler,
 )
 
 __all__ = [
@@ -77,7 +77,6 @@ __all__ = [
     "validate_dataset_path",
     # PyArrow handlers
     "PyarrowDatasetIO",
-    "PyarrowDatasetHandler",
     # PyArrow utilities
     "cast_schema",
     "collect_dataset_stats_pyarrow",

@@ -52,6 +52,7 @@ dependencies = [
     "polars>=1.35.2",
     "orjson>=3.11.4",
     "openai>=2.12.0",
+    "marimo>=0.19.0",
 ]
 [project.optional-dependencies]
 aws = ["boto3>=1.26.0", "s3fs>=2025.1.0"]
@@ -182,4 +183,5 @@ dev = [
     "mkdocstrings-python>=1.18.2",
     "mkdocs-git-revision-date-localized-plugin>=1.4.7",
     "marimo>=0.18.2",
+    "jupyterlab>=4.5.1",
 ]

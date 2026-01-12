@@ -15,6 +15,7 @@ app = marimo.App(width="full")
 @app.cell
 def _():
     import marimo as mo
+
     return (mo,)
 
 
@@ -61,11 +62,8 @@ def _(mo):
     from fsspeckit.datasets.pyarrow import (
         # PyArrow backend
         PyarrowDatasetIO,
-        PyarrowDatasetHandler,
         compact_parquet_dataset_pyarrow,
         optimize_parquet_dataset_pyarrow,
-
-
     )
     from fsspeckit.datasets.duckdb import (
         # DuckDB backend
@@ -138,7 +136,6 @@ def _(data_size, mo, pa):
     import random
     from datetime import datetime, timedelta
 
-
     def create_sample_data(n_records):
         """Create realistic sample sales data"""
         products = [
@@ -176,15 +173,14 @@ def _(data_size, mo, pa):
                 "category": random.choice(categories),
                 "quantity": random.randint(1, 10),
                 "price": round(random.uniform(10.0, 500.0), 2),
-                "date": (
-                    base_date + timedelta(days=random.randint(0, 180))
-                ).strftime("%Y-%m-%d"),
+                "date": (base_date + timedelta(days=random.randint(0, 180))).strftime(
+                    "%Y-%m-%d"
+                ),
             }
             record["total"] = record["quantity"] * record["price"]
             records.append(record)
 
         return pa.Table.from_pylist(records)
-
 
     sample_data = create_sample_data(data_size.value)
     mo.vstack(
@@ -226,10 +222,8 @@ def _(
     output_file_pa = output_path_pa / "sales.parquet"
     output_file_ddb = output_path_ddb / "sales.parquet"
 
-
     io_pa = PyarrowDatasetIO()
     result_pa1 = io_pa.write_parquet(sample_data, str(output_file_pa))
-
 
     conn = create_duckdb_connection()
 
@@ -269,9 +263,7 @@ def _(mo):
         label="Merge strategy",
     )
 
-    key_columns = mo.ui.text(
-        value="order_id", label="Key columns (comma-separated)"
-    )
+    key_columns = mo.ui.text(value="order_id", label="Key columns (comma-separated)")
 
     mo.vstack([mo.md(f"**Merge Configuration:**"), merge_strategy, key_columns])
     return key_columns, merge_strategy
@@ -410,7 +402,13 @@ def _(mo):
 
 @app.cell
 def _(io_pa, target_path_pa):
-    io_pa.compact_parquet_dataset(target_path_pa, dry_run=True, compression="zstd", target_mb_per_file=100, target_rows_per_file=1_000_000)
+    io_pa.compact_parquet_dataset(
+        target_path_pa,
+        dry_run=True,
+        compression="zstd",
+        target_mb_per_file=100,
+        target_rows_per_file=1_000_000,
+    )
     return
 
 
@@ -465,10 +463,10 @@ def _(
         f"""
         ### ✅ Compaction Result
 
-        **Before:** {result4['before_file_count']} files
+        **Before:** {result4["before_file_count"]} files
         **After:** {files_after} files
-        **Compacted:** {result4.get('compacted_file_count', 0)} files
-        **Dry run:** {result4.get('dry_run', False)}
+        **Compacted:** {result4.get("compacted_file_count", 0)} files
+        **Dry run:** {result4.get("dry_run", False)}
 
         **Details:**
         ```json
@@ -501,14 +499,22 @@ def _(frag_path, mo):
         ### 📊 Dataset Statistics
 
         **File Information:**
-        - Total files: {len(stats['files'])}
-        - Total bytes: {stats['total_bytes']:,}
-        - Total rows: {stats['total_rows']:,}
+        - Total files: {len(stats["files"])}
+        - Total bytes: {stats["total_bytes"]:,}
+        - Total rows: {stats["total_rows"]:,}
 
         **File Details:**
         ```json
-        {[{'path': f['path'], 'size_bytes': f['size_bytes'], 'num_rows': f['num_rows']}
-          for f in stats['files'][:5]]}
+        {
+            [
+                {
+                    "path": f["path"],
+                    "size_bytes": f["size_bytes"],
+                    "num_rows": f["num_rows"],
+                }
+                for f in stats["files"][:5]
+            ]
+        }
         ...
         ```
         """
@@ -616,7 +622,7 @@ def _(PyarrowDatasetIO, error_scenario, mo, pa, pq, temp_dir, test_button):
 
     if not test_button.value:
         mo.md("👆 Click the button above to test error handling")
-        #return
+        # return
 
     scenario = error_scenario.value
     error_msg = None

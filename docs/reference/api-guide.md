@@ -31,7 +31,7 @@ Structured configuration for cloud and Git providers.
 High-performance dataset operations with DuckDB and PyArrow.
 
 **Capability**: Process datasets  
-**Classes**: `DuckDBDatasetIO`, `PyarrowDatasetIO`, `DuckDBDatasetHandler`, `PyarrowDatasetHandler`  
+**Classes**: `DuckDBDatasetIO`, `PyarrowDatasetIO`, `DuckDBDatasetHandler`, `PyarrowDatasetIO`  
 **Methods**: 
 - `write_dataset(mode='append'|'overwrite')` - Write datasets with metadata tracking
 - `merge(strategy='insert'|'update'|'upsert', key_columns=...)` - Incremental merge operations
@@ -174,7 +174,7 @@ handler = DuckDBDatasetHandler()
 result = handler.execute_sql("SELECT * FROM parquet_scan('s3://bucket/dataset/')")
 
 # 2. Process data (PyArrow)
-from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetIO
 import pyarrow as pa
 
 io = PyarrowDatasetIO()
@@ -195,7 +195,7 @@ merge_result = io.merge(
 print(f"Inserted: {merge_result.inserted}, Updated: {merge_result.updated}")
 
 # Maintenance operations with handler
-with PyarrowDatasetHandler() as handler:
+with PyarrowDatasetIO() as handler:
     stats = handler.compact_parquet_dataset("s3://bucket/dataset/", target_mb_per_file=64)
 
 # 3. Optimize performance

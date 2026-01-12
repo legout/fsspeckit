@@ -236,17 +236,17 @@ fs.merge(
 
 **Example usage:**
 ```python
-from fsspeckit.datasets.pyarrow import PyarrowDatasetIO, PyarrowDatasetHandler
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
 
-# Class-based approach
+# Direct instantiation
 io = PyarrowDatasetIO()
 io.write_dataset(data, "/path/to/dataset/")
 io.merge(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
 
-# Handler wrapper approach
-with PyarrowDatasetHandler() as handler:
-    handler.write_dataset(data, "/path/to/dataset/")
-    handler.merge(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
+# Optionally use as context manager (no-op, for API symmetry)
+with PyarrowDatasetIO() as io:
+    io.write_dataset(data, "/path/to/dataset/")
+    io.merge(data, "/path/to/dataset/", strategy="upsert", key_columns=["id"])
 
 # Read operations
 table = io.read_parquet("/path/to/dataset/", columns=["id", "name"])
@@ -304,7 +304,6 @@ Use the explicit `merge()` method with defined strategies:
 
 **Use Class-based PyArrow when:**
 - You want API consistency with DuckDB handler
-- Need context manager support for resource management
 - Prefer object-oriented patterns with method chaining
 - Want explicit separation between I/O and merge operations
 - Need advanced maintenance operations (compact, optimize)

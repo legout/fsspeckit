@@ -7,8 +7,8 @@ from pathlib import Path
 import pyarrow as pa
 import pytest
 
-from fsspeckit.datasets.duckdb import DuckDBParquetHandler
-from fsspeckit.datasets.pyarrow import PyarrowDatasetHandler
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
 
 
 class TestMaxRowsPerFileEdgeCases:
@@ -30,8 +30,9 @@ class TestMaxRowsPerFileEdgeCases:
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset_dir = f"{temp_dir}/dataset"
 
-            with DuckDBParquetHandler() as handler:
-                # Test with max_rows_per_file=50 (should create 3 files)
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
+            # Test with max_rows_per_file=50 (should create 3 files)
                 handler.write_dataset(large_table, dataset_dir, max_rows_per_file=50)
 
                 files = list(Path(dataset_dir).glob("**/*.parquet"))
@@ -46,24 +47,25 @@ class TestMaxRowsPerFileEdgeCases:
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset_dir = f"{temp_dir}/dataset"
 
-            with PyarrowDatasetHandler() as handler:
-                # Test with max_rows_per_file=50 (should create 3 files)
-                handler.write_dataset(large_table, dataset_dir, max_rows_per_file=50)
+            handler = PyarrowDatasetIO()
+            # Test with max_rows_per_file=50 (should create 3 files)
+            handler.write_dataset(large_table, dataset_dir, max_rows_per_file=50)
 
-                files = list(Path(dataset_dir).glob("**/*.parquet"))
-                assert len(files) == 3
+            files = list(Path(dataset_dir).glob("**/*.parquet"))
+            assert len(files) == 3
 
-                # Verify all data is present
-                result = handler.read_parquet(dataset_dir)
-                assert result.num_rows == 150
+            # Verify all data is present
+            result = handler.read_parquet(dataset_dir)
+            assert result.num_rows == 150
 
     def test_max_rows_per_file_with_append_mode(self, large_table):
         """Test max_rows_per_file works correctly with append mode."""
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset_dir = f"{temp_dir}/dataset"
 
-            with DuckDBParquetHandler() as handler:
-                # First write with splitting
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
+            # First write with splitting
                 handler.write_dataset(large_table, dataset_dir, max_rows_per_file=60)
                 files1 = list(Path(dataset_dir).glob("**/*.parquet"))
                 assert len(files1) >= 1
@@ -86,8 +88,9 @@ class TestMaxRowsPerFileEdgeCases:
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset_dir = f"{temp_dir}/dataset"
 
-            with DuckDBParquetHandler() as handler:
-                # Test with max_rows_per_file larger than table (should create 1 file)
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
+            # Test with max_rows_per_file larger than table (should create 1 file)
                 handler.write_dataset(small_table, dataset_dir, max_rows_per_file=100)
                 files = list(Path(dataset_dir).glob("**/*.parquet"))
                 assert len(files) >= 1
@@ -99,8 +102,9 @@ class TestMaxRowsPerFileEdgeCases:
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset_dir = f"{temp_dir}/dataset"
 
-            with DuckDBParquetHandler() as handler:
-                # Test zero value
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
+            # Test zero value
                 with pytest.raises(ValueError, match="must be > 0"):
                     handler.write_dataset(table, dataset_dir, max_rows_per_file=0)
 
@@ -123,8 +127,9 @@ class TestPathValidationEdgeCases:
             # Path with non-existent parent
             dataset_dir = f"{temp_dir}/nonexistent/nested/dataset"
 
-            with DuckDBParquetHandler() as handler:
-                # Should create parent directories automatically
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
+            # Should create parent directories automatically
                 handler.write_dataset(sample_table, dataset_dir)
 
                 # Verify the directory and file were created
@@ -142,7 +147,8 @@ class TestPathValidationEdgeCases:
                 # Test with relative path
                 dataset_dir = "relative_dataset"
 
-                with DuckDBParquetHandler() as handler:
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
                     handler.write_dataset(sample_table, dataset_dir)
 
                     # Should work with relative paths
@@ -159,7 +165,8 @@ class TestPathValidationEdgeCases:
             # Path with Unicode characters
             dataset_dir = f"{temp_dir}/dataset_ñ_中文_🚀"
 
-            with DuckDBParquetHandler() as handler:
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
                 handler.write_dataset(sample_table, dataset_dir)
 
                 # Verify the directory and file were created
@@ -174,7 +181,8 @@ class TestPathValidationEdgeCases:
             long_dir_name = "a" * 100  # 100 character directory name
             dataset_dir = f"{temp_dir}/{long_dir_name}/dataset"
 
-            with DuckDBParquetHandler() as handler:
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
                 handler.write_dataset(sample_table, dataset_dir)
 
                 # Verify the directory and file were created
@@ -187,7 +195,8 @@ class TestPathValidationEdgeCases:
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset_dir = f"{temp_dir}/dataset with spaces/sub dir"
 
-            with DuckDBParquetHandler() as handler:
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
                 handler.write_dataset(sample_table, dataset_dir)
 
                 # Verify the directory and file were created
@@ -209,8 +218,9 @@ class TestModeBehaviorEdgeCases:
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset_dir = f"{temp_dir}/dataset"
 
-            with DuckDBParquetHandler() as handler:
-                # Write initial data
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
+            # Write initial data
                 handler.write_dataset(sample_table, dataset_dir)
                 files1 = list(Path(dataset_dir).glob("**/*.parquet"))
                 initial_count = len(files1)
@@ -240,8 +250,9 @@ class TestModeBehaviorEdgeCases:
             config_file = dataset_dir / "config.json"
             config_file.write_text('{"version": "1.0"}')
 
-            with DuckDBParquetHandler() as handler:
-                # Write initial parquet data
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
+            # Write initial parquet data
                 handler.write_dataset(sample_table, str(dataset_dir))
                 parquet_files_1 = list(dataset_dir.glob("*.parquet"))
 
@@ -265,8 +276,9 @@ class TestModeBehaviorEdgeCases:
             dataset_dir = f"{temp_dir}/empty_dataset"
             Path(dataset_dir).mkdir()  # Create empty directory
 
-            with DuckDBParquetHandler() as handler:
-                # Both modes should work the same with empty directory
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
+            # Both modes should work the same with empty directory
                 handler.write_dataset(sample_table, dataset_dir, mode="append")
                 files_append = list(Path(dataset_dir).glob("**/*.parquet"))
                 assert len(files_append) > 0
@@ -284,8 +296,9 @@ class TestModeBehaviorEdgeCases:
         with tempfile.TemporaryDirectory() as temp_dir:
             dataset_dir = f"{temp_dir}/dataset"
 
-            with DuckDBParquetHandler() as handler:
-                # Write initial data
+ conn = create_duckdb_connection()
+ handler = DuckDBDatasetIO(conn)
+            # Write initial data
                 handler.write_dataset(sample_table, dataset_dir, mode="append")
                 files1 = list(Path(dataset_dir).glob("**/*.parquet"))
 

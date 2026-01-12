@@ -254,7 +254,7 @@ The project SHALL provide a class-based PyArrow dataset handler that aligns with
 
 #### Scenario: Class-based PyArrow dataset API
 - **WHEN** a user prefers a class-based API for PyArrow parquet datasets
-- **THEN** they SHALL instantiate `PyarrowDatasetIO` or `PyarrowDatasetHandler` to access read/write/merge/maintenance helpers
+- **THEN** they SHALL instantiate `PyarrowDatasetIO` to access read/write/merge/maintenance helpers
 - **AND** method names SHALL mirror the DuckDB handler where supported.
 
 #### Scenario: Lazy optional dependency imports for PyArrow handler

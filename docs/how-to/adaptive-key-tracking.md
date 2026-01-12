@@ -518,9 +518,9 @@ tracker.add(simple_key)
 The AdaptiveKeyTracker is integrated into PyArrow streaming operations for automatic deduplication:
 
 ```python
-from fsspeckit.datasets import PyarrowDatasetHandler
+from fsspeckit.datasets import PyarrowDatasetIO
 
-handler = PyarrowDatasetHandler()
+handler = PyarrowDatasetIO()
 
 # Streaming deduplication happens automatically
 # using AdaptiveKeyTracker internally

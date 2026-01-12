@@ -7,7 +7,7 @@ import pyarrow as pa
 import pytest
 
 from fsspeckit import filesystem
-from fsspeckit.datasets.pyarrow import PyarrowDatasetHandler, PyarrowDatasetIO
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
 
 
 @pytest.fixture
@@ -43,20 +43,6 @@ class TestPyarrowDatasetIOInit:
         fs = filesystem("file")
         io = PyarrowDatasetIO(filesystem=fs)
         assert io._filesystem is fs
-
-
-class TestPyarrowDatasetHandlerContextManager:
-    """Tests for context manager functionality."""
-
-    def test_context_manager(self):
-        """Test context manager protocol."""
-        with PyarrowDatasetHandler() as handler:
-            assert handler is not None
-
-    def test_handler_inherits_from_io(self):
-        """Test that handler inherits from PyarrowDatasetIO."""
-        handler = PyarrowDatasetHandler()
-        assert isinstance(handler, PyarrowDatasetIO)
 
 
 class TestPyarrowDatasetIOReadWrite:
@@ -147,50 +133,62 @@ class TestPyarrowDatasetIOMaintenance:
         assert "before_file_count" in result
 
 
-class TestPyarrowDatasetHandlerAPISymmetry:
-    """Tests to verify API symmetry with DuckDB handler."""
+class TestPyarrowDatasetIOAPI:
+    """Tests to verify PyarrowDatasetIO has the correct API."""
 
     def test_has_read_parquet(self):
-        """Test that handler has read_parquet method."""
-        handler = PyarrowDatasetHandler()
-        assert hasattr(handler, "read_parquet")
-        assert callable(handler.read_parquet)
+        """Test that IO class has read_parquet method."""
+        io = PyarrowDatasetIO()
+        assert hasattr(io, "read_parquet")
+        assert callable(io.read_parquet)
 
     def test_has_write_parquet(self):
-        """Test that handler has write_parquet method."""
-        handler = PyarrowDatasetHandler()
-        assert hasattr(handler, "write_parquet")
-        assert callable(handler.write_parquet)
+        """Test that IO class has write_parquet method."""
+        io = PyarrowDatasetIO()
+        assert hasattr(io, "write_parquet")
+        assert callable(io.write_parquet)
 
     def test_has_write_dataset(self):
-        """Test that handler has write_dataset method."""
-        handler = PyarrowDatasetHandler()
-        assert hasattr(handler, "write_dataset")
-        assert callable(handler.write_dataset)
+        """Test that IO class has write_dataset method."""
+        io = PyarrowDatasetIO()
+        assert hasattr(io, "write_dataset")
+        assert callable(io.write_dataset)
 
     def test_has_merge(self):
-        """Test that handler has merge method."""
-        handler = PyarrowDatasetHandler()
-        assert hasattr(handler, "merge")
-        assert callable(handler.merge)
+        """Test that IO class has merge method."""
+        io = PyarrowDatasetIO()
+        assert hasattr(io, "merge")
+        assert callable(io.merge)
 
     def test_has_compact_parquet_dataset(self):
-        """Test that handler has compact_parquet_dataset method."""
-        handler = PyarrowDatasetHandler()
-        assert hasattr(handler, "compact_parquet_dataset")
-        assert callable(handler.compact_parquet_dataset)
+        """Test that IO class has compact_parquet_dataset method."""
+        io = PyarrowDatasetIO()
+        assert hasattr(io, "compact_parquet_dataset")
+        assert callable(io.compact_parquet_dataset)
 
     def test_has_optimize_parquet_dataset(self):
-        """Test that handler has optimize_parquet_dataset method."""
-        handler = PyarrowDatasetHandler()
-        assert hasattr(handler, "optimize_parquet_dataset")
-        assert callable(handler.optimize_parquet_dataset)
+        """Test that IO class has optimize_parquet_dataset method."""
+        io = PyarrowDatasetIO()
+        assert hasattr(io, "optimize_parquet_dataset")
+        assert callable(io.optimize_parquet_dataset)
+
+    def test_has_context_manager(self):
+        """Test that IO class has context manager protocol."""
+        io = PyarrowDatasetIO()
+        assert hasattr(io, "__enter__")
+        assert hasattr(io, "__exit__")
+
+    def test_context_manager_works(self):
+        """Test that context manager protocol works."""
+        with PyarrowDatasetIO() as io:
+            assert io is not None
+            assert isinstance(io, PyarrowDatasetIO)
 
     def test_has_modern_api_methods(self):
-        """Test that handler has modern dataset API methods."""
-        handler = PyarrowDatasetHandler()
-        assert hasattr(handler, "write_dataset")
-        assert hasattr(handler, "merge")
+        """Test that IO class has modern dataset API methods."""
+        io = PyarrowDatasetIO()
+        assert hasattr(io, "write_dataset")
+        assert hasattr(io, "merge")
         # Legacy convenience methods should be removed
         legacy_methods = [
             "insert_dataset",
@@ -199,9 +197,9 @@ class TestPyarrowDatasetHandlerAPISymmetry:
             "deduplicate_dataset",
         ]
         for method in legacy_methods:
-            assert not hasattr(
-                handler, method
-            ), f"Legacy method {method} should have been removed"
+            assert not hasattr(io, method), (
+                f"Legacy method {method} should have been removed"
+            )
 
 
 class TestOptionalDependencyHandling:

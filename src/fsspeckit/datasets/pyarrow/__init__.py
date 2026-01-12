@@ -40,9 +40,8 @@ from .memory import (
 )
 from .adaptive_tracker import AdaptiveKeyTracker
 
-# Re-export dataset I/O classes
+# Re-export dataset I/O class
 from .io import (
-    PyarrowDatasetHandler,
     PyarrowDatasetIO,
 )
 
@@ -65,7 +64,6 @@ __all__ = [
     "MemoryMonitor",
     "MemoryPressureLevel",
     "AdaptiveKeyTracker",
-    # Dataset I/O classes
+    # Dataset I/O class
     "PyarrowDatasetIO",
-    "PyarrowDatasetHandler",
 ]

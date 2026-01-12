@@ -199,7 +199,7 @@ class PyarrowDatasetIO:
         """Incremental merge operations with partition pruning."""
 
 # Handler wrapper for maintenance operations
-class PyarrowDatasetHandler:
+class PyarrowDatasetIO:
     """Context manager for dataset operations and maintenance."""
     
     def compact_parquet_dataset(self, path, **kwargs):
