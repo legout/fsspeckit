@@ -41,6 +41,7 @@ from .paths import (
     _protocol_set,
     _smart_join,
     _strip_for_fs,
+    normalize_path,
 )
 
 
@@ -641,6 +642,7 @@ __all__ = [
     "MonitoredSimpleCacheFileSystem",
     # Path utilities (for advanced usage)
     "_ensure_string",
+    "normalize_path",
     "_normalize_path",
     "_join_paths",
     "_is_within",

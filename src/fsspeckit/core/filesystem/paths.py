@@ -8,8 +8,12 @@ This module contains helper functions for working with filesystem paths includin
 
 import os
 import posixpath
-import urllib
+import warnings
 from pathlib import Path
+from typing import TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from fsspec import AbstractFileSystem
 
 
 def _ensure_string(path: str | Path | None) -> str:
@@ -29,16 +33,166 @@ def _ensure_string(path: str | Path | None) -> str:
     return str(path)
 
 
+def normalize_path(
+    path: Union[str, Path],
+    filesystem: "AbstractFileSystem | None" = None,
+    validate: bool = False,
+    operation: str | None = None,
+) -> str:
+    """Normalize a filesystem path with optional filesystem-aware and validation.
+
+    This is the unified path normalization function for fsspeckit. It handles
+    string-only normalization, filesystem-aware normalization, and optional
+    validation for security and operation-specific checks.
+
+    Args:
+        path: Path to normalize (string or Path object)
+        filesystem: Optional filesystem instance for filesystem-aware normalization.
+            If None, performs string-only normalization.
+        validate: Whether to perform validation checks on the path.
+            When True, may raise ValueError or DatasetPathError.
+        operation: Optional operation context for validation (e.g., 'read', 'write').
+            Used when validate=True to determine appropriate validation checks.
+
+    Returns:
+        Normalized path as a string.
+
+    Raises:
+        ValueError: If path is None, contains forbidden characters (when validate=True),
+            or fails basic validation.
+        DatasetPathError: If validation fails with filesystem context
+            (when validate=True and filesystem is provided).
+
+    Examples:
+        >>> normalize_path("data/../file.parquet")
+        'file.parquet'
+
+        >>> normalize_path("s3://bucket/path/../file.parquet")
+        's3://bucket/file.parquet'
+
+        >>> normalize_path("data/file", filesystem=LocalFileSystem())
+        '/absolute/path/to/data/file'
+
+        >>> normalize_path("path", validate=True, operation="read")
+        'path'  # May raise if validation fails
+    """
+    from fsspec.implementations.local import LocalFileSystem
+
+    path_str = _ensure_string(path)
+
+    # String-only normalization (no filesystem provided)
+    if filesystem is None:
+        # Handle URL-like paths
+        if "://" in path_str:
+            # Split protocol and path
+            protocol, rest = path_str.split("://", 1)
+            # Normalize the rest of the path
+            normalized_rest = posixpath.normpath(rest)
+            result = f"{protocol}://{normalized_rest}"
+        else:
+            # Handle regular paths
+            # Convert backslashes to forward slashes
+            normalized = path_str.replace("\\", "/")
+            # Normalize path
+            result = posixpath.normpath(normalized)
+
+        # Optional validation without filesystem
+        if validate:
+            # Import here to avoid circular dependency
+            from fsspeckit.common.security import (
+                validate_path as security_validate_path,
+            )
+
+            try:
+                result = security_validate_path(result)
+            except ValueError as e:
+                # Re-raise with context if operation provided
+                if operation:
+                    from fsspeckit.datasets.exceptions import DatasetPathError
+
+                    raise DatasetPathError(
+                        str(e), operation=operation, details={"path": path_str}
+                    ) from e
+                raise
+
+        return result
+
+    # Filesystem-aware normalization
+    if isinstance(filesystem, LocalFileSystem):
+        # Local filesystem - use os.path.abspath for absolute path
+        result = os.path.abspath(path_str)
+    elif hasattr(filesystem, "protocol"):
+        # Remote filesystem - preserve protocol and structure
+        if "://" in path_str:
+            # Already has protocol - normalize the path portion
+            protocol, rest = path_str.split("://", 1)
+            normalized_rest = posixpath.normpath(rest)
+            result = f"{protocol}://{normalized_rest}"
+        else:
+            # Add protocol based on filesystem if not present
+            protocol = filesystem.protocol
+            if isinstance(protocol, (list, tuple)):
+                protocol = protocol[0]
+            # Normalize path before adding protocol
+            normalized_path = posixpath.normpath(path_str.lstrip("/"))
+            result = f"{protocol}://{normalized_path}"
+    else:
+        # Fallback - use string-only normalization
+        result = path_str.replace("\\", "/")
+        result = posixpath.normpath(result)
+
+    # Optional validation with filesystem
+    if validate:
+        # Import validation functions
+        from fsspeckit.common.security import validate_path as security_validate_path
+        from fsspeckit.datasets.exceptions import DatasetPathError
+
+        try:
+            # Basic security validation
+            security_validate_path(result)
+        except ValueError as e:
+            if operation:
+                raise DatasetPathError(
+                    str(e), operation=operation, details={"path": path_str}
+                ) from e
+            raise
+
+        # Operation-specific validation with filesystem
+        if operation:
+            # Import path_utils for dataset-specific validation
+            try:
+                from fsspeckit.datasets.path_utils import validate_dataset_path
+
+                validate_dataset_path(result, filesystem, operation)
+            except ImportError:
+                # If datasets.path_utils not available, skip dataset-specific validation
+                pass
+
+    return result
+
+
 def _normalize_path(path: str, sep: str = "/") -> str:
-    """Normalize a filesystem path.
+    """Normalize a filesystem path (deprecated).
+
+    .. deprecated::
+        Use :func:`normalize_path` instead. This function is maintained for
+        backward compatibility and will be removed in a future version.
 
     Args:
         path: Path to normalize
-        sep: Path separator
+        sep: Path separator (ignored, kept for backward compatibility)
 
     Returns:
         Normalized path
     """
+    warnings.warn(
+        "_normalize_path is deprecated and will be removed in a future version. "
+        "Use normalize_path() instead, which provides filesystem-aware normalization "
+        "and optional validation.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+
     path = _ensure_string(path)
 
     # Handle URL-like paths

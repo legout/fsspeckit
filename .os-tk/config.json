@@ -1,0 +1,27 @@
+{
+  "templateRepo": "legout/openspec-ticket-opencode-starter",
+  "templateRef": "v0.1.0",
+  "useWorktrees": false,
+  "worktreeDir": ".worktrees",
+  "defaultParallel": 3,
+  "mainBranch": "main",
+  "autoPush": true,
+  "unsafe": {
+    "allowParallel": false,
+    "allowDirtyDone": false,
+    "commitStrategy": "prompt"
+  },
+  "planner": {
+    "model": "openai/gpt-5.2",
+    "reasoningEffort": "high",
+    "temperature": 0.75
+  },
+  "worker": {
+    "model": "minimax/MiniMax-M2.1",
+    "fallbackModels": [
+      "zai-coding-plan/glm-4.7"
+    ],
+    "reasoningEffort": "none",
+    "temperature": 0.7
+  }
+}
