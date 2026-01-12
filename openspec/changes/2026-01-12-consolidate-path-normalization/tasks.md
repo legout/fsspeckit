@@ -17,7 +17,7 @@
    - **Effort**: 1 hour
    - **Dependencies**: Add tests for unified `normalize_path()`
 
-- [ ] Update `PyarrowDatasetIO._normalize_path()` method
+- [x] Update `PyarrowDatasetIO._normalize_path()` method
   - **Spec**: `datasets-pyarrow-io`
   - **Effort**: 1 hour
   - **Dependencies**: Update `datasets/path_utils.py` to use unified function
