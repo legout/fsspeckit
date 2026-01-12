@@ -2,17 +2,18 @@
 
 This module provides utilities to handle path normalization and validation across
 different filesystem types (local, S3, GCS, Azure, etc.) for dataset operations.
+
+The normalize_path function now delegates to core/filesystem/paths.normalize_path
+to provide a unified normalization interface across the codebase.
 """
 
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, Any
-
-from fsspec.implementations.local import LocalFileSystem
 
 from fsspeckit.common.logging import get_logger
 from fsspeckit.common.security import validate_path as security_validate_path
+from fsspeckit.core.filesystem.paths import normalize_path as core_normalize_path
 from fsspeckit.datasets.exceptions import DatasetPathError
 
 if TYPE_CHECKING:
@@ -38,6 +39,10 @@ SUPPORTED_PROTOCOLS = [
 def normalize_path(path: str, filesystem: AbstractFileSystem) -> str:
     """Normalize path based on filesystem type.
 
+    This function now delegates to core/filesystem/paths.normalize_path to provide
+    unified path normalization across the codebase. The delegation preserves all
+    existing behavior while eliminating duplicate normalization logic.
+
     Args:
         path: The path to normalize.
         filesystem: The filesystem instance.
@@ -45,23 +50,8 @@ def normalize_path(path: str, filesystem: AbstractFileSystem) -> str:
     Returns:
         The normalized path.
     """
-    if isinstance(filesystem, LocalFileSystem):
-        # Local filesystem - use os.path operations
-        return os.path.abspath(path)
-    elif hasattr(filesystem, "protocol"):
-        # Remote filesystem - preserve protocol and structure
-        if "://" in path:
-            # Already has protocol
-            return path
-        else:
-            # Add protocol based on filesystem
-            protocol = filesystem.protocol
-            if isinstance(protocol, (list, tuple)):
-                protocol = protocol[0]
-            return f"{protocol}://{path.lstrip('/')}"
-    else:
-        # Fallback - return as-is
-        return path
+    # Delegate to core normalize_path with filesystem
+    return core_normalize_path(path, filesystem=filesystem)
 
 
 def validate_dataset_path(

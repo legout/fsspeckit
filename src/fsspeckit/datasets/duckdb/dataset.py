@@ -46,7 +46,8 @@ from fsspeckit.datasets.exceptions import (
     DatasetOperationError,
 )
 from fsspeckit.datasets.base import BaseDatasetHandler
-from fsspeckit.datasets.path_utils import normalize_path, validate_dataset_path
+from fsspeckit.core.filesystem.paths import normalize_path as core_normalize_path
+from fsspeckit.datasets.path_utils import validate_dataset_path
 
 logger = get_logger(__name__)
 

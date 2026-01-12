@@ -22,10 +22,10 @@
   - **Effort**: 1 hour
   - **Dependencies**: Update `datasets/path_utils.py` to use unified function
 
-- [ ] Update all call sites in `core/ext/` modules
-  - **Spec**: `core-ext`
-  - **Effort**: 3 hours
-  - **Dependencies**: Update `PyarrowDatasetIO._normalize_path()` method
+ - [x] Update all call sites in `core/ext/` modules
+   - **Spec**: `core-ext`
+   - **Effort**: 3 hours
+   - **Dependencies**: Update `PyarrowDatasetIO._normalize_path()` method
 
 - [ ] Update project-architecture spec for centralized path normalization
   - **Spec**: `project-architecture`

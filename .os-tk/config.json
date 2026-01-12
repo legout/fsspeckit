@@ -7,7 +7,7 @@
   "mainBranch": "main",
   "autoPush": true,
   "unsafe": {
-    "allowParallel": false,
+    "allowParallel": true,
     "allowDirtyDone": false,
     "commitStrategy": "prompt"
   },

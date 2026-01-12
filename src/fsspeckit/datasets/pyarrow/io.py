@@ -23,6 +23,7 @@ from fsspec import filesystem as fsspec_filesystem
 
 from fsspeckit.common.logging import get_logger
 from fsspeckit.common.optional import _import_pyarrow
+from fsspeckit.core.filesystem.paths import normalize_path as core_normalize_path
 from fsspeckit.core.merge import MergeStats, MergeStrategy
 from fsspeckit.datasets.base import BaseDatasetHandler
 from fsspeckit.datasets.exceptions import (
@@ -30,7 +31,7 @@ from fsspeckit.datasets.exceptions import (
     DatasetOperationError,
     DatasetPathError,
 )
-from fsspeckit.datasets.path_utils import normalize_path, validate_dataset_path
+from fsspeckit.datasets.path_utils import validate_dataset_path
 
 logger = get_logger(__name__)
 
@@ -92,9 +93,16 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         return self._filesystem
 
     def _normalize_path(self, path: str, operation: str = "other") -> str:
-        """Normalize path based on filesystem type and validate it."""
-        normalized = normalize_path(path, self._filesystem)
-        validate_dataset_path(normalized, self._filesystem, operation)
+        """Normalize path based on filesystem type and validate it.
+
+        This method now uses core/filesystem/paths.normalize_path with validation
+        and operation context, providing unified path normalization with
+        filesystem-aware behavior.
+        """
+        # Use core normalize_path with validate and operation parameters
+        normalized = core_normalize_path(
+            path, filesystem=self._filesystem, validate=True, operation=operation
+        )
         return normalized
 
     def _clear_dataset_parquet_only(self, path: str) -> None:
