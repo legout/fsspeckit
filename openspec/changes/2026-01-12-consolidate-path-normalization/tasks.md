@@ -32,7 +32,7 @@
   - **Effort**: 1 hour
   - **Dependencies**: Create unified `normalize_path()` function
 
-- [ ] Update documentation
+- [x] Update documentation
   - **Spec**: `project-docs`
   - **Effort**: 2 hours
   - **Dependencies**: Update all call sites in `core/ext/` modules
