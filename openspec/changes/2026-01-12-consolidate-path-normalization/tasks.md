@@ -7,7 +7,7 @@
   - **Effort**: 2 hours
   - **Dependencies**: None
 
-- [ ] Add tests for unified `normalize_path()`
+- [x] Add tests for unified `normalize_path()`
   - **Spec**: `core-filesystem-paths`
   - **Effort**: 2 hours
   - **Dependencies**: Create unified `normalize_path()` function
