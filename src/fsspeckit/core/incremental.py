@@ -414,25 +414,22 @@ class PartitionPruner:
         """Prune candidate files by hive partition values.
 
         This is conservative: files with unknown partition_values are kept.
+        
+        Note: For UPDATE operations where keys might exist in different partitions,
+        we include ALL files to ensure we don't miss any existing keys.
+        The partition filtering will be applied during the key matching phase instead.
         """
         if not file_metadata:
             return []
         if not partition_columns or not source_partition_values:
             return [meta.path for meta in file_metadata]
 
-        candidates: list[str] = []
-        for meta in file_metadata:
-            if not meta.partition_values:
-                candidates.append(meta.path)
-                continue
-
-            file_tuple = tuple(
-                meta.partition_values.get(col) for col in partition_columns
-            )
-            if file_tuple in source_partition_values:
-                candidates.append(meta.path)
-
-        return candidates
+        # For safety, include all files when partition columns are specified.
+        # Partition-based filtering can incorrectly exclude files when:
+        # 1. Updating a key that exists in a different partition
+        # 2. The source partition values differ from target partition values
+        # The key-based membership check will handle the actual filtering.
+        return [meta.path for meta in file_metadata]
 
     def identify_candidate_files(
         self,

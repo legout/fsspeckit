@@ -28,7 +28,7 @@ class ErrorHandlingValidator:
             "'; DROP TABLE users; --",
             "../../etc/passwd",
             "file' OR '1'='1",
-            "normal_file.parquet"; DROP TABLE test; --",
+            "normal_file.parquet\"; DROP TABLE test; --",
         ]
         
         print("Testing SQL injection protection...")

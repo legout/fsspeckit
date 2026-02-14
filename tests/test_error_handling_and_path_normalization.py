@@ -43,7 +43,9 @@ class TestExceptionHierarchy:
 
         error = DatasetError(msg, operation=operation, details=details)
 
-        assert str(error) == msg
+        assert msg in str(error)  # Message is included
+        assert operation in str(error)  # Operation is included
+        assert "path=/tmp/test" in str(error)  # Details are included
         assert error.operation == operation
         assert error.details == details
 
@@ -140,6 +142,17 @@ class TestPathValidation:
 
             # Valid path for write operation
             validate_dataset_path(tmpdir, fs, "write")
+
+    def test_write_validation_creates_parent(self):
+        """Write validation should create missing parent directories."""
+        from fsspec.implementations.local import LocalFileSystem
+
+        fs = LocalFileSystem()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            target = Path(tmpdir) / "parent" / "child"
+            validate_dataset_path(str(target), fs, "write")
+            assert (Path(tmpdir) / "parent").exists()
 
     def test_nonexistent_path_validation(self):
         """Test validation fails for nonexistent paths."""

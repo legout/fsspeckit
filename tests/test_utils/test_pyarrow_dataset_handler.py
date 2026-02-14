@@ -75,6 +75,26 @@ class TestPyarrowDatasetIOReadWrite:
         files = list(dataset_dir.glob("**/*.parquet"))
         assert len(files) >= 1
 
+    def test_write_dataset_hive_partition_default(self, temp_dir):
+        """Test hive partitioning is default when partition_by is set."""
+        dataset_dir = temp_dir / "partitioned"
+
+        table = pa.table(
+            {"event_date": ["2025-01-01", "2025-01-02"], "value": [1, 2]}
+        )
+
+        io = PyarrowDatasetIO()
+        io.write_dataset(
+            table,
+            str(dataset_dir),
+            partition_by=["event_date"],
+        )
+
+        assert (dataset_dir / "event_date=2025-01-01").exists()
+        assert (dataset_dir / "event_date=2025-01-02").exists()
+        assert not (dataset_dir / "2025-01-01").exists()
+        assert not (dataset_dir / "2025-01-02").exists()
+
     def test_read_parquet_with_columns(self, sample_table, temp_dir):
         """Test reading with column selection."""
         parquet_file = temp_dir / "data.parquet"

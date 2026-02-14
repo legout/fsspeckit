@@ -217,6 +217,8 @@ class TestAdaptiveKeyTracker:
 
     def test_bloom_tier_with_mock(self, mock_bloom):
         """Test Bloom filter tier with mock implementation."""
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+        
         # Force to LRU tier first
         tracker = AdaptiveKeyTracker(
             max_exact_keys=2, max_lru_keys=5, false_positive_rate=0.01
@@ -311,6 +313,8 @@ class TestAdaptiveKeyTracker:
 
     def test_lru_to_bloom_transition(self, mock_bloom):
         """Test LRU to Bloom tier transition."""
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+        
         tracker = AdaptiveKeyTracker(
             max_exact_keys=2, max_lru_keys=5, false_positive_rate=0.001
         )
@@ -336,6 +340,8 @@ class TestAdaptiveKeyTracker:
 
     def test_multiple_transitions(self, mock_bloom):
         """Test multiple tier transitions in sequence."""
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+        
         tracker = AdaptiveKeyTracker(
             max_exact_keys=2, max_lru_keys=4, false_positive_rate=0.01
         )

@@ -54,8 +54,9 @@ class TestGetPartitionsFromPath:
         path = "data/year=2023/file.parquet"
         result = get_partitions_from_path(path, "hive")
 
-        # Should not include filename in partitions
-        assert all("=" in part for part, _ in result)
+        # Should not include filename in partitions - check that we get partition tuples, not filenames
+        assert len(result) == 1
+        assert result[0] == ("year", "2023")
 
     def test_empty_path(self):
         """Test with empty path."""
@@ -305,7 +306,7 @@ class TestInferPartitioningScheme:
             "data/2024/01/file3.parquet",
         ]
 
-        result = infer_partitioning_scheme(paths, ["year", "month"])
+        result = infer_partitioning_scheme(paths)
 
         assert result["scheme"] == "directory"
         assert result["confidence"] > 0.5
@@ -326,7 +327,7 @@ class TestInferPartitioningScheme:
 
     def test_empty_paths(self):
         """Test with empty paths list."""
-        result = infer_partitioning_scheme(paths)
+        result = infer_partitioning_scheme([])
 
         assert result["scheme"] is None
         assert result["confidence"] == 0.0

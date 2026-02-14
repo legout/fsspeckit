@@ -310,14 +310,16 @@ fs.write_json(df, "output.json")
 ```python
 import pyarrow as pa
 
+from fsspeckit.datasets import PyarrowDatasetIO
+
 # Write partitioned dataset
 table = pa.table({"year": [2023, 2023, 2024], "value": [10, 20, 30]})
-fs.write_pyarrow_dataset(
+io = PyarrowDatasetIO()
+io.write_dataset(
     data=table,
     path="partitioned_data",
     partition_by=["year"],
-    format="parquet",
-    compression="zstd"
+    compression="zstd",
 )
 ```
 

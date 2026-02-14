@@ -91,19 +91,52 @@ def validate_dataset_path(
         try:
             # fsspec's AbstractFileSystem has _parent in recent versions
             parent = filesystem._parent(path)
-            if (
-                parent
-                and parent not in ["", "/", "."]
-                and not filesystem.exists(parent)
-            ):
+        except (AttributeError, TypeError, ValueError):
+            parent = None
+
+        if (
+            parent
+            and parent not in ["", "/", "."]
+            and not filesystem.exists(parent)
+        ):
+            if operation == "write":
+                created = False
+                for method_name, kwargs in (
+                    ("mkdirs", {"exist_ok": True}),
+                    ("makedirs", {"exist_ok": True}),
+                    ("mkdir", {"create_parents": True}),
+                ):
+                    method = getattr(filesystem, method_name, None)
+                    if method is None:
+                        continue
+                    try:
+                        method(parent, **kwargs)
+                        created = True
+                        break
+                    except TypeError:
+                        try:
+                            method(parent)
+                            created = True
+                            break
+                        except Exception:
+                            continue
+                    except Exception:
+                        continue
+
+                if created and filesystem.exists(parent):
+                    pass
+                else:
+                    raise DatasetPathError(
+                        f"Parent directory does not exist: {parent}",
+                        operation=operation,
+                        details={"path": path, "parent": parent},
+                    )
+            else:
                 raise DatasetPathError(
                     f"Parent directory does not exist: {parent}",
                     operation=operation,
                     details={"path": path, "parent": parent},
                 )
-        except (AttributeError, TypeError, ValueError):
-            # Fallback or skip if _parent fails
-            pass
 
     # Validate path format
     if "://" in path:

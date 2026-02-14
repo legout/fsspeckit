@@ -7,40 +7,21 @@ This module contains functions for dataset-level operations including:
 - Maintenance operations
 """
 
-import concurrent.futures
-import random
-import re
 import time
 import uuid
 from collections import defaultdict
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Iterable, Literal
+from typing import Any, Callable, Iterable, Literal
 
-import numpy as np
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.dataset as ds
 import pyarrow.parquet as pq
-
-if TYPE_CHECKING:
-    import polars as pl
 
 from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
 from pyarrow.fs import FSSpecHandler, PyFileSystem
 
 from fsspeckit.common.logging import get_logger
-from fsspeckit.core.merge import (
-    MergeStats,
-    calculate_merge_stats,
-    check_null_keys,
-    normalize_key_columns,
-    validate_merge_inputs,
-    validate_strategy_compatibility,
-)
-from fsspeckit.core.merge import (
-    MergeStrategy as CoreMergeStrategy,
-)
 from fsspeckit.datasets.pyarrow.memory import MemoryMonitor, MemoryPressureLevel
 from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
 
@@ -312,25 +293,6 @@ def _create_fallback_key_array(table: pa.Table, key_columns: list[str]) -> pa.Ar
     return pc.binary_join_element_wise(*binary_cols, b"\x1f")
 
 
-# Alias for backward compatibility and internal consistency
-# Deprecated: Use _create_fallback_key_array directly
-def _create_string_key_array(*args, **kwargs):
-    """Deprecated alias for _create_fallback_key_array.
-
-    This alias is deprecated and will be removed in a future version.
-    Use _create_fallback_key_array directly instead.
-    """
-    import warnings
-
-    warnings.warn(
-        "_create_string_key_array is deprecated and will be removed in a future version. "
-        "Use _create_fallback_key_array directly instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return _create_fallback_key_array(*args, **kwargs)
-
-
 def _filter_by_key_membership(
     table: pa.Table,
     key_columns: list[str],
@@ -380,69 +342,6 @@ def _filter_by_key_membership(
             mask = pc.invert(mask)
 
         return table.filter(mask)
-
-
-def _vectorized_multi_key_deduplication(
-    table: pa.Table, key_columns: list[str]
-) -> tuple[pa.Table, dict[str, Any]]:
-    """Implement streaming deduplication using AdaptiveKeyTracker for memory-bounded key tracking.
-
-    Args:
-        table: Table to deduplicate.
-        key_columns: List of column names to use as keys.
-
-    Returns:
-        Tuple of (Deduplicated PyArrow Table, Quality Metrics).
-    """
-    if not key_columns:
-        # If no keys specified, use all columns
-        key_columns = table.column_names
-
-    tracker = AdaptiveKeyTracker()
-    result_batches = []
-
-    logger.debug("Starting vectorized deduplication on %d columns", len(key_columns))
-
-    # Process each batch (chunk) of the table
-    for batch_idx, batch in enumerate(table.to_batches()):
-        chunk_table = pa.Table.from_batches([batch])
-
-        # 1. Deduplicate within the chunk itself first
-        if hasattr(chunk_table, "drop_duplicates"):
-            chunk_unique = chunk_table.drop_duplicates(subset=key_columns)
-        else:
-            chunk_unique = _table_drop_duplicates(chunk_table, subset=key_columns)
-
-        # 2. Extract keys for checking using efficient representation
-        # This avoids materializing large tuples of strings/objects.
-        key_array = _create_fallback_key_array(chunk_unique, key_columns)
-        keys = key_array.to_pylist()
-
-        keep_indices = []
-        for i, key in enumerate(keys):
-            if key not in tracker:
-                tracker.add(key)
-                keep_indices.append(i)
-
-        if keep_indices:
-            if len(keep_indices) == chunk_unique.num_rows:
-                result_batches.extend(chunk_unique.to_batches())
-            else:
-                # Take only new rows
-                new_rows = chunk_unique.take(pa.array(keep_indices))
-                result_batches.extend(new_rows.to_batches())
-
-        if (batch_idx + 1) % 10 == 0:
-            logger.debug(
-                "Processed %d batches, tracker stats: %s",
-                batch_idx + 1,
-                tracker.get_metrics(),
-            )
-
-    if not result_batches:
-        return table.schema.empty_table(), tracker.get_metrics()
-
-    return pa.Table.from_batches(result_batches), tracker.get_metrics()
 
 
 def collect_dataset_stats_pyarrow(
@@ -556,7 +455,7 @@ def compact_parquet_dataset_pyarrow(
     """
     import uuid
 
-    from fsspeckit.core.maintenance import MaintenanceStats, plan_compaction_groups
+    from fsspeckit.core.maintenance import plan_compaction_groups
 
     fs = filesystem or fsspec_filesystem("file")
 
@@ -1123,21 +1022,6 @@ def _ensure_pyarrow_filesystem(
     return PyFileSystem(handler)
 
 
-def _join_path(base: str, child: str) -> str:
-    """Join paths correctly.
-
-    Args:
-        base: Base path
-        child: Child path
-
-    Returns:
-        Joined path
-    """
-    if base.endswith("/"):
-        return base + child
-    return base + "/" + child
-
-
 def _load_source_table_pyarrow(
     source: str,
     filesystem: AbstractFileSystem,
@@ -1171,41 +1055,6 @@ def _load_source_table_pyarrow(
             filesystem=pa_filesystem,
         )
         return dataset.to_table(filter=row_filter, columns=columns)
-
-
-def _iter_table_slices(table: pa.Table, batch_size: int) -> Iterable[pa.Table]:
-    """Iterate over a table in slices.
-
-    Args:
-        table: PyArrow table
-        batch_size: Size of each slice
-
-    Yields:
-        Table slices
-    """
-    num_rows = table.num_rows
-    for start in range(0, num_rows, batch_size):
-        end = min(start + batch_size, num_rows)
-        yield table.slice(start, end - start)
-
-
-def _build_filter_expression(
-    filter_column: str,
-    filter_values: list[Any],
-) -> Any:
-    """Build a filter expression for PyArrow.
-
-    Args:
-        filter_column: Column to filter on
-        filter_values: Values to include
-
-    Returns:
-        PyArrow filter expression
-    """
-    if len(filter_values) == 1:
-        return ds.field(filter_column) == filter_values[0]
-    else:
-        return ds.field(filter_column).isin(filter_values)
 
 
 def process_in_chunks(
@@ -1284,44 +1133,6 @@ def process_in_chunks(
                     total_rows,
                     (rows_processed / total_rows) * 100 if total_rows > 0 else 100,
                 )
-
-
-def _write_tables_to_dataset(
-    tables: list[pa.Table],
-    output_path: str,
-    filesystem: AbstractFileSystem,
-    basename_template: str = "part-{i}.parquet",
-    compression: str | None = None,
-) -> list[str]:
-    """Write tables to a dataset directory.
-
-    Args:
-        tables: List of tables to write
-        output_path: Output directory
-        filesystem: Filesystem instance
-        basename_template: Template for file names
-        compression: Compression codec
-
-    Returns:
-        List of written file paths
-    """
-    pa_filesystem = _ensure_pyarrow_filesystem(filesystem)
-    written_files = []
-
-    for i, table in enumerate(tables):
-        file_path = _join_path(
-            output_path,
-            basename_template.format(i=i),
-        )
-        pq.write_table(
-            table,
-            file_path,
-            filesystem=pa_filesystem,
-            compression=compression or "snappy",
-        )
-        written_files.append(file_path)
-
-    return written_files
 
 
 def merge_upsert_pyarrow(
@@ -1451,8 +1262,6 @@ def merge_update_pyarrow(
     Returns:
         Merged Table if writer is None, else None
     """
-    import pyarrow.compute as pc
-
     from fsspeckit.common.optional import _import_pyarrow
 
     # Align source schema with existing

@@ -10,7 +10,7 @@ This project intentionally favors explicit, minimal write/merge APIs:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Literal, Protocol
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -41,9 +41,12 @@ class DatasetHandler(Protocol):
         path: str,
         *,
         mode: WriteMode = "append",
+        basename_template: str | None = None,
+        schema: pa.Schema | None = None,
+        partition_by: str | list[str] | None = None,
         compression: str | None = "snappy",
-        max_rows_per_file: int | None = None,
-        row_group_size: int | None = None,
+        max_rows_per_file: int | None = 5_000_000,
+        row_group_size: int | None = 500_000,
         **kwargs: Any,
     ) -> WriteDatasetResult:
         """Write a parquet dataset and return per-file metadata.
@@ -52,6 +55,9 @@ class DatasetHandler(Protocol):
             data: PyArrow table or list of tables to write
             path: Output directory path
             mode: Write mode ('append' or 'overwrite')
+            basename_template: Optional basename template for output files
+            schema: Optional schema to enforce before writing
+            partition_by: Optional partition column(s)
             compression: Compression codec
             max_rows_per_file: Maximum rows per file
             row_group_size: Rows per row group
@@ -72,8 +78,15 @@ class DatasetHandler(Protocol):
         partition_columns: list[str] | str | None = None,
         schema: pa.Schema | None = None,
         compression: str | None = "snappy",
-        max_rows_per_file: int | None = None,
-        row_group_size: int | None = None,
+        max_rows_per_file: int | None = 5_000_000,
+        row_group_size: int | None = 500_000,
+        merge_chunk_size_rows: int = 100_000,
+        enable_streaming_merge: bool = True,
+        merge_max_memory_mb: int = 1024,
+        merge_max_process_memory_mb: int | None = None,
+        merge_min_system_available_mb: int = 512,
+        merge_progress_callback: Callable[[int, int], None] | None = None,
+        use_merge: bool | None = None,
         **kwargs: Any,
     ) -> MergeResult:
         """Merge data into an existing parquet dataset incrementally.
@@ -88,6 +101,13 @@ class DatasetHandler(Protocol):
             compression: Output compression codec.
             max_rows_per_file: Max rows per newly written file.
             row_group_size: Parquet row group size for newly written files.
+            merge_chunk_size_rows: Rows per merge processing chunk (streaming).
+            enable_streaming_merge: Whether to stream merge output.
+            merge_max_memory_mb: Max PyArrow memory in MB for merge operations.
+            merge_max_process_memory_mb: Optional max process RSS in MB.
+            merge_min_system_available_mb: Minimum system available memory in MB.
+            merge_progress_callback: Optional callback for merge progress updates.
+            use_merge: Reserved for backward compatibility (ignored by current implementations).
             **kwargs: Additional backend-specific arguments
 
         Returns:
@@ -132,6 +152,8 @@ class DatasetHandler(Protocol):
         target_rows_per_file: int | None = None,
         partition_filter: list[str] | None = None,
         compression: str | None = None,
+        deduplicate_key_columns: list[str] | str | None = None,
+        dedup_order_by: list[str] | str | None = None,
         verbose: bool = False,
         **kwargs: Any,
     ) -> dict[str, Any]:
@@ -143,6 +165,8 @@ class DatasetHandler(Protocol):
             target_rows_per_file: Target rows per file
             partition_filter: Optional partition filters
             compression: Compression codec for output
+            deduplicate_key_columns: Optional key columns for deduplication before optimization
+            dedup_order_by: Columns to order by for deduplication
             verbose: Print progress information
             **kwargs: Additional backend-specific arguments
 

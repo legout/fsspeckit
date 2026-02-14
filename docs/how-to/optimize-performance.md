@@ -395,26 +395,26 @@ df_json = fs.read_json("data/*.json", batch_size=json_batch_size, use_threads=Tr
 ```python
 import pyarrow as pa
 
+from fsspeckit.datasets import PyarrowDatasetIO
+
 # Write with optimal file size and compression
 table = pa.table({...})
 
-fs.write_pyarrow_dataset(
+io = PyarrowDatasetIO()
+io.write_dataset(
     data=table,
     path="optimized_dataset",
-    format="parquet",
     compression="zstd",  # Good compression ratio
-    max_rows_per_file=1000000,  # Target ~100MB files
-    existing_data_behavior="overwrite_or_ignore"
+    max_rows_per_file=1_000_000,  # Target ~100MB files
 )
 
 # Write with partitioning for query performance
-fs.write_pyarrow_dataset(
+io.write_dataset(
     data=table,
     path="partitioned_dataset",
     partition_by=["year", "month", "day"],  # Partition by date
-    format="parquet",
     compression="snappy",  # Faster compression for hot data
-    max_rows_per_file=500000
+    max_rows_per_file=500_000,
 )
 ```
 

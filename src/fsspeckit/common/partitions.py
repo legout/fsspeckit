@@ -77,10 +77,10 @@ def get_partitions_from_path(
         if partitioning == "hive":
             return [tuple(p.split("=")) for p in parts if "=" in p]
         else:
-            # Single partition column - take the first directory that looks like a value
+            # Single partition column - take the last directory that looks like a value
             # This is a simple heuristic for cases like data/2023/file.parquet
-            if parts:
-                return [(partitioning, parts[0])]
+            if parts and parts[-1]:
+                return [(partitioning, parts[-1])]
             return []
     elif isinstance(partitioning, list):
         # Multiple partition columns - map column names to path parts from right to left
@@ -106,6 +106,8 @@ def normalize_partition_value(value: str) -> str:
     Returns:
         Normalized partition value.
     """
+    if value is None:
+        return None
     return value.strip().strip("\"'").replace("\\", "")
 
 
@@ -133,9 +135,9 @@ def validate_partition_columns(
         if not partition_columns.issubset(expected_set):
             return False
 
-        # Check if all expected columns are present (if strict validation needed)
-        # This is optional - some datasets might have missing partitions
-        # return partition_columns == expected_set
+        # Check if all expected columns are present (strict validation)
+        if not expected_set.issubset(partition_columns):
+            return False
 
     # Validate that no column names are empty
     for col, val in partitions:

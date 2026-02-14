@@ -17,10 +17,13 @@ _DEPRECATED_IMPORTS = {
     "_duckdb_helpers": ("fsspeckit.datasets.duckdb.helpers", None),
     "pyarrow_dataset": ("fsspeckit.datasets.pyarrow.dataset", None),
     "pyarrow_schema": ("fsspeckit.datasets.pyarrow.schema", None),
-    "DuckDBParquetHandler": ("fsspeckit.datasets.duckdb.dataset", None),
+    "DuckDBParquetHandler": (
+        "fsspeckit.datasets.duckdb.dataset",
+        "DuckDBDatasetIO",
+    ),
     "DuckDBConnection": ("fsspeckit.datasets.duckdb.connection", "DuckDBConnection"),
-    "DuckDBDatasetIO": ("fsspeckit.datasets.duckdb.dataset", None),
-    "MergeStrategy": ("fsspeckit.core.merge", None),
+    "DuckDBDatasetIO": ("fsspeckit.datasets.duckdb.dataset", "DuckDBDatasetIO"),
+    "MergeStrategy": ("fsspeckit.core.merge", "MergeStrategy"),
     "PyarrowDatasetHandler": ("fsspeckit.datasets.pyarrow.io", "PyarrowDatasetIO"),
 }
 

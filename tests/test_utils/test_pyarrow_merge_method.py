@@ -250,6 +250,45 @@ class TestPyarrowMergeUpsertStrategy:
         assert values_dict[4] == "D"  # Inserted
         assert values_dict[5] == "E"  # Inserted
 
+    def test_upsert_writes_partitioned_inserts(self, tmp_path):
+        """UPSERT should write inserts into hive partition directories."""
+        target = tmp_path / "dataset"
+        target.mkdir()
+
+        initial = pa.table(
+            {"id": [1], "day": ["2025-01-01"], "value": [10]}
+        )
+
+        io = PyarrowDatasetIO()
+        io.write_dataset(
+            initial,
+            str(target),
+            mode="overwrite",
+            partition_by=["day"],
+            partitioning_flavor="hive",
+        )
+
+        source = pa.table(
+            {
+                "id": [1, 2],
+                "day": ["2025-01-01", "2025-01-02"],
+                "value": [11, 20],
+            }
+        )
+
+        result = io.merge(
+            data=source,
+            path=str(target),
+            strategy="upsert",
+            key_columns=["id"],
+            partition_columns=["day"],
+        )
+
+        assert any("day=2025-01-02" in path for path in result.inserted_files)
+        new_partition = target / "day=2025-01-02"
+        assert list(new_partition.glob("*.parquet"))
+        assert not list(target.glob("*.parquet"))
+
     def test_upsert_only_updates(self, tmp_path):
         """UPSERT with all existing keys should only update."""
         target = tmp_path / "dataset"
@@ -521,17 +560,24 @@ class TestPyarrowMergeInvariants:
                 key_columns=["id"],
             )
 
-    @pytest.mark.skip(reason="Partition immutability check not yet implemented")
     def test_partition_immutability_enforced(self, tmp_path):
         """Merge should reject changes to partition columns for existing keys."""
         target = tmp_path / "dataset"
         target.mkdir()
 
-        # Create target with partition column
+        io = PyarrowDatasetIO()
+
+        # Create target dataset partitioned by "partition"
         existing = pa.table(
             {"id": [1, 2], "partition": ["A", "A"], "value": ["a", "b"]}
         )
-        pq.write_table(existing, target / "part-0.parquet")
+        io.write_dataset(
+            existing,
+            str(target),
+            mode="overwrite",
+            partition_by=["partition"],
+            partitioning_flavor="hive",
+        )
 
         # Source trying to change partition for existing key
         source = pa.table(
@@ -542,7 +588,6 @@ class TestPyarrowMergeInvariants:
             }
         )
 
-        io = PyarrowDatasetIO()
         with pytest.raises(ValueError, match="partition"):
             io.merge(
                 data=source,

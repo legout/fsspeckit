@@ -10,7 +10,7 @@ This package contains utilities that are shared across different components:
 
 from .datetime import get_timestamp_column, get_timedelta_str, timestamp_from_string
 from .logging import get_logger, setup_logging
-from .misc import get_partitions_from_path, run_parallel, sync_dir, sync_files
+from .misc import run_parallel, sync_dir, sync_files
 from .types import dict_to_dataframe, to_pyarrow_table
 from .schema import (
     unify_schemas,

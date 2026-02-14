@@ -104,7 +104,7 @@ def generate_test_data_variants():
     large_data = {
         "id": list(range(1000)),
         "value": [i * 0.5 for i in range(1000)],
-        "category": ["X", "Y", "Z"] * 334,
+        "category": ["X", "Y", "Z"] * 333 + ["X"],  # 1000 elements
         "active": [i % 2 == 0 for i in range(1000)],
     }
 

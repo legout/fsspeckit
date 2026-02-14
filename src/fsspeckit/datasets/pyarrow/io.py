@@ -6,16 +6,13 @@ maintaining parquet datasets using PyArrow's high-performance engine.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal, Callable, Iterable
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 if TYPE_CHECKING:
     import pyarrow as pa
-    import pyarrow.dataset as ds
     from fsspec import AbstractFileSystem
 
     from fsspeckit.core.incremental import MergeResult
-    from fsspeckit.core.merge import MergeStats
-    from fsspeckit.datasets.pyarrow.memory import MemoryMonitor
     from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
     from fsspeckit.datasets.write_result import WriteDatasetResult
 
@@ -24,14 +21,7 @@ from fsspec import filesystem as fsspec_filesystem
 from fsspeckit.common.logging import get_logger
 from fsspeckit.common.optional import _import_pyarrow
 from fsspeckit.core.filesystem.paths import normalize_path as core_normalize_path
-from fsspeckit.core.merge import MergeStats, MergeStrategy
 from fsspeckit.datasets.base import BaseDatasetHandler
-from fsspeckit.datasets.exceptions import (
-    DatasetFileError,
-    DatasetOperationError,
-    DatasetPathError,
-)
-from fsspeckit.datasets.path_utils import validate_dataset_path
 
 logger = get_logger(__name__)
 
@@ -106,10 +96,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         return normalized
 
     def _clear_dataset_parquet_only(self, path: str) -> None:
-        if self._filesystem.exists(path) and self._filesystem.isdir(path):
-            for file_info in self._filesystem.find(path, withdirs=False):
-                if file_info.endswith(".parquet"):
-                    self._filesystem.rm(file_info)
+        self._clear_parquet_files(path)
 
     def _normalize_filters(
         self,
@@ -193,6 +180,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         import pyarrow.parquet as pq
 
         path = self._normalize_path(path, operation="read")
+        filters = self._normalize_filters(filters, path)
 
         # Check if path is a single file or directory
         if self._filesystem.isfile(path):
@@ -221,6 +209,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         path: str,
         compression: str | None = "snappy",
         row_group_size: int | None = None,
+        use_threads: bool = False,
     ) -> None:
         """Write parquet file using PyArrow.
 
@@ -229,6 +218,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             path: Output file path
             compression: Compression codec to use (default: snappy)
             row_group_size: Rows per row group
+            use_threads: Whether to use parallel writing (ignored by PyArrow)
 
         Example:
             ```python
@@ -239,17 +229,15 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             io.write_parquet(table, "/tmp/data.parquet")
             ```
         """
-        pa_mod = _import_pyarrow()
         import pyarrow.parquet as pq
 
         from fsspeckit.common.security import validate_compression_codec
 
         path = self._normalize_path(path, operation="write")
         validate_compression_codec(compression)
+        _ = use_threads
 
-        # Handle list of tables
-        if isinstance(data, list):
-            data = pa_mod.concat_tables(data, promote_options="permissive")
+        data = self._combine_tables(data)
 
         pq.write_table(
             data,
@@ -268,13 +256,33 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         basename_template: str | None = None,
         schema: pa.Schema | None = None,
         partition_by: str | list[str] | None = None,
+        partitioning_flavor: Literal["hive", "directory"] | None = None,
         compression: str | None = "snappy",
         max_rows_per_file: int | None = 5_000_000,
         row_group_size: int | None = 500_000,
     ) -> "WriteDatasetResult":
-        """Write a parquet dataset and return per-file metadata."""
+        """Write a parquet dataset and return per-file metadata.
+
+        Args:
+            data: PyArrow table or list of tables to write
+            path: Target dataset path
+            mode: Write mode - "append" or "overwrite"
+            basename_template: Template for output filenames
+            schema: Optional schema to enforce on the data
+            partition_by: Column(s) to partition by
+            partitioning_flavor: Partitioning style - "hive" for Hive-style (col=val)
+                or "directory" for simple directory partitioning. Default is hive
+                when partition_by is provided.
+            compression: Compression codec (default: snappy)
+            max_rows_per_file: Maximum rows per output file
+            row_group_size: Rows per row group in parquet files
+
+        Returns:
+            WriteDatasetResult with file metadata and statistics
+        """
         import uuid
 
+        import pyarrow as pa
         import pyarrow.dataset as pds
         import pyarrow.parquet as pq
 
@@ -284,29 +292,16 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             WriteDatasetResult,
         )
 
-        pa_mod = _import_pyarrow()
-
         path = self._normalize_path(path, operation="write")
         validate_compression_codec(compression)
 
-        if mode not in ("append", "overwrite"):
-            raise ValueError(f"mode must be 'append' or 'overwrite', got: {mode}")
-        if max_rows_per_file is not None and max_rows_per_file <= 0:
-            raise ValueError("max_rows_per_file must be > 0")
-        if row_group_size is not None and row_group_size <= 0:
-            raise ValueError("row_group_size must be > 0")
-        if (
-            max_rows_per_file is not None
-            and row_group_size is not None
-            and row_group_size > max_rows_per_file
-        ):
-            row_group_size = max_rows_per_file
+        self._validate_write_mode(mode)
+        row_group_size = self._validate_write_parameters(
+            max_rows_per_file,
+            row_group_size,
+        )
 
-        # Combine list input.
-        if isinstance(data, list):
-            table = pa_mod.concat_tables(data, promote_options="permissive")
-        else:
-            table = data
+        table = self._combine_tables(data)
 
         if schema is not None:
             from fsspeckit.common.schema import cast_schema
@@ -340,7 +335,24 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             "existing_data_behavior": "overwrite_or_ignore",
         }
         if partition_by is not None:
-            write_options["partitioning"] = partition_by
+            # Handle partitioning flavor
+            effective_flavor = partitioning_flavor or "hive"
+            if effective_flavor == "hive":
+                # Create Hive partitioning with proper schema
+                partition_cols = (
+                    [partition_by] if isinstance(partition_by, str) else partition_by
+                )
+                partition_schema = pa.schema([
+                    (col, table.schema.field(col).type)
+                    for col in partition_cols
+                    if col in table.schema.names
+                ])
+                write_options["partitioning"] = pds.partitioning(
+                    partition_schema, flavor="hive"
+                )
+            else:
+                # Simple directory partitioning
+                write_options["partitioning"] = partition_by
 
         pds.write_dataset(
             table,
@@ -419,6 +431,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         merge_max_process_memory_mb: int | None = None,
         merge_min_system_available_mb: int = 512,
         merge_progress_callback: Callable[[int, int], None] | None = None,
+        use_merge: bool | None = None,
     ) -> MergeResult:
         """Merge data into an existing parquet dataset.
 
@@ -443,11 +456,11 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             merge_max_process_memory_mb: Optional max process RSS in MB
             merge_min_system_available_mb: Min system available memory in MB (default: 512)
             merge_progress_callback: Optional callback for progress updates
+            use_merge: Reserved for backward compatibility (ignored by current implementations)
 
         Returns:
             MergeResult with detailed statistics
         """
-        import pyarrow.compute as pc
         import pyarrow.parquet as pq
         import pyarrow.dataset as ds
 
@@ -458,19 +471,17 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             confirm_affected_files,
             extract_source_partition_values,
             list_dataset_files,
+            parse_hive_partition_path,
             plan_incremental_rewrite,
             validate_no_null_keys,
+            validate_partition_column_immutability,
         )
-        from fsspeckit.core.merge import normalize_key_columns
         from fsspeckit.common.security import validate_compression_codec, validate_path
         from fsspeckit.datasets.pyarrow.dataset import (
             PerformanceMonitor,
-            _create_composite_key_array,
-            _create_fallback_key_array,
             _filter_by_key_membership,
             _make_struct_safe,
             _table_drop_duplicates,
-            process_in_chunks,
         )
         from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
 
@@ -481,62 +492,37 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         )
         monitor.start_op("initialization")
 
+        if use_merge is not None:
+            logger.debug("pyarrow_merge_use_merge_ignored", use_merge=use_merge)
+
         pa_mod = _import_pyarrow()
-
-        if isinstance(key_columns, str):
-            key_columns = [key_columns]
-
-        if isinstance(partition_columns, str):
-            partition_columns = [partition_columns]
-
-        partition_cols = partition_columns or []
-        key_cols = key_columns
+        validate_path(path)
+        validate_compression_codec(compression)
+        row_group_size = self._validate_write_parameters(
+            max_rows_per_file,
+            row_group_size,
+        )
 
         # Convert data to source_table
-        if isinstance(data, list):
-            source_table = pa_mod.concat_tables(data, promote_options="permissive")
-        else:
-            source_table = data
+        source_table = self._combine_tables(data)
 
         if schema is not None:
             from fsspeckit.common.schema import cast_schema
 
             source_table = cast_schema(source_table, schema)
 
-        for col in partition_cols:
-            if col not in source_table.column_names:
-                raise ValueError(
-                    f"Partition column '{col}' not found in source. "
-                    f"Available columns: {', '.join(source_table.column_names)}"
-                )
-
-        def _dedupe_source_last_wins(table: pa.Table) -> pa.Table:
-            if table.num_rows == 0:
-                return table
-
-            # Add row index to track original positions
-            row_indices = pa.array(range(table.num_rows))
-            table_with_index = table.append_column("__row_idx__", row_indices)
-
-            # Group by key columns and get maximum row index (last occurrence)
-            grouped = table_with_index.group_by(key_cols).aggregate(
-                [("__row_idx__", "max")]
-            )
-
-            # Get the indices to keep and sort them
-            indices = grouped.column("__row_idx___max")
-
-            # Sort indices to preserve relative order
-            sorted_indices = pc.sort_indices(indices)
-            result_indices = pc.take(indices, sorted_indices)
-
-            # Take the selected rows and remove the temporary index column
-            result = table.take(result_indices)
-
-            return result
+        key_cols = self._validate_key_columns(
+            key_columns,
+            source_table.column_names,
+            context="source",
+        )
+        partition_cols = self._validate_partition_columns(
+            partition_columns,
+            source_table.column_names,
+        )
 
         monitor.start_op("source_deduplication")
-        source_table = _dedupe_source_last_wins(source_table)
+        source_table = self._dedupe_source_last_wins(source_table, key_cols)
         monitor.end_op()
 
         # Validate no null keys in source
@@ -561,6 +547,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
 
         target_files = list_dataset_files(path, filesystem=self._filesystem)
         target_exists = bool(target_files)
+        self._validate_merge_strategy(strategy, target_exists)
 
         target_count_before = sum(
             pq.read_metadata(f, filesystem=self._filesystem).num_rows
@@ -586,16 +573,13 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             )
 
         if not target_exists:
-            if strategy == "update":
-                raise ValueError(
-                    "UPDATE strategy requires an existing target dataset (non-existent target)"
-                )
-
             self._filesystem.mkdirs(path, exist_ok=True)
             write_res = self.write_dataset(
                 source_table,
                 path,
                 mode="append",
+                partition_by=partition_cols or None,
+                partitioning_flavor="hive" if partition_cols else None,
                 compression=compression,
                 max_rows_per_file=max_rows_per_file,
                 row_group_size=row_group_size,
@@ -655,29 +639,14 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                         struct_keys = _make_struct_safe(table, key_cols).to_pylist()
                         for d in struct_keys:
                             mask.append(tuple(d.values()) in keys)
-                    return table.filter(pa.array(mask))
+                    return table.filter(pa_mod.array(mask))
             else:
                 key_set = keys
 
-            if len(key_cols) == 1:
-                key_col = key_cols[0]
-                value_set = pa_mod.array(
-                    list(key_set), type=table.schema.field(key_col).type
-                )
-                mask = pc.is_in(table.column(key_col), value_set=value_set)
-                return table.filter(mask)
-            key_list = [tuple(k) for k in key_set]
-            key_columns_values = list(zip(*key_list))
-            value_arrays = [
-                pa_mod.array(list(values), type=table.schema.field(col).type)
-                for col, values in zip(key_cols, key_columns_values)
-            ]
-            keys_table = pa_mod.table(value_arrays, names=key_cols)
-            return table.join(
-                keys_table,
-                keys=key_cols,
-                join_type="inner",
-                coalesce_keys=True,
+            return self._select_rows_by_keys(
+                table,
+                key_cols,
+                key_set,
             )
 
         source_partition_values: set[tuple[object, ...]] | None = None
@@ -791,6 +760,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 insert_table,
                 path,
                 mode="append",
+                partition_by=partition_cols or None,
+                partitioning_flavor="hive" if partition_cols else None,
                 compression=compression,
                 max_rows_per_file=max_rows_per_file,
                 row_group_size=row_group_size,
@@ -844,6 +815,55 @@ class PyarrowDatasetIO(BaseDatasetHandler):
 
                 # Load only source rows relevant to this file
                 source_for_file = _select_rows_by_keys(source_table, file_matched)
+
+                if partition_cols:
+                    file_schema = pq.read_schema(
+                        file_path, filesystem=self._filesystem
+                    )
+                    available_columns = set(file_schema.names)
+                    validation_columns = list(
+                        dict.fromkeys(
+                            list(key_cols)
+                            + [
+                                col
+                                for col in partition_cols
+                                if col in available_columns
+                            ]
+                        )
+                    )
+                    target_validation = pq.read_table(
+                        file_path,
+                        columns=validation_columns,
+                        filesystem=self._filesystem,
+                    )
+                    missing_partition_cols = [
+                        col
+                        for col in partition_cols
+                        if col not in target_validation.column_names
+                    ]
+                    if missing_partition_cols:
+                        partition_values = parse_hive_partition_path(
+                            file_path, partition_columns=partition_cols
+                        )
+                        for col in missing_partition_cols:
+                            if col not in partition_values:
+                                raise ValueError(
+                                    f"Partition column '{col}' must be present in "
+                                    "hive partition path for merge validation"
+                                )
+                            target_validation = target_validation.append_column(
+                                col,
+                                pa_mod.array(
+                                    [partition_values[col]] * target_validation.num_rows
+                                ),
+                            )
+                    validate_partition_column_immutability(
+                        source_for_file,
+                        target_validation,
+                        key_cols,
+                        partition_cols,
+                    )
+
                 staging_file = f"{staging_dir}/{uuid.uuid4().hex[:16]}.parquet"
 
                 if enable_streaming_merge:
@@ -963,6 +983,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 insert_table,
                 path,
                 mode="append",
+                partition_by=partition_cols or None,
+                partitioning_flavor="hive" if partition_cols else None,
                 compression=compression,
                 max_rows_per_file=max_rows_per_file,
                 row_group_size=row_group_size,
@@ -1071,6 +1093,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         target_rows_per_file: int | None = None,
         partition_filter: list[str] | None = None,
         compression: str | None = None,
+        deduplicate_key_columns: list[str] | str | None = None,
+        dedup_order_by: list[str] | str | None = None,
         verbose: bool = False,
     ) -> dict[str, Any]:
         """Optimize a parquet dataset.
@@ -1081,6 +1105,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             target_rows_per_file: Target rows per file
             partition_filter: Optional partition filters
             compression: Compression codec
+            deduplicate_key_columns: Optional key columns for deduplication before optimization
+            dedup_order_by: Columns to order by for deduplication
             verbose: Print progress information
 
         Returns:
@@ -1106,6 +1132,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             target_rows_per_file=target_rows_per_file,
             partition_filter=partition_filter,
             compression=compression,
+            deduplicate_key_columns=deduplicate_key_columns,
+            dedup_order_by=dedup_order_by,
             filesystem=self._filesystem,
             verbose=verbose,
         )

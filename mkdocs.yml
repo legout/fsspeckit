@@ -67,6 +67,7 @@ nav:
   - Migration Guides:
       - Append Mode Default: migration/append-mode-default.md
       - Enhanced Memory Monitoring: migration/enhanced-memory-monitoring.md
+      - Dataset Module Refactor: migration/dataset-module-refactor.md
   - Contributing: contributing.md
 
 theme:

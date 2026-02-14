@@ -302,13 +302,16 @@ table = pa.table({
     "category": ["A", "B", "A", "B"]
 })
 
+from fsspeckit.datasets import PyarrowDatasetIO
+
+io = PyarrowDatasetIO()
+
 # Write partitioned dataset
-fs.write_pyarrow_dataset(
+io.write_dataset(
     data=table,
     path="partitioned_data",
     partition_by=["year", "month"],
-    format="parquet",
-    compression="zstd"
+    compression="zstd",
 )
 
 # Result structure:
@@ -316,19 +319,21 @@ fs.write_pyarrow_dataset(
 # partitioned_data/year=2023/month=2/...parquet
 # partitioned_data/year=2024/month=1/...parquet
 # partitioned_data/year=2024/month=2/...parquet
+
+# Note: PyArrow writes hive-style partitions by default when partition_by is set.
 ```
 
 ### Dataset with Custom Options
 
 ```python
 # Write with specific options
-fs.write_pyarrow_dataset(
+io.write_dataset(
     data=table,
     path="dataset",
-    format="parquet",
     compression="snappy",
-    max_rows_per_file=1000000,
-    existing_data_behavior="overwrite_or_ignore"
+    max_rows_per_file=1_000_000,
+    row_group_size=250_000,
+    mode="append",
 )
 ```
 
@@ -463,6 +468,10 @@ result = io.merge(
     partition_columns=["year", "month"]
 )
 ```
+
+Note: For hive-partitioned datasets, merge inserts are written into the
+corresponding `col=value/` directories, and partition values are inferred
+from the path rather than being injected into Parquet file schemas.
 
 ### Write vs Merge: When to Use Each
 

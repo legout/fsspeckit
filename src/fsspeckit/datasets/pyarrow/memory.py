@@ -1,7 +1,7 @@
 """Memory monitoring utilities for PyArrow-based dataset operations."""
 
 from enum import Enum
-from typing import Any, Final
+from typing import Final
 import pyarrow as pa
 import os
 

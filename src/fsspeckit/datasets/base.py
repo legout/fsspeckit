@@ -11,6 +11,7 @@ import uuid
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
+
 if TYPE_CHECKING:
     import pyarrow as pa
     from fsspec import AbstractFileSystem
@@ -18,10 +19,7 @@ if TYPE_CHECKING:
     from fsspeckit.core.incremental import MergeResult
     from fsspeckit.datasets.write_result import WriteDatasetResult
 
-from fsspeckit.common.logging import get_logger
 from fsspeckit.core.merge import normalize_key_columns
-
-logger = get_logger(__name__)
 
 
 class BaseDatasetHandler(ABC):
@@ -80,6 +78,7 @@ class BaseDatasetHandler(ABC):
         path: str,
         compression: str | None = "snappy",
         row_group_size: int | None = None,
+        use_threads: bool = False,
     ) -> None:
         """Write data to a single parquet file.
 
@@ -88,6 +87,7 @@ class BaseDatasetHandler(ABC):
             path: Output file path
             compression: Compression codec to use
             row_group_size: Rows per row group
+            use_threads: Whether to use parallel writing
         """
         ...
 
@@ -98,6 +98,9 @@ class BaseDatasetHandler(ABC):
         path: str,
         *,
         mode: Literal["append", "overwrite"] = "append",
+        basename_template: str | None = None,
+        schema: pa.Schema | None = None,
+        partition_by: str | list[str] | None = None,
         compression: str | None = "snappy",
         max_rows_per_file: int | None = 5_000_000,
         row_group_size: int | None = 500_000,
@@ -108,6 +111,9 @@ class BaseDatasetHandler(ABC):
             data: PyArrow table or list of tables to write
             path: Output directory path
             mode: Write mode ('append' or 'overwrite')
+            basename_template: Optional basename template for output files
+            schema: Optional schema to enforce before writing
+            partition_by: Optional partition column(s)
             compression: Compression codec
             max_rows_per_file: Maximum rows per file
             row_group_size: Rows per row group
@@ -130,6 +136,13 @@ class BaseDatasetHandler(ABC):
         compression: str | None = "snappy",
         max_rows_per_file: int | None = 5_000_000,
         row_group_size: int | None = 500_000,
+        merge_chunk_size_rows: int = 100_000,
+        enable_streaming_merge: bool = True,
+        merge_max_memory_mb: int = 1024,
+        merge_max_process_memory_mb: int | None = None,
+        merge_min_system_available_mb: int = 512,
+        merge_progress_callback: Callable[[int, int], None] | None = None,
+        use_merge: bool | None = None,
     ) -> MergeResult:
         """Merge data into an existing parquet dataset incrementally.
 
@@ -143,6 +156,13 @@ class BaseDatasetHandler(ABC):
             compression: Compression codec
             max_rows_per_file: Maximum rows per file
             row_group_size: Rows per row group
+            merge_chunk_size_rows: Rows per merge processing chunk (streaming)
+            enable_streaming_merge: Whether to stream merge output
+            merge_max_memory_mb: Max PyArrow memory in MB for merge operations
+            merge_max_process_memory_mb: Optional max process RSS in MB
+            merge_min_system_available_mb: Minimum system available memory in MB
+            merge_progress_callback: Optional callback for merge progress updates
+            use_merge: Optional DuckDB MERGE toggle (ignored by PyArrow backend)
 
         Returns:
             MergeResult with merge operation statistics
@@ -186,6 +206,8 @@ class BaseDatasetHandler(ABC):
         target_rows_per_file: int | None = None,
         partition_filter: list[str] | None = None,
         compression: str | None = None,
+        deduplicate_key_columns: list[str] | str | None = None,
+        dedup_order_by: list[str] | str | None = None,
         verbose: bool = False,
     ) -> dict[str, Any]:
         """Optimize a parquet dataset through compaction and maintenance.
@@ -196,6 +218,8 @@ class BaseDatasetHandler(ABC):
             target_rows_per_file: Target rows per file
             partition_filter: Optional partition filters
             compression: Compression codec for output
+            deduplicate_key_columns: Optional key columns for deduplication before optimization
+            dedup_order_by: Columns to order by for deduplication
             verbose: Print progress information
 
         Returns:
@@ -354,17 +378,30 @@ class BaseDatasetHandler(ABC):
         self,
         prefix: str = "part",
         suffix: str = ".parquet",
+        template: str | None = None,
+        index: int | None = None,
     ) -> str:
         """Generate a unique filename.
 
         Args:
             prefix: Filename prefix
             suffix: Filename suffix
+            template: Optional basename template containing "{i}".
+            index: Optional index used with template.
 
         Returns:
             Unique filename string
         """
         unique_id = uuid.uuid4().hex[:16]
+
+        if template:
+            if "{i}" in template:
+                return template.format(i=index if index is not None else unique_id)
+            if template.endswith(suffix):
+                stem = template[: -len(suffix)]
+                return f"{stem}-{unique_id}{suffix}"
+            return f"{template}-{unique_id}"
+
         return f"{prefix}-{unique_id}{suffix}"
 
     def _clear_parquet_files(self, path: str) -> None:
@@ -378,61 +415,6 @@ class BaseDatasetHandler(ABC):
             for file_info in fs.find(path, withdirs=False):
                 if file_info.endswith(".parquet"):
                     fs.rm(file_info)
-
-    def _list_parquet_files(self, path: str) -> list[str]:
-        """List all parquet files in a directory.
-
-        Args:
-            path: Directory path
-
-        Returns:
-            List of parquet file paths
-        """
-        from fsspeckit.core.incremental import list_dataset_files
-
-        return list_dataset_files(path, filesystem=self.filesystem)
-
-    def _get_file_row_count(self, file_path: str) -> int:
-        """Get row count from a parquet file's metadata.
-
-        Args:
-            file_path: Path to parquet file
-
-        Returns:
-            Number of rows in the file
-        """
-        import pyarrow.parquet as pq
-
-        try:
-            metadata = pq.read_metadata(file_path, filesystem=self.filesystem)
-            return metadata.num_rows
-        except Exception as e:
-            logger.warning(
-                "Failed to read parquet metadata",
-                path=file_path,
-                error=str(e),
-            )
-            return 0
-
-    def _get_file_size(self, file_path: str) -> int | None:
-        """Get file size in bytes.
-
-        Args:
-            file_path: Path to file
-
-        Returns:
-            File size in bytes, or None if unavailable
-        """
-        try:
-            size = self.filesystem.size(file_path)
-            return int(size) if size is not None else None
-        except Exception as e:
-            logger.warning(
-                "Failed to get file size",
-                path=file_path,
-                error=str(e),
-            )
-            return None
 
     def _dedupe_source_last_wins(
         self,
@@ -502,26 +484,6 @@ class BaseDatasetHandler(ABC):
 
         mask = [key in key_list for key in table_keys]
         return table.filter(pa.array(mask, type=pa.bool_()))
-
-    def _extract_keys_from_table(
-        self,
-        table: pa.Table,
-        key_columns: list[str],
-    ) -> set:
-        """Extract keys from table as a set.
-
-        Args:
-            table: Source table
-            key_columns: Key column names
-
-        Returns:
-            Set of key values (tuples for multi-column keys)
-        """
-        if len(key_columns) == 1:
-            return set(table.column(key_columns[0]).to_pylist())
-
-        arrays = [table.column(c).to_pylist() for c in key_columns]
-        return set(zip(*arrays))
 
     def _collect_dataset_stats(
         self,

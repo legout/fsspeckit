@@ -6,13 +6,15 @@ parquet datasets using DuckDB.
 
 from __future__ import annotations
 
+import os
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal
 
 if TYPE_CHECKING:
     import duckdb
     import pyarrow as pa
+    from fsspec import AbstractFileSystem
 
     from fsspeckit.core.incremental import MergeResult
     from fsspeckit.datasets.write_result import WriteDatasetResult
@@ -25,29 +27,14 @@ from fsspeckit.common.security import (
     safe_format_error,
     validate_compression_codec,
     validate_path,
-    validate_columns,
 )
-from fsspeckit.core.merge import (
-    MergeStats,
-    calculate_merge_stats,
-    normalize_key_columns,
-)
-from fsspeckit.core.merge import (
-    MergeStrategy as CoreMergeStrategy,
-)
+from fsspeckit.core.merge import normalize_key_columns
 from fsspeckit.datasets.duckdb.connection import (
     DuckDBConnection,
     create_duckdb_connection,
 )
 from fsspeckit.datasets.duckdb.helpers import _unregister_duckdb_table_safely
-from fsspeckit.datasets.exceptions import (
-    DatasetFileError,
-    DatasetMergeError,
-    DatasetOperationError,
-)
 from fsspeckit.datasets.base import BaseDatasetHandler
-from fsspeckit.core.filesystem.paths import normalize_path as core_normalize_path
-from fsspeckit.datasets.path_utils import validate_dataset_path
 
 logger = get_logger(__name__)
 
@@ -163,7 +150,7 @@ def compact_parquet_dataset_duckdb(
     """
     from fsspec import filesystem as fsspec_filesystem
 
-    from fsspeckit.core.maintenance import MaintenanceStats, plan_compaction_groups
+    from fsspeckit.core.maintenance import plan_compaction_groups
 
     fs = filesystem or fsspec_filesystem("file")
 
@@ -193,58 +180,58 @@ def compact_parquet_dataset_duckdb(
         result["planned_groups"] = plan_result["planned_groups"]
         return result
 
-        # Execute compaction
-        if not groups:
-            return planned_stats.to_dict()
-
-        # Create DuckDB connection using context manager
-        with create_duckdb_connection(filesystem=fs) as duckdb_conn:
-            conn = duckdb_conn.connection
-
-            # Execute the compaction using DuckDB SQL COPY
-            for group in groups:
-                # Build parquet_scan union query for this group
-                file_paths = [file_info.path for file_info in group.files]
-
-                # Validate and escape file paths for SQL
-                escaped_paths = []
-                for fp in file_paths:
-                    PathValidator.validate_path_for_sql(fp)
-                    escaped_paths.append(PathValidator.escape_for_sql(fp))
-
-                # Build union query
-                if len(escaped_paths) == 1:
-                    source_query = f"SELECT * FROM parquet_scan('{escaped_paths[0]}')"
-                else:
-                    union_queries = " UNION ALL ".join(
-                        [f"SELECT * FROM parquet_scan('{ep}')" for ep in escaped_paths]
-                    )
-                    source_query = f"({union_queries})"
-
-                # Generate output path
-                output_path = (
-                    f"{path.rstrip('/')}/compacted-{uuid.uuid4().hex[:16]}.parquet"
-                )
-                PathValidator.validate_path_for_sql(output_path)
-                escaped_output = PathValidator.escape_for_sql(output_path)
-
-                # Build COPY command with compression
-                copy_command = f"COPY {source_query} TO '{escaped_output}'"
-                options = []
-                if compression:
-                    options.append(f"COMPRESSION {compression}")
-                if options:
-                    copy_command += f" ({', '.join(options)})"
-
-                # Execute COPY command
-                conn.execute(copy_command)
-
-            # Remove original files
-            for group in groups:
-                for file_info in group.files:
-                    fs.rm(file_info.path)
-
+    # Execute compaction
+    if not groups:
         return planned_stats.to_dict()
+
+    # Create DuckDB connection using context manager
+    with create_duckdb_connection(filesystem=fs) as duckdb_conn:
+        conn = duckdb_conn.connection
+
+        # Execute the compaction using DuckDB SQL COPY
+        for group in groups:
+            # Build parquet_scan union query for this group
+            file_paths = [file_info.path for file_info in group.files]
+
+            # Validate and escape file paths for SQL
+            escaped_paths = []
+            for fp in file_paths:
+                PathValidator.validate_path_for_sql(fp)
+                escaped_paths.append(PathValidator.escape_for_sql(fp))
+
+            # Build union query
+            if len(escaped_paths) == 1:
+                source_query = f"SELECT * FROM parquet_scan('{escaped_paths[0]}')"
+            else:
+                union_queries = " UNION ALL ".join(
+                    [f"SELECT * FROM parquet_scan('{ep}')" for ep in escaped_paths]
+                )
+                source_query = f"({union_queries})"
+
+            # Generate output path
+            output_path = (
+                f"{path.rstrip('/')}/compacted-{uuid.uuid4().hex[:16]}.parquet"
+            )
+            PathValidator.validate_path_for_sql(output_path)
+            escaped_output = PathValidator.escape_for_sql(output_path)
+
+            # Build COPY command with compression
+            copy_command = f"COPY {source_query} TO '{escaped_output}'"
+            options = []
+            if compression:
+                options.append(f"COMPRESSION {compression}")
+            if options:
+                copy_command += f" ({', '.join(options)})"
+
+            # Execute COPY command
+            conn.execute(copy_command)
+
+        # Remove original files
+        for group in groups:
+            for file_info in group.files:
+                fs.rm(file_info.path)
+
+    return planned_stats.to_dict()
 
 
 # DuckDB exception types for specific error handling
@@ -297,7 +284,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         self,
         path: str,
         columns: list[str] | None = None,
-        filters: str | None = None,
+        filters: Any | None = None,
         use_threads: bool = True,
     ) -> pa.Table:
         """Read parquet file(s) using DuckDB.
@@ -406,10 +393,11 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             fs.mkdirs(parent, exist_ok=True)
 
         conn = self._connection.connection
+        table = self._combine_tables(data)
 
         # Register the data as a temporary table
         f"temp_{uuid.uuid4().hex[:16]}"
-        conn.register("data_table", data)
+        conn.register("data_table", table)
 
         try:
             # Build the COPY command
@@ -441,6 +429,9 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         path: str,
         *,
         mode: Literal["append", "overwrite"] = "append",
+        basename_template: str | None = None,
+        schema: pa.Schema | None = None,
+        partition_by: str | list[str] | None = None,
         compression: str | None = "snappy",
         max_rows_per_file: int | None = 5_000_000,
         row_group_size: int | None = 500_000,
@@ -458,12 +449,37 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         validate_path(path)
         validate_compression_codec(compression)
 
-        if mode not in ("append", "overwrite"):
-            raise ValueError(f"mode must be 'append' or 'overwrite', got: {mode}")
-        if max_rows_per_file is not None and max_rows_per_file <= 0:
-            raise ValueError("max_rows_per_file must be > 0")
-        if row_group_size is not None and row_group_size <= 0:
-            raise ValueError("row_group_size must be > 0")
+        self._validate_write_mode(mode)
+        row_group_size = self._validate_write_parameters(
+            max_rows_per_file,
+            row_group_size,
+        )
+
+        table = self._combine_tables(data)
+        if schema is not None:
+            from fsspeckit.common.schema import cast_schema
+
+            table = cast_schema(table, schema)
+
+        partition_cols = self._validate_partition_columns(
+            partition_by,
+            table.column_names,
+        )
+
+        if basename_template is None:
+            basename_template = "part-{i}.parquet"
+
+        if mode == "append" and basename_template == "part-{i}.parquet":
+            unique_id = uuid.uuid4().hex[:16]
+            basename_template = f"part-{unique_id}-{{i}}.parquet"
+
+        def _format_filename(index: int) -> str:
+            if "{i}" in basename_template:
+                return basename_template.format(i=index)
+            if basename_template.endswith(".parquet"):
+                stem = basename_template[:-8]
+                return f"{stem}-{uuid.uuid4().hex[:16]}.parquet"
+            return f"{basename_template}-{uuid.uuid4().hex[:16]}"
 
         fs = self._connection.filesystem
         fs.mkdirs(path, exist_ok=True)
@@ -477,12 +493,13 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         moved_files: list[str] = []
         try:
             self._write_to_path(
-                data=data,
+                data=table,
                 path=staging_dir,
                 compression=compression,
                 max_rows_per_file=max_rows_per_file,
                 row_group_size=row_group_size,
                 mode="overwrite",
+                partition_by=partition_cols or None,
             )
 
             staging_files = [
@@ -490,10 +507,44 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                 for f in fs.find(staging_dir, withdirs=False)
                 if f.endswith(".parquet")
             ]
+            staging_prefix = staging_dir.rstrip("/") + "/"
 
-            for staging_file in staging_files:
-                filename = f"part-{uuid.uuid4().hex[:16]}.parquet"
-                target_file = f"{path}/{filename}"
+            for index, staging_file in enumerate(staging_files):
+                staging_file_path = fs._strip_protocol(staging_file)
+                staging_prefix_path = fs._strip_protocol(staging_prefix)
+
+                if os.path.isabs(staging_file_path) and not os.path.isabs(
+                    staging_prefix_path
+                ):
+                    staging_prefix_path = os.path.abspath(staging_prefix_path)
+
+                if staging_file_path.startswith(staging_prefix_path):
+                    relative = staging_file_path[len(staging_prefix_path) :].lstrip("/")
+                else:
+                    relative = os.path.relpath(staging_file_path, staging_prefix_path)
+
+                relative_path = Path(relative)
+                partition_dir = relative_path.parent.as_posix()
+
+                if partition_dir not in ("", "."):
+                    partition_parts = relative_path.parent.parts
+                    if (
+                        partition_cols
+                        and len(partition_parts) == len(partition_cols)
+                        and not any("=" in part for part in partition_parts)
+                    ):
+                        # Normalize value-only directories to Hive-style col=value
+                        partition_dir = "/".join(
+                            f"{col}={val}"
+                            for col, val in zip(partition_cols, partition_parts)
+                        )
+
+                target_dir = (
+                    path if partition_dir in ("", ".") else f"{path}/{partition_dir}"
+                )
+                fs.mkdirs(target_dir, exist_ok=True)
+                filename = _format_filename(index)
+                target_file = f"{target_dir}/{filename}"
                 fs.move(staging_file, target_file)
                 moved_files.append(target_file)
         finally:
@@ -501,7 +552,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
 
         files: list[FileWriteMetadata] = []
         for f in moved_files:
-            row_count = int(self._get_file_row_count(f, fs))
+            row_count = int(self._get_file_row_count(f))
             size_bytes = None
             try:
                 size_bytes = int(fs.size(f))
@@ -545,6 +596,12 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         compression: str | None = "snappy",
         max_rows_per_file: int | None = 5_000_000,
         row_group_size: int | None = 500_000,
+        merge_chunk_size_rows: int = 100_000,
+        enable_streaming_merge: bool = True,
+        merge_max_memory_mb: int = 1024,
+        merge_max_process_memory_mb: int | None = None,
+        merge_min_system_available_mb: int = 512,
+        merge_progress_callback: Callable[[int, int], None] | None = None,
         use_merge: bool | None = None,
     ) -> "MergeResult":
         """Merge data into an existing parquet dataset incrementally (DuckDB backend).
@@ -555,10 +612,13 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         - `upsert`: rewrite only affected files and append inserted keys as new file(s).
 
         Args:
-            use_merge: Control over MERGE statement usage.
-                - True: Force MERGE (raises error if DuckDB < 1.4.0)
-                - False: Force UNION ALL fallback (always)
-                - None: Auto-detect based on DuckDB version (default)
+            use_merge: Ignored (reserved for backward compatibility).
+            merge_chunk_size_rows: Streaming merge chunk size (ignored by DuckDB).
+            enable_streaming_merge: Streaming merge toggle (ignored by DuckDB).
+            merge_max_memory_mb: Max PyArrow memory in MB (ignored by DuckDB).
+            merge_max_process_memory_mb: Max process RSS in MB (ignored by DuckDB).
+            merge_min_system_available_mb: Min system available memory in MB (ignored by DuckDB).
+            merge_progress_callback: Progress callback (ignored by DuckDB).
         """
         import pyarrow.compute as pc
         import pyarrow.parquet as pq
@@ -570,86 +630,43 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             confirm_affected_files,
             extract_source_partition_values,
             list_dataset_files,
+            parse_hive_partition_path,
             plan_incremental_rewrite,
             validate_no_null_keys,
-            validate_partition_column_immutability,
         )
-        from fsspeckit.core.merge import normalize_key_columns
 
         validate_path(path)
         validate_compression_codec(compression)
-
-        if strategy not in ("insert", "update", "upsert"):
-            raise ValueError("strategy must be one of: insert, update, upsert")
-
-        key_cols = normalize_key_columns(key_columns)
-
-        merge_impl = self._select_merge_implementation(use_merge)
-        logger.info(
-            "Merge strategy selected",
-            strategy=strategy,
-            implementation="MERGE"
-            if merge_impl == self._merge_using_duckdb_merge
-            else "UNION ALL",
-            use_merge=use_merge,
+        row_group_size = self._validate_write_parameters(
+            max_rows_per_file,
+            row_group_size,
         )
 
-        partition_cols: list[str] = []
-        if partition_columns is not None:
-            partition_cols = normalize_key_columns(partition_columns)
+        if use_merge is not None:
+            logger.debug("duckdb_merge_use_merge_ignored", use_merge=use_merge)
 
         # Combine source input to a single table.
-        if isinstance(data, list):
-            import pyarrow as pa_mod
-
-            source_table = pa_mod.concat_tables(data, promote_options="permissive")
-        else:
-            source_table = data
+        source_table = self._combine_tables(data)
 
         if schema is not None:
             from fsspeckit.common.schema import cast_schema
 
             source_table = cast_schema(source_table, schema)
 
+        key_cols = self._validate_key_columns(
+            key_columns,
+            source_table.column_names,
+            context="source",
+        )
+        partition_cols = self._validate_partition_columns(
+            partition_columns,
+            source_table.column_names,
+        )
+
         validate_no_null_keys(source_table, key_cols)
 
-        for col in key_cols:
-            if col not in source_table.column_names:
-                raise ValueError(
-                    f"Key column '{col}' not found in source. "
-                    f"Available columns: {', '.join(source_table.column_names)}"
-                )
-
-        for col in partition_cols:
-            if col not in source_table.column_names:
-                raise ValueError(
-                    f"Partition column '{col}' not found in source. "
-                    f"Available columns: {', '.join(source_table.column_names)}"
-                )
-
         # De-duplicate source by key (last-write-wins).
-        def _dedupe_source_last_wins(table: pa.Table) -> pa.Table:
-            import pyarrow as pa_mod
-
-            if table.num_rows == 0:
-                return table
-
-            if len(key_cols) == 1:
-                keys = table.column(key_cols[0]).to_pylist()
-                last_index: dict[object, int] = {}
-                for idx, key in enumerate(keys):
-                    last_index[key] = idx
-                indices = sorted(last_index.values())
-            else:
-                key_arrays = [table.column(c).to_pylist() for c in key_cols]
-                last_index = {}
-                for idx, key in enumerate(zip(*key_arrays)):
-                    last_index[key] = idx
-                indices = sorted(last_index.values())
-
-            return table.take(pa_mod.array(indices, type=pa_mod.int64()))
-
-        source_table = _dedupe_source_last_wins(source_table)
+        source_table = self._dedupe_source_last_wins(source_table, key_cols)
 
         # Extract source keys for planning.
         if len(key_cols) == 1:
@@ -665,6 +682,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         # List existing parquet files in the dataset.
         target_files = list_dataset_files(path, filesystem=fs)
         target_exists = bool(target_files)
+        self._validate_merge_strategy(strategy, target_exists)
 
         target_count_before = sum(
             pq.read_metadata(f, filesystem=fs).num_rows for f in target_files
@@ -689,17 +707,13 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             )
 
         if not target_exists:
-            if strategy == "update":
-                raise ValueError(
-                    "UPDATE strategy requires an existing target dataset (non-existent target)"
-                )
-
             # INSERT/UPSERT into a non-existent dataset: write all rows as inserts.
             fs.mkdirs(path, exist_ok=True)
             write_res = self.write_dataset(
                 source_table,
                 path,
                 mode="append",
+                partition_by=partition_cols or None,
                 compression=compression,
                 max_rows_per_file=max_rows_per_file,
                 row_group_size=row_group_size,
@@ -728,34 +742,6 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                 rewritten_files=[],
                 inserted_files=inserted_files,
                 preserved_files=[],
-            )
-
-        def _select_rows_by_keys(table: pa.Table, key_set: set[object]) -> pa.Table:
-            import pyarrow as pa_mod
-
-            if not key_set:
-                return table.slice(0, 0)
-
-            if len(key_cols) == 1:
-                key_col = key_cols[0]
-                value_set = pa_mod.array(
-                    list(key_set), type=table.schema.field(key_col).type
-                )
-                mask = pc.is_in(table.column(key_col), value_set=value_set)
-                return table.filter(mask)
-
-            key_list = [tuple(k) for k in key_set]
-            key_columns_values = list(zip(*key_list))
-            value_arrays = [
-                pa_mod.array(list(values), type=table.schema.field(col).type)
-                for col, values in zip(key_cols, key_columns_values)
-            ]
-            keys_table = pa_mod.table(value_arrays, names=key_cols)
-            return table.join(
-                keys_table,
-                keys=key_cols,
-                join_type="inner",
-                coalesce_keys=True,
             )
 
         # Existing dataset: plan incremental rewrite candidates using metadata.
@@ -787,7 +773,12 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         matched_keys_by_file: dict[str, set[object]] = {}
         for file_path in affected_files:
             try:
-                key_table = pq.read_table(file_path, columns=key_cols, filesystem=fs)
+                key_table = pq.read_table(
+                    file_path,
+                    columns=key_cols,
+                    filesystem=fs,
+                    partitioning=None,
+                )
                 if len(key_cols) == 1:
                     file_keys = set(key_table.column(key_cols[0]).to_pylist())
                 else:
@@ -826,11 +817,16 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                     preserved_files=preserved_files,
                 )
 
-            insert_table = _select_rows_by_keys(source_table, set(inserted_key_set))
+            insert_table = self._select_rows_by_keys(
+                source_table,
+                key_cols,
+                set(inserted_key_set),
+            )
             write_res = self.write_dataset(
                 insert_table,
                 path,
                 mode="append",
+                partition_by=partition_cols or None,
                 compression=compression,
                 max_rows_per_file=max_rows_per_file,
                 row_group_size=row_group_size,
@@ -893,9 +889,29 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                     preserved_files.append(file_path)
                     continue
 
-                target_table = pq.read_table(file_path, filesystem=fs)
-                source_for_file = _select_rows_by_keys(
-                    source_with_match, set(file_matched)
+                target_table = pq.read_table(
+                    file_path,
+                    filesystem=fs,
+                    partitioning=None,
+                )
+                output_columns = target_table.column_names
+
+                if partition_cols:
+                    partition_values = parse_hive_partition_path(
+                        file_path,
+                        partition_columns=partition_cols,
+                    )
+                    for col, value in partition_values.items():
+                        if col in target_table.column_names:
+                            continue
+                        target_table = target_table.append_column(
+                            col,
+                            pa_mod.array([value] * target_table.num_rows),
+                        )
+                source_for_file = self._select_rows_by_keys(
+                    source_with_match,
+                    key_cols,
+                    set(file_matched),
                 )
 
                 joined = target_table.join(
@@ -927,7 +943,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
 
                 out_arrays = []
                 out_names = []
-                for col in target_table.column_names:
+                for col in output_columns:
                     if col in key_cols:
                         out_arrays.append(joined.column(col))
                         out_names.append(col)
@@ -982,12 +998,17 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         inserted_rows = 0
 
         if strategy == "upsert" and inserted_key_set:
-            insert_table = _select_rows_by_keys(source_table, set(inserted_key_set))
+            insert_table = self._select_rows_by_keys(
+                source_table,
+                key_cols,
+                set(inserted_key_set),
+            )
             inserted_rows = insert_table.num_rows
             write_res = self.write_dataset(
                 insert_table,
                 path,
                 mode="append",
+                partition_by=partition_cols or None,
                 compression=compression,
                 max_rows_per_file=max_rows_per_file,
                 row_group_size=row_group_size,
@@ -1028,959 +1049,12 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             preserved_files=preserved_files,
         )
 
-    def _merge_with_sql(
-        self,
-        source_path: str,
-        output_path: str,
-        target_path: str | None,
-        strategy: str,
-        key_columns: list[str] | None,
-        compression: str | None,
-    ) -> MergeStats:
-        """Perform merge operation using DuckDB SQL.
-
-        Args:
-            source_path: Path to source parquet dataset
-            output_path: Path for output
-            target_path: Path to target parquet dataset (or None)
-            strategy: Merge strategy (upsert, insert, update, deduplicate, full_merge)
-            key_columns: Key columns for merging
-            compression: Output compression
-
-        Returns:
-            MergeStats with merge statistics
-        """
-        import shutil
-        import tempfile as temp_module
-
-        conn = self._connection.connection
-        fs = self._connection.filesystem
-
-        # Build source and target paths for parquet_scan
-        source_glob = (
-            f"{source_path}/**/*.parquet" if fs.isdir(source_path) else source_path
-        )
-
-        # SQL injection protection: validate file paths before SQL interpolation
-        if "'" in source_glob or "--" in source_glob or ";" in source_glob:
-            raise ValueError(f"Invalid path characters in source path: {source_glob}")
-
-        # Get source row count
-        source_count = conn.execute(
-            f"SELECT COUNT(*) FROM parquet_scan('{source_glob}')"
-        ).fetchone()[0]
-
-        target_count = 0
-        target_glob = None
-        if target_path:
-            target_glob = (
-                f"{target_path}/**/*.parquet" if fs.isdir(target_path) else target_path
-            )
-            # SQL injection protection: validate file paths before SQL interpolation
-            if "'" in target_glob or "--" in target_glob or ";" in target_glob:
-                raise ValueError(
-                    f"Invalid path characters in target path: {target_glob}"
-                )
-            target_count = conn.execute(
-                f"SELECT COUNT(*) FROM parquet_scan('{target_glob}')"
-            ).fetchone()[0]
-
-        # Build the merge query based on strategy
-        if strategy == "full_merge":
-            # Simply use source data
-            query = f"SELECT * FROM parquet_scan('{source_glob}')"
-        elif strategy == "deduplicate":
-            if key_columns:
-                quoted_keys = [f'"{col}"' for col in key_columns]
-                key_list = ", ".join(quoted_keys)
-                # Deduplicate based on keys - keep first occurrence
-                query = f"""
-                SELECT DISTINCT ON ({key_list}) *
-                FROM parquet_scan('{source_glob}')
-                ORDER BY {key_list}
-                """
-            else:
-                # No keys - remove exact duplicates
-                query = f"SELECT DISTINCT * FROM parquet_scan('{source_glob}')"
-        elif strategy in ["upsert", "insert", "update"] and target_glob:
-            quoted_keys = [f'"{col}"' for col in key_columns]
-            key_conditions = " AND ".join(
-                [f's."{col}" = t."{col}"' for col in key_columns]
-            )
-
-            if strategy == "insert":
-                # Only insert rows not in target
-                query = f"""
-                SELECT s.* FROM parquet_scan('{source_glob}') s
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM parquet_scan('{target_glob}') t
-                    WHERE {key_conditions}
-                )
-                """
-            elif strategy == "update":
-                # Only update rows that exist in target
-                query = f"""
-                SELECT s.* FROM parquet_scan('{source_glob}') s
-                WHERE EXISTS (
-                    SELECT 1 FROM parquet_scan('{target_glob}') t
-                    WHERE {key_conditions}
-                )
-                """
-            else:  # upsert
-                # Combine: source + target rows not in source
-                query = f"""
-                SELECT * FROM parquet_scan('{source_glob}')
-                UNION ALL
-                SELECT t.* FROM parquet_scan('{target_glob}') t
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM parquet_scan('{source_glob}') s
-                    WHERE {key_conditions}
-                )
-                """
-        else:
-            raise ValueError(f"Unsupported strategy: {strategy}")
-
-        # Get output row count
-        output_count = conn.execute(
-            f"SELECT COUNT(*) FROM ({query}) AS result"
-        ).fetchone()[0]
-
-        # Write to a temp location first to avoid read/write conflicts
-        with temp_module.TemporaryDirectory() as temp_output_dir:
-            temp_output = f"{temp_output_dir}/merged"
-            fs.mkdirs(temp_output, exist_ok=True)
-
-            # Write result to temp
-            write_query = f"COPY ({query}) TO '{temp_output}' (FORMAT PARQUET, PER_THREAD_OUTPUT TRUE"
-            if compression:
-                write_query += f", COMPRESSION {compression}"
-            write_query += ")"
-
-            conn.execute(write_query)
-
-            # Clear output directory and move temp files
-            if fs.exists(output_path):
-                # Remove existing files
-                for f in fs.glob(f"{output_path}/**/*.parquet"):
-                    fs.rm(f)
-            else:
-                fs.mkdirs(output_path, exist_ok=True)
-
-            # Move temp files to output
-            for f in fs.glob(f"{temp_output}/**/*.parquet"):
-                dest = f.replace(temp_output, output_path)
-                shutil.move(f, dest)
-
-        # Calculate stats
-        stats = calculate_merge_stats(
-            strategy=CoreMergeStrategy(strategy),
-            source_count=source_count,
-            target_count_before=target_count,
-            target_count_after=output_count,
-        )
-
-        return stats
-
-    def _write_parquet_dataset_standard(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        compression: str | None = "snappy",
-        max_rows_per_file: int | None = 5_000_000,
-        row_group_size: int | None = 500_000,
-        mode: Literal["append", "overwrite"] | None = "append",
-    ) -> None:
-        """Internal: Standard dataset write without merge logic.
-
-        Args:
-            data: PyArrow table or list of tables to write
-            path: Output directory path
-            compression: Compression codec
-            max_rows_per_file: Maximum rows per file (not used by DuckDB, kept for API compat)
-            row_group_size: Rows per row group
-            mode: Write mode - 'append' or 'overwrite'
-        """
-        import tempfile
-
-        fs = self._connection.filesystem
-
-        # Ensure output directory exists
-        fs.mkdirs(path, exist_ok=True)
-
-        # Handle mode-specific behavior using temp directory approach for both modes
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = f"{temp_dir}/temp_dataset"
-
-            # Write to temp directory with overwrite
-            self._write_to_path(
-                data=data,
-                path=temp_path,
-                compression=compression,
-                max_rows_per_file=max_rows_per_file,
-                row_group_size=row_group_size,
-                mode="overwrite",  # Always use overwrite for temp directory
-            )
-
-            if mode == "append":
-                # For append mode, move files with unique names to avoid collisions
-                import uuid
-
-                for temp_file in fs.find(temp_path, withdirs=False):
-                    if temp_file.endswith(".parquet"):
-                        # Generate unique filename to avoid collisions
-                        # Use 'part-' prefix to match expected test behavior
-                        unique_id = uuid.uuid4().hex[:16]
-                        filename = f"part-{unique_id}.parquet"
-                        target_file = f"{path}/{filename}"
-                        fs.move(temp_file, target_file)
-            elif mode == "overwrite":
-                # For overwrite mode, first backup non-parquet files
-                non_parquet_files = {}
-                if fs.exists(path) and fs.isdir(path):
-                    for file_info in fs.find(path, withdirs=False):
-                        if not file_info.endswith(".parquet"):
-                            # Read file content
-                            with fs.open(file_info, "rb") as f:
-                                content = f.read()
-                            filename = file_info.split("/")[-1]
-                            non_parquet_files[filename] = content
-
-                # Clear target directory completely
-                if fs.exists(path):
-                    if fs.isfile(path):
-                        fs.rm(path)
-                    else:
-                        for file_info in fs.find(path, withdirs=False):
-                            fs.rm(file_info)
-
-                # Move all files from temp to target
-                for temp_file in fs.find(temp_path, withdirs=False):
-                    if temp_file.endswith(".parquet"):
-                        filename = temp_file.split("/")[-1]
-                        target_file = f"{path}/{filename}"
-                        fs.move(temp_file, target_file)
-
-                # Restore non-parquet files
-                for filename, content in non_parquet_files.items():
-                    target_file = f"{path}/{filename}"
-                    with fs.open(target_file, "wb") as f:
-                        f.write(content)
-
-            return  # Early return for both modes
-
-        # For overwrite mode, write directly
-        self._write_to_path(
-            data=data,
-            path=path,
-            compression=compression,
-            max_rows_per_file=max_rows_per_file,
-            row_group_size=row_group_size,
-            mode=mode,
-        )
-
-    def _write_parquet_dataset_incremental(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        strategy: CoreMergeStrategy,
-        key_columns: list[str],
-        compression: str | None = "snappy",
-        max_rows_per_file: int | None = 5_000_000,
-        row_group_size: int | None = 500_000,
-    ) -> MergeStats:
-        """Internal: Incremental rewrite for UPSERT/UPDATE strategies.
-
-        Only rewrites files that might contain the keys being updated,
-        preserving other files unchanged.
-
-        Args:
-            data: Source data to merge
-            path: Target dataset path
-            strategy: Merge strategy (UPSERT or UPDATE)
-            key_columns: Key columns for matching
-            compression: Compression codec
-            max_rows_per_file: Maximum rows per file
-            row_group_size: Rows per row group
-
-        Returns:
-            MergeStats with operation results
-        """
-
-        from fsspeckit.core.incremental import plan_incremental_rewrite
-
-        fs = self._connection.filesystem
-
-        # Extract source keys for planning
-        if isinstance(data, list):
-            combined_data = pa.concat_tables(data)
-        else:
-            combined_data = data
-
-        source_keys = self._extract_key_values(combined_data, key_columns)
-
-        # Plan incremental rewrite using metadata analysis
-        rewrite_plan = plan_incremental_rewrite(
-            dataset_path=path,
-            source_keys=source_keys,
-            key_columns=key_columns,
-            filesystem=fs,
-        )
-
-        logger.info(
-            "Incremental rewrite: %d files affected, %d files preserved",
-            len(rewrite_plan.affected_files),
-            len(rewrite_plan.unaffected_files),
-        )
-
-        # If no files are affected, just write new data for UPSERT
-        if not rewrite_plan.affected_files:
-            if strategy == CoreMergeStrategy.UPSERT:
-                # Write source data as new files
-                return self._write_new_files_incremental(
-                    data=combined_data,
-                    path=path,
-                    compression=compression,
-                    max_rows_per_file=max_rows_per_file,
-                    row_group_size=row_group_size,
-                )
-            else:
-                # UPDATE with no affected files - nothing to do
-                return MergeStats(
-                    strategy=strategy,
-                    source_count=combined_data.num_rows,
-                    target_count_before=0,
-                    target_count_after=0,
-                    inserted=0,
-                    updated=0,
-                    deleted=0,
-                )
-
-        # Perform incremental rewrite
-        return self._perform_incremental_rewrite(
-            data=combined_data,
-            path=path,
-            strategy=strategy,
-            key_columns=key_columns,
-            rewrite_plan=rewrite_plan,
-            matched_keys_by_file=matched_keys_by_file,
-            compression=compression,
-            max_rows_per_file=max_rows_per_file,
-            row_group_size=row_group_size,
-        )
-
-    def _extract_key_values(
-        self,
-        data: pa.Table,
-        key_columns: list[str],
-    ) -> list[tuple]:
-        """Extract key values from data as tuples for multi-column keys."""
-        if len(key_columns) == 1:
-            # Single column - return as single values
-            return data.column(key_columns[0]).to_pylist()
-        else:
-            # Multi-column - return as tuples
-            key_arrays = [data.column(col) for col in key_columns]
-            return list(zip(*[arr.to_pylist() for arr in key_arrays]))
-
-    def _get_duckdb_version(self) -> tuple[int, int, int]:
-        conn = self._connection.connection
-        try:
-            result = conn.execute(
-                "SELECT library_version FROM pragma_version()"
-            ).fetchone()
-            version_str = result[0]
-
-            if not version_str or not isinstance(version_str, str):
-                raise ValueError(f"Invalid version string: {version_str}")
-
-            import re
-
-            version_str = version_str.lstrip("v")
-            version_pattern = re.compile(r"^\d+\.\d+\.\d+$")
-            if not version_pattern.match(version_str):
-                raise ValueError(f"Invalid version format: {version_str}")
-
-            parts = version_str.split(".")
-            if len(parts) != 3:
-                raise ValueError(f"Invalid version format: {version_str}")
-
-            return tuple(map(int, parts))
-        except Exception as e:
-            logger.warning(
-                "Could not determine DuckDB version, assuming old version",
-                error=safe_format_error(e),
-            )
-            return (0, 0, 0)
-
-    def _supports_merge(self) -> bool:
-        version = self._get_duckdb_version()
-        return version >= (1, 4, 0)
-
-    def _select_merge_implementation(self, use_merge: bool | None) -> Callable:
-        """Select appropriate merge implementation based on version and user preference.
-
-        Args:
-            use_merge: User preference or None for auto-detect
-
-        Returns:
-            Merge function to use
-
-        Raises:
-            DatasetMergeError: If MERGE requested but not available
-        """
-        if use_merge is False:
-            return self._merge_using_union_all
-
-        if use_merge is True or use_merge is None:
-            supports_merge = self._supports_merge()
-
-            if use_merge is True and not supports_merge:
-                version = self._get_duckdb_version()
-                raise DatasetMergeError(
-                    f"DuckDB MERGE requested but not available. "
-                    f"Required version: >=1.4.0, Current: {'.'.join(map(str, version))}"
-                )
-
-            return (
-                self._merge_using_duckdb_merge
-                if supports_merge
-                else self._merge_using_union_all
-            )
-
-        raise ValueError(f"Invalid use_merge value: {use_merge}")
-
-    def _write_new_files_incremental(
-        self,
-        data: pa.Table,
-        path: str,
-        compression: str | None = "snappy",
-        max_rows_per_file: int | None = 5_000_000,
-        row_group_size: int | None = 500_000,
-    ) -> MergeStats:
-        """Write source data as new files for UPSERT when no existing files are affected."""
-        import tempfile
-
-        fs = self._connection.filesystem
-
-        # Create temporary directory for new files
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_path = f"{temp_dir}/new_files"
-            fs.mkdirs(temp_path, exist_ok=True)
-
-            # Write source data to temp directory
-            self._write_to_path(
-                data=data,
-                path=temp_path,
-                compression=compression,
-                max_rows_per_file=max_rows_per_file,
-                row_group_size=row_group_size,
-                mode="overwrite",
-            )
-
-            # Move files to target with unique names
-            inserted_rows = 0
-            for temp_file in fs.find(temp_path, withdirs=False):
-                if temp_file.endswith(".parquet"):
-                    import uuid
-
-                    unique_id = uuid.uuid4().hex[:16]
-                    filename = f"part-{unique_id}.parquet"
-                    target_file = f"{path}/{filename}"
-                    fs.move(temp_file, target_file)
-
-                    # Count rows in file
-                    import pyarrow.parquet as pq
-
-                    with fs.open(target_file, "rb") as f:
-                        parquet_file = pq.ParquetFile(f)
-                        inserted_rows += parquet_file.metadata.num_rows
-
-            return MergeStats(
-                strategy=CoreMergeStrategy.UPSERT,
-                source_count=data.num_rows,
-                target_count_before=0,
-                target_count_after=inserted_rows,
-                inserted=inserted_rows,
-                updated=0,
-                deleted=0,
-            )
-
-    def _perform_incremental_rewrite(
-        self,
-        data: pa.Table,
-        path: str,
-        strategy: CoreMergeStrategy,
-        key_columns: list[str],
-        rewrite_plan: Any,  # IncrementalRewritePlan
-        matched_keys_by_file: dict[str, set[object]] | None = None,
-        compression: str | None = "snappy",
-        max_rows_per_file: int | None = 5_000_000,
-        row_group_size: int | None = 500_000,
-    ) -> MergeStats:
-        """Perform the actual incremental rewrite operation."""
-
-        from fsspeckit.core.incremental import IncrementalFileManager
-
-        fs = self._connection.filesystem
-        file_manager = IncrementalFileManager()
-
-        try:
-            # Create staging directory
-            staging_dir = file_manager.create_staging_directory(path, filesystem=fs)
-
-            # Process each affected file
-            updated_rows = 0
-            inserted_rows = 0
-
-            for affected_file in rewrite_plan.affected_files:
-                existing_data = self._read_parquet_file(affected_file, fs)
-                file_matched = (
-                    matched_keys_by_file.get(affected_file, set())
-                    if matched_keys_by_file
-                    else set()
-                )
-
-                if merge_impl == self._merge_using_duckdb_merge:
-                    import pyarrow as pa_mod
-
-                    match_col_name = "__fsspeckit_match"
-                    if match_col_name in data.column_names:
-                        raise ValueError(
-                            f"Source contains reserved column: {match_col_name}"
-                        )
-
-                    source_with_match = data.append_column(
-                        match_col_name, pa_mod.array([True] * data.num_rows)
-                    )
-
-                    source_for_file = _select_rows_by_keys(
-                        source_with_match, set(file_matched)
-                    )
-
-                    merged_data, file_updated, file_inserted = merge_impl(
-                        existing_data, source_for_file, key_columns, strategy
-                    )
-                    updated_rows += file_updated
-                    inserted_rows += file_inserted
-                else:
-                    if strategy == CoreMergeStrategy.UPSERT:
-                        merged_data = self._merge_upsert(
-                            existing_data, data, key_columns
-                        )
-                        existing_count = len(existing_data)
-                        final_count = len(merged_data)
-                        inserted_rows += max(0, final_count - existing_count)
-                        updated_rows += min(existing_count, final_count)
-                    else:
-                        merged_data = self._merge_update(
-                            existing_data, data, key_columns
-                        )
-                        updated_rows += len(merged_data)
-
-            # For UPSERT, write new files for inserted rows
-            if strategy == CoreMergeStrategy.UPSERT and inserted_rows > 0:
-                import pyarrow as pa
-
-                all_existing = []
-                for f in rewrite_plan.affected_files:
-                    all_existing.append(self._read_parquet_file(f, fs))
-                existing_table = (
-                    pa.concat_tables(all_existing)
-                    if all_existing
-                    else pa.Table.from_batches([], schema=data.schema)
-                )
-                new_data = self._extract_inserted_rows(
-                    existing_table, data, key_columns
-                )
-                if len(new_data) > 0:
-                    inserted_stats = self._write_new_files_incremental(
-                        new_data, path, compression, max_rows_per_file, row_group_size
-                    )
-                    inserted_rows = inserted_stats.inserted
-
-            # Atomically replace affected files
-            for i, affected_file in enumerate(rewrite_plan.affected_files):
-                staging_files = fs.find(staging_dir, withdirs=False)
-                if staging_files and i < len(staging_files):
-                    staging_file = staging_files[i]
-                    # Replace affected file with staging file
-                    fs.move(staging_file, affected_file)
-
-            # Remove staging directory
-            file_manager.cleanup_staging_files(filesystem=fs)
-
-            # Calculate final statistics
-            target_count_before = sum(
-                self._get_file_row_count(f, fs) for f in rewrite_plan.affected_files
-            )
-            target_count_after = target_count_before + inserted_rows
-
-            return MergeStats(
-                strategy=strategy,
-                source_count=data.num_rows,
-                target_count_before=target_count_before,
-                target_count_after=target_count_after,
-                inserted=inserted_rows,
-                updated=updated_rows,
-                deleted=0,
-            )
-
-        except Exception as e:
-            # Clean up on error
-            logger.error(
-                "Error during incremental merge operation, cleaning up staging files",
-                error=str(e),
-                operation="merge_incremental",
-            )
-            file_manager.cleanup_staging_files(filesystem=fs)
-            raise
-
-    def _read_parquet_file(self, file_path: str, filesystem: Any) -> pa.Table:
-        """Read a single parquet file."""
-        import pyarrow.parquet as pq
-
-        if filesystem is not None:
-            with filesystem.open(file_path, "rb") as f:
-                return pq.read_table(f)
-        else:
-            return pq.read_table(file_path)
-
-    def _write_single_file(
-        self,
-        data: pa.Table,
-        file_path: str,
-        compression: str | None,
-        filesystem: Any,
-    ) -> None:
-        """Write a single parquet file."""
-        import pyarrow.parquet as pq
-
-        if filesystem is not None:
-            with filesystem.open(file_path, "wb") as f:
-                pq.write_table(data, f, compression=compression)
-        else:
-            pq.write_table(data, file_path, compression=compression)
-
-    def _get_file_row_count(self, file_path: str, filesystem: Any) -> int:
+    def _get_file_row_count(self, file_path: str) -> int:
         """Get row count of a parquet file."""
         import pyarrow.parquet as pq
 
-        if filesystem is not None:
-            with filesystem.open(file_path, "rb") as f:
-                return pq.read_metadata(f).num_rows
-        else:
-            return pq.read_metadata(file_path).num_rows
-
-    def _merge_using_union_all(
-        self,
-        existing_data: pa.Table,
-        source_data: pa.Table,
-        key_columns: list[str],
-    ) -> pa.Table:
-        """Merge using UNION ALL + NOT EXISTS (fallback for DuckDB < 1.4.0)."""
-        for col in key_columns:
-            PathValidator.validate_sql_identifier(col)
-
-        conn = self._connection.connection
-        conn.register("existing_union", existing_data)
-        conn.register("source_union", source_data)
-        try:
-            key_conditions = " AND ".join([f'e."{c}" = s."{c}"' for c in key_columns])
-            query = f"""
-                SELECT s.*
-                FROM source_union s
-                UNION ALL
-                SELECT e.*
-                FROM existing_union e
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM source_union s
-                    WHERE {key_conditions}
-                )
-            """
-            return conn.execute(query).fetch_arrow_table()
-        except Exception as e:
-            logger.error(
-                "UNION ALL merge failed",
-                error=safe_format_error(e),
-                operation="merge_union_all",
-            )
-            raise DatasetMergeError(
-                f"UNION ALL merge failed: {safe_format_error(e)}"
-            ) from e
-        finally:
-            _unregister_duckdb_table_safely(conn, "existing_union")
-            _unregister_duckdb_table_safely(conn, "source_union")
-
-    def _merge_using_duckdb_merge(
-        self,
-        existing_data: pa.Table,
-        source_data: pa.Table,
-        key_columns: list[str],
-        strategy: CoreMergeStrategy,
-    ) -> tuple[pa.Table, int, int]:
-        """Merge using DuckDB's native MERGE statement (DuckDB 1.4.0+).
-
-        Args:
-            existing_data: Existing target data as PyArrow table
-            source_data: Source data as PyArrow table
-            key_columns: Columns to match on
-            strategy: Merge strategy (INSERT, UPDATE, UPSERT)
-
-        Returns:
-            Tuple of (merged_table, updated_count, inserted_count)
-        """
-        for col in key_columns:
-            PathValidator.validate_sql_identifier(col)
-
-        conn = self._connection.connection
-        temp_target_name = f"temp_target_{uuid.uuid4().hex[:16]}"
-        temp_source_name = f"temp_source_{uuid.uuid4().hex[:16]}"
-        temp_actions_name = f"temp_actions_{uuid.uuid4().hex[:16]}"
-
-        try:
-            key_conditions = " AND ".join([f't."{c}" = s."{c}"' for c in key_columns])
-
-            conn.register("existing_data", existing_data)
-            conn.execute(
-                f"CREATE TEMP TABLE {temp_target_name} AS SELECT * FROM existing_data"
-            )
-            conn.register("source_data", source_data)
-            conn.execute(
-                f"CREATE TEMP TABLE {temp_source_name} AS SELECT * FROM source_data"
-            )
-
-            if strategy == CoreMergeStrategy.INSERT:
-                merge_sql = f"""
-                    MERGE INTO {temp_target_name} AS t
-                        USING {temp_source_name} AS s
-                        ON ({key_conditions})
-                        WHEN NOT MATCHED BY TARGET THEN INSERT BY NAME
-                    """
-                conn.execute(merge_sql)
-                result_table = conn.execute(
-                    f"SELECT * FROM {temp_target_name} ORDER BY {''.join([f't.{c}, ' for c in key_columns])[:-2]}"
-                ).fetch_arrow_table()
-                updated_count = 0
-                inserted_count = len(result_table) - len(existing_data)
-
-            elif strategy == CoreMergeStrategy.UPDATE:
-                merge_sql = f"""
-                    MERGE INTO {temp_target_name} AS t
-                        USING {temp_source_name} AS s
-                        ON ({key_conditions})
-                        WHEN MATCHED THEN UPDATE SET *
-                    """
-                conn.execute(merge_sql)
-                result_table = conn.execute(
-                    f"SELECT * FROM {temp_target_name} ORDER BY {''.join([f't.{c}, ' for c in key_columns])[:-2]}"
-                ).fetch_arrow_table()
-                updated_count = self._count_updated_rows(
-                    existing_data, result_table, key_columns
-                )
-                inserted_count = 0
-
-            else:  # UPSERT
-                merge_sql = f"""
-                    MERGE INTO {temp_target_name} AS t
-                        USING {temp_source_name} AS s
-                        ON ({key_conditions})
-                        WHEN MATCHED THEN UPDATE SET *
-                        WHEN NOT MATCHED BY TARGET THEN INSERT BY NAME
-                        RETURNING *, merge_action
-                    """
-                merge_result = conn.execute(merge_sql).fetch_arrow_table()
-
-                updated_count = 0
-                inserted_count = 0
-                for row in merge_result.to_pylist():
-                    merge_action = row[-1]
-                    if merge_action == "UPDATE":
-                        updated_count += 1
-                    elif merge_action == "INSERT":
-                        inserted_count += 1
-
-                import pyarrow as pa
-
-                if len(merge_result.column_names) > len(existing_data.column_names):
-                    result_table = merge_result.drop_columns(["merge_action"])
-                else:
-                    result_table = merge_result
-
-            return (result_table, updated_count, inserted_count)
-
-        except (
-            _DUCKDB_EXCEPTIONS.get("ParserException"),
-            _DUCKDB_EXCEPTIONS.get("InvalidInputException"),
-        ) as e:
-            logger.error(
-                "MERGE statement execution failed",
-                error=safe_format_error(e),
-                operation="merge_duckdb_merge",
-                merge_strategy=strategy.value
-                if hasattr(strategy, "value")
-                else str(strategy),
-            )
-            raise DatasetMergeError(
-                f"MERGE operation failed: {safe_format_error(e)}"
-            ) from e
-        finally:
-            _unregister_duckdb_table_safely(conn, "existing_data")
-            _unregister_duckdb_table_safely(conn, "source_data")
-            _unregister_duckdb_table_safely(conn, temp_target_name)
-            _unregister_duckdb_table_safely(conn, temp_source_name)
-            _unregister_duckdb_table_safely(
-                conn, temp_actions_name, ignore_if_not_exists=True
-            )
-
-    def _count_updated_rows(
-        self,
-        existing_data: pa.Table,
-        merged_data: pa.Table,
-        key_columns: list[str],
-    ) -> int:
-        import pyarrow as pa_mod
-        import pyarrow.compute as pc
-
-        if len(existing_data) == 0 or len(merged_data) == 0:
-            return 0
-
-        non_key_cols = [c for c in merged_data.column_names if c not in key_columns]
-
-        if not non_key_cols:
-            return min(len(existing_data), len(merged_data))
-
-        table = pa_mod.table({"source": existing_data, "target": merged_data})
-        joined = table.join(
-            "source",
-            "target",
-            keys=key_columns,
-            join_type="inner",
-            right_suffix="_r",
-        )
-
-        if joined.num_rows == 0:
-            return 0
-
-        changed_mask = pc.zeros(joined.num_rows, type=pc.bool_())
-        for col in non_key_cols:
-            source_col = joined.column(f"source_{col}")
-            target_col = joined.column(f"target_{col}")
-
-            if pa_mod.types.is_null(source_col.type):
-                source_has_null = pc.is_null(source_col).to_pylist()
-                target_has_null = pc.is_null(target_col).to_pylist()
-                col_changed = [
-                    sn != tn for sn, tn in zip(source_has_null, target_has_null)
-                ]
-            else:
-                col_changed = (source_col != target_col).to_pylist()
-
-            changed_mask = pc.or_(changed_mask, pc.array(col_changed, type=pc.bool_()))
-
-        return int(pc.sum(changed_mask).as_py())
-
-    def _merge_upsert(
-        self,
-        existing_data: pa.Table,
-        source_data: pa.Table,
-        key_columns: list[str],
-    ) -> pa.Table:
-        conn = self._connection.connection
-        conn.register("existing_data", existing_data)
-        conn.register("source_data", source_data)
-        try:
-            key_conditions = " AND ".join([f'e."{c}" = s."{c}"' for c in key_columns])
-            query = f"""
-                SELECT s.*
-                FROM source_data s
-                UNION ALL
-                SELECT e.*
-                FROM existing_data e
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM source_data s
-                    WHERE {key_conditions}
-                )
-            """
-            return conn.execute(query).fetch_arrow_table()
-        finally:
-            _unregister_duckdb_table_safely(conn, "existing_data")
-            _unregister_duckdb_table_safely(conn, "source_data")
-
-    def _merge_update(
-        self,
-        existing_data: pa.Table,
-        source_data: pa.Table,
-        key_columns: list[str],
-    ) -> pa.Table:
-        for col in key_columns:
-            PathValidator.validate_sql_identifier(col)
-
-        conn = self._connection.connection
-        conn.register("existing_data", existing_data)
-        conn.register("source_data", source_data)
-        try:
-            key_conditions = " AND ".join([f'e."{c}" = s."{c}"' for c in key_columns])
-            query = f"""
-                SELECT s.*
-                FROM source_data s
-                JOIN existing_data e ON {key_conditions}
-                UNION ALL
-                SELECT e.*
-                FROM existing_data e
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM source_data s
-                    WHERE {key_conditions}
-                )
-            """
-            return conn.execute(query).fetch_arrow_table()
-        except Exception as e:
-            logger.error(
-                "UNION ALL update merge failed",
-                error=safe_format_error(e),
-                operation="merge_update",
-            )
-            raise DatasetMergeError(
-                f"UNION ALL update merge failed: {safe_format_error(e)}"
-            ) from e
-        finally:
-            _unregister_duckdb_table_safely(conn, "existing_data")
-            _unregister_duckdb_table_safely(conn, "source_data")
-
-    def _extract_inserted_rows(
-        self,
-        existing_data: pa.Table,
-        source_data: pa.Table,
-        key_columns: list[str],
-    ) -> pa.Table:
-        for col in key_columns:
-            PathValidator.validate_sql_identifier(col)
-
-        conn = self._connection.connection
-        conn.register("existing_data", existing_data)
-        conn.register("source_data", source_data)
-        try:
-            key_conditions = " AND ".join([f'e."{c}" = s."{c}"' for c in key_columns])
-            query = f"""
-                SELECT s.*
-                FROM source_data s
-                WHERE NOT EXISTS (
-                    SELECT 1 FROM existing_data e
-                    WHERE {key_conditions}
-                )
-            """
-            return conn.execute(query).fetch_arrow_table()
-        except Exception as e:
-            logger.error(
-                "UNION ALL extract inserted rows failed",
-                error=safe_format_error(e),
-                operation="extract_inserted_rows",
-            )
-            raise DatasetMergeError(
-                f"UNION ALL extract inserted rows failed: {safe_format_error(e)}"
-            ) from e
-        finally:
-            _unregister_duckdb_table_safely(conn, "existing_data")
-            _unregister_duckdb_table_safely(conn, "source_data")
+        metadata = pq.read_metadata(file_path, filesystem=self._connection.filesystem)
+        return metadata.num_rows
 
     def _write_to_path(
         self,
@@ -1990,20 +1064,24 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         max_rows_per_file: int | None = 5_000_000,
         row_group_size: int | None = 500_000,
         mode: Literal["append", "overwrite"] | None = "append",
+        partition_by: list[str] | None = None,
     ) -> None:
         """Internal helper to write data to a path."""
         conn = self._connection.connection
 
+        table = self._combine_tables(data)
+
         # Register the data as a temporary table
         f"temp_{uuid.uuid4().hex[:16]}"
-        conn.register("data_table", data)
+        conn.register("data_table", table)
 
         try:
             # Build the COPY command for dataset
-            # DuckDB writes to directory with PER_THREAD_OUTPUT
-            copy_query = (
-                f"COPY data_table TO '{path}' (FORMAT PARQUET, PER_THREAD_OUTPUT TRUE"
-            )
+            # DuckDB cannot combine PER_THREAD_OUTPUT with PARTITION_BY
+            use_per_thread_output = partition_by is None
+            copy_query = f"COPY data_table TO '{path}' (FORMAT PARQUET"
+            if use_per_thread_output:
+                copy_query += ", PER_THREAD_OUTPUT TRUE"
 
             # Note: We don't use OVERWRITE option here because we already manually
             # cleared parquet files with _clear_dataset_parquet_only in overwrite mode
@@ -2014,6 +1092,12 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             if row_group_size:
                 copy_query += f", ROW_GROUP_SIZE {row_group_size}"
 
+            if partition_by:
+                for col in partition_by:
+                    PathValidator.validate_sql_identifier(col)
+                partition_expr = ", ".join([f'"{col}"' for col in partition_by])
+                copy_query += f", PARTITION_BY ({partition_expr})"
+
             copy_query += ")"
 
             # Execute
@@ -2023,101 +1107,13 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             # Clean up temporary table
             _unregister_duckdb_table_safely(conn, "data_table")
 
-    def _generate_unique_filename(self, template: str = "data-{i}.parquet") -> str:
-        """Generate a unique filename template.
-
-        Args:
-            template: Filename template with {i} placeholder
-
-        Returns:
-            Unique filename template
-        """
-        unique_id = uuid.uuid4().hex[:16]
-        if "{i}" in template:
-            return template.replace("{i}", unique_id)
-        else:
-            # If no placeholder, insert unique ID before extension
-            if template.endswith(".parquet"):
-                base = template[:-8]  # Remove '.parquet'
-                return f"{base}-{unique_id}.parquet"
-            else:
-                return f"{template}-{unique_id}"
-
-    def _clear_dataset(self, path: str) -> None:
-        """Remove all files in a dataset directory.
-
-        Args:
-            path: Dataset directory path
-        """
-        fs = self._connection.filesystem
-
-        if fs.exists(path):
-            if fs.isfile(path):
-                fs.rm(path)
-            else:
-                # Directory - remove all files
-                for file_info in fs.find(path, withdirs=False):
-                    fs.rm(file_info)
-
     def _clear_dataset_parquet_only(self, path: str) -> None:
         """Remove only parquet files in a dataset directory, preserving other files.
 
         Args:
             path: Dataset directory path
         """
-        fs = self._connection.filesystem
-
-        if fs.exists(path) and fs.isdir(path):
-            # Find and remove only parquet files
-            for file_info in fs.find(path, withdirs=False):
-                if file_info.endswith(".parquet"):
-                    fs.rm(file_info)
-        # If path doesn't exist or isn't a directory, nothing to clear.
-
-    def merge_parquet_dataset(
-        self,
-        sources: list[str],
-        output_path: str,
-        target: str | None = None,
-        strategy: str | CoreMergeStrategy = "deduplicate",
-        key_columns: list[str] | str | None = None,
-        compression: str | None = None,
-        verbose: bool = False,
-        **kwargs: Any,
-    ) -> MergeStats:
-        """Merge multiple parquet datasets using DuckDB.
-
-        Args:
-            sources: List of source dataset paths
-            output_path: Path for merged output
-            target: Target dataset path (for upsert/update strategies)
-            strategy: Merge strategy to use
-            key_columns: Key columns for merging
-            compression: Output compression codec
-            verbose: Print progress information
-            **kwargs: Additional arguments
-
-        Returns:
-            MergeStats with merge statistics
-
-        Example:
-            ```python
-            from fsspeckit.datasets.duckdb.connection import create_duckdb_connection
-            from fsspeckit.datasets.duckdb.dataset import DuckDBDatasetIO
-
-            conn = create_duckdb_connection()
-            io = DuckDBDatasetIO(conn)
-            stats = io.merge_parquet_dataset(
-                sources=["dataset1/", "dataset2/"],
-                output_path="merged/",
-                strategy="deduplicate",
-                key_columns=["id"],
-            )
-            ```
-        """
-        raise NotImplementedError(
-            "DuckDBDatasetIO.merge_parquet_dataset() legacy API has been removed; "
-        )
+        self._clear_parquet_files(path)
 
     def compact_parquet_dataset(
         self,
@@ -2181,7 +1177,13 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         for group in groups:
             tables: list[pa.Table] = []
             for file_info in group.files:
-                tables.append(pq.read_table(file_info.path, filesystem=fs))
+                tables.append(
+                    pq.read_table(
+                        file_info.path,
+                        filesystem=fs,
+                        partitioning=None,
+                    )
+                )
 
             # Concatenate tables
             if len(tables) > 1:
@@ -2256,159 +1258,6 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             logger.info("Optimization complete: %s", result)
 
         return result
-
-    def insert_dataset(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        key_columns: list[str] | str,
-        **kwargs: Any,
-    ) -> MergeStats | None:
-        """Insert-only dataset write.
-
-        Convenience method that calls write_parquet_dataset with strategy='insert'.
-        Only inserts records whose keys don't already exist in the target dataset.
-
-        Args:
-            data: PyArrow table or list of tables to write
-            path: Output directory path
-            key_columns: Key columns for merge (required)
-            **kwargs: Additional arguments passed to write_parquet_dataset
-
-        Returns:
-            MergeStats with merge statistics
-
-        Raises:
-            ValueError: If key_columns is not provided
-
-        Example:
-            ```python
-            import pyarrow as pa
-            from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
-
-            conn = create_duckdb_connection()
-            io = DuckDBDatasetIO(conn)
-            new_records = pa.table({'id': [4, 5], 'value': ['d', 'e']})
-            stats = io.insert_dataset(new_records, "/tmp/dataset/", key_columns=["id"])
-            ```
-        """
-        raise NotImplementedError(
-            "DuckDBDatasetIO.insert_dataset() legacy API has been removed; "
-        )
-
-    def upsert_dataset(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        key_columns: list[str] | str,
-        **kwargs: Any,
-    ) -> MergeStats | None:
-        """Insert-or-update dataset write.
-
-        Convenience method that calls write_parquet_dataset with strategy='upsert'.
-        Inserts new records and updates existing ones based on key columns.
-
-        Args:
-            data: PyArrow table or list of tables to write
-            path: Output directory path
-            key_columns: Key columns for merge (required)
-            **kwargs: Additional arguments passed to write_parquet_dataset
-
-        Returns:
-            MergeStats with merge statistics
-
-        Raises:
-            ValueError: If key_columns is not provided
-
-        Example:
-            ```python
-            import pyarrow as pa
-            from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
-
-            conn = create_duckdb_connection()
-            io = DuckDBDatasetIO(conn)
-            updates = pa.table({'id': [1, 4], 'value': ['updated', 'new']})
-            stats = io.upsert_dataset(updates, "/tmp/dataset/", key_columns=["id"])
-            ```
-        """
-        raise NotImplementedError(
-            "DuckDBDatasetIO.upsert_dataset() legacy API has been removed; "
-        )
-
-    def update_dataset(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        key_columns: list[str] | str,
-        **kwargs: Any,
-    ) -> MergeStats | None:
-        """Update-only dataset write.
-
-        Convenience method that calls write_parquet_dataset with strategy='update'.
-        Only updates records that already exist in the target dataset.
-
-        Args:
-            data: PyArrow table or list of tables to write
-            path: Output directory path
-            key_columns: Key columns for merge (required)
-            **kwargs: Additional arguments passed to write_parquet_dataset
-
-        Returns:
-            MergeStats with merge statistics
-
-        Raises:
-            ValueError: If key_columns is not provided
-
-        Example:
-            ```python
-            import pyarrow as pa
-            from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
-
-            conn = create_duckdb_connection()
-            io = DuckDBDatasetIO(conn)
-            updates = pa.table({'id': [1, 2], 'value': ['updated1', 'updated2']})
-            stats = io.update_dataset(updates, "/tmp/dataset/", key_columns=["id"])
-            ```
-        """
-        raise NotImplementedError(
-            "DuckDBDatasetIO.update_dataset() legacy API has been removed; "
-        )
-
-    def deduplicate_dataset(
-        self,
-        data: pa.Table | list[pa.Table],
-        path: str,
-        key_columns: list[str] | str | None = None,
-        **kwargs: Any,
-    ) -> MergeStats | None:
-        """Deduplicate dataset write.
-
-        Convenience method that calls write_parquet_dataset with strategy='deduplicate'.
-        Removes duplicate records based on key columns (or exact duplicates if no keys provided).
-
-        Args:
-            data: PyArrow table or list of tables to write
-            path: Output directory path
-            key_columns: Key columns for deduplication (optional; if None, removes exact duplicates)
-            **kwargs: Additional arguments passed to write_parquet_dataset
-
-        Returns:
-            MergeStats with merge statistics
-
-        Example:
-            ```python
-            import pyarrow as pa
-            from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
-
-            conn = create_duckdb_connection()
-            io = DuckDBDatasetIO(conn)
-            data = pa.table({'id': [1, 1, 2], 'value': ['a', 'b', 'c']})
-            stats = io.deduplicate_dataset(data, "/tmp/dataset/", key_columns=["id"])
-            ```
-        """
-        raise NotImplementedError(
-            "DuckDBDatasetIO.deduplicate_dataset() legacy API has been removed; "
-        )
 
     def deduplicate_parquet_dataset(
         self,

@@ -5,7 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.20.1] - 2026-02-14
+
+### Changed
+- Hive-partitioned merges no longer inject partition columns into rewritten file schemas.
+- DuckDB merge no longer uses legacy `use_merge` routing helpers (removed unused code paths).
+- PyArrow write_dataset defaults to hive partitioning when partition_by is set.
+
+### Fixed
+- Partitioned merge inserts now write to hive partition directories in DuckDB and PyArrow backends.
+- PyArrow merge enforces partition immutability for existing keys.
+- DuckDB `compact_parquet_dataset_duckdb` executes for non-dry runs.
+- Dataset write path validation now auto-creates missing parent directories.
+- Fixed partition pruning bug that could cause partition immutability validation to be skipped.
 
 ## [0.9.1] - 2026-01-08
 

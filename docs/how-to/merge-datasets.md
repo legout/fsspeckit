@@ -286,11 +286,7 @@ result = io.merge(
 
 ## DuckDB Backend
 
-DuckDB provides the same `merge()` API with optimizations for large datasets and native MERGE statement support:
-
-### Native MERGE Statement (DuckDB 1.4.0+)
-
-DuckDB 1.4.0 introduced native MERGE statement support, providing better performance and atomicity:
+DuckDB provides the same `merge()` API with optimized parquet I/O for large datasets:
 
 ```python
 from fsspeckit.datasets.duckdb import DuckDBDatasetIO
@@ -302,7 +298,7 @@ io = DuckDBDatasetIO()
 initial = pl.DataFrame({"id": [1, 2], "value": ["a", "b"]})
 io.write_dataset(initial, "dataset/", mode="overwrite")
 
-# Merge with DuckDB using native MERGE (auto-detected for DuckDB >= 1.4.0)
+# Merge with DuckDB (incremental rewrite)
 updates = pl.DataFrame({"id": [2, 3], "value": ["updated", "c"]})
 result = io.merge(
     data=updates,
@@ -315,70 +311,20 @@ print(f"Inserted: {result.inserted}, Updated: {result.updated}")
 # Output: Inserted: 1, Updated: 1
 ```
 
-**Benefits of Native MERGE:**
-- 20-40% faster than UNION ALL approach
-- Fully ACID-compliant operations
-- Accurate tracking of inserted vs updated rows
-- More efficient memory usage
+### Merge Implementation Note
 
-### Controlling Merge Implementation
-
-The `use_merge` parameter lets you control which merge implementation is used:
+DuckDB merges currently use the incremental rewrite path. The `use_merge`
+parameter is accepted for backward compatibility but is ignored by the
+implementation.
 
 ```python
-# Auto-detect (default) - uses MERGE if DuckDB >= 1.4.0, falls back to UNION ALL
+# use_merge is accepted but ignored
 result = io.merge(
     data=updates,
     path="dataset/",
     strategy="upsert",
     key_columns=["id"],
-    use_merge=None  # Auto-detect (default)
-)
-
-# Force native MERGE (requires DuckDB >= 1.4.0)
-result = io.merge(
-    data=updates,
-    path="dataset/",
-    strategy="upsert",
-    key_columns=["id"],
-    use_merge=True
-)
-
-# Force UNION ALL fallback
-result = io.merge(
-    data=updates,
-    path="dataset/",
-    strategy="upsert",
-    key_columns=["id"],
-    use_merge=False
-)
-```
-
-**Parameter Guide:**
-- `use_merge=None` (default): Auto-detect based on DuckDB version
-- `use_merge=True`: Force native MERGE, raises error if DuckDB < 1.4.0
-- `use_merge=False`: Always use UNION ALL fallback
-
-### Version Requirements
-
-- **DuckDB >= 1.4.0**: Native MERGE statement supported (recommended)
-- **DuckDB < 1.4.0**: Automatic fallback to UNION ALL approach
-- **No action required**: Auto-detection ensures compatibility
-
-### Backward Compatibility
-
-The merge API maintains full backward compatibility:
-- Existing code works without modification
-- Automatic fallback to UNION ALL for older DuckDB versions
-- No breaking changes to API or behavior
-
-```python
-# This works the same as before, with improved performance if DuckDB >= 1.4.0
-result = io.merge(
-    data=updates,
-    path="dataset/",
-    strategy="upsert",
-    key_columns=["id"]
+    use_merge=True,
 )
 ```
 
@@ -403,14 +349,14 @@ result = io.merge(
 - Complex analytics and aggregations
 - SQL-heavy workflows
 - High-performance query requirements
-- Native MERGE statement operations (DuckDB >= 1.4.0)
+- Incremental rewrite merge operations for large datasets
 
 **Use When:**
 - Dataset exceeds available memory
 - Need complex SQL operations
 - Query performance is critical
 - Working with very large datasets
-- Want MERGE performance benefits (use DuckDB >= 1.4.0)
+- Need efficient incremental rewrites on large datasets
 
 ## Performance Optimization
 
@@ -454,71 +400,10 @@ result = io.merge(
 - Best for: Data exchange, compatibility
 - Use with: Cross-platform scenarios
 
-## When to Use MERGE vs UNION ALL
+## Merge Implementation Notes
 
-**Native MERGE (DuckDB 1.4.0+)**
-- **Best for:**
-  - Production workloads
-  - Large datasets (>1M rows)
-  - Performance-critical operations
-  - Need accurate insert/update counts
-  - ACID compliance requirements
-
-- **Advantages:**
-  - 20-40% faster than UNION ALL
-  - Fully ACID-compliant operations
-  - Single-pass execution (better query plan)
-  - Accurate tracking of inserted vs updated rows
-  - Declarative SQL (easier to understand)
-
-- **When to use:**
-  - DuckDB >= 1.4.0 installed (default auto-detected)
-  - `use_merge=True` to force MERGE
-  - Performance is critical
-  - Large datasets (>1M rows)
-
-- **Trade-offs:**
-  - Requires DuckDB >= 1.4.0
-  - Different execution plan than UNION ALL (may affect query optimization)
-
-**UNION ALL (DuckDB < 1.4.0)**
-- **Best for:**
-  - Debugging and troubleshooting
-  - Understanding execution plans
-  - Testing with older DuckDB versions
-  - Fallback when MERGE unavailable
-
-- **Advantages:**
-  - Compatible with DuckDB < 1.4.0
-  - Simple, well-understood execution pattern
-  - Easier to debug (transparent queries)
-
-- **When to use:**
-  - DuckDB < 1.4.0 installed (auto-detected fallback)
-  - `use_merge=False` to force UNION ALL
-  - Debugging MERGE behavior issues
-  - Need simpler execution plan analysis
-
-- **Trade-offs:**
-  - Multiple execution passes (less efficient)
-  - No built-in atomicity (requires explicit transactions)
-  - Limited auditability (harder to track insert vs update)
-  - Expected 20-40% slower than MERGE
-
-**Guidance:**
-- **Default behavior:** Use MERGE when available (DuckDB >= 1.4.0), fallback to UNION ALL otherwise
-- **Force MERGE:** Use `use_merge=True` for best performance (requires DuckDB >= 1.4.0)
-- **Force UNION ALL:** Use `use_merge=False` for debugging or if MERGE issues occur
-- **Auto-detect:** Use `use_merge=None` (default) to let version detection decide
-
-**Performance Comparison:**
-| Dataset Size | MERGE | UNION ALL | Improvement |
-|-------------|--------|-----------|------------|
-| Small (<100K rows) | ~1.0x | ~1.2x | 20% |
-| Medium (100K-1M rows) | ~1.3x | ~2.0x | 35% |
-| Large (>1M rows) | ~1.4x | ~2.2x | 40% |
-
-*Note: Actual performance varies based on dataset characteristics, hardware, and DuckDB version.*
+DuckDB merges currently use the incremental rewrite implementation. The
+`use_merge` parameter is accepted for backward compatibility but ignored.
 
 ## Error Handling
 
