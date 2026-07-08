@@ -120,6 +120,131 @@ def test_merge_update_requires_existing_target(tmp_path, duckdb_io, pyarrow_io) 
         )
 
 
+def test_merge_insert_parity(tmp_path, duckdb_io, pyarrow_io) -> None:
+    """INSERT adds only new keys in both backends."""
+    base = pa.table({"id": [1, 2, 3], "value": [10, 20, 30]})
+    source = pa.table({"id": [2, 4], "value": [22, 40]})
+
+    duckdb_path = tmp_path / "duckdb_insert"
+    pyarrow_path = tmp_path / "pyarrow_insert"
+
+    duckdb_io.write_dataset(base, str(duckdb_path), mode="overwrite")
+    pyarrow_io.write_dataset(base, str(pyarrow_path), mode="overwrite")
+
+    duckdb_result = duckdb_io.merge(
+        source,
+        str(duckdb_path),
+        strategy="insert",
+        key_columns=["id"],
+    )
+    pyarrow_result = pyarrow_io.merge(
+        source,
+        str(pyarrow_path),
+        strategy="insert",
+        key_columns=["id"],
+    )
+
+    assert duckdb_result.inserted == 1
+    assert pyarrow_result.inserted == 1
+    assert duckdb_result.target_count_after == 4
+    assert pyarrow_result.target_count_after == 4
+
+
+def test_merge_update_parity(tmp_path, duckdb_io, pyarrow_io) -> None:
+    """UPDATE modifies only existing keys in both backends."""
+    base = pa.table({"id": [1, 2, 3], "value": [10, 20, 30]})
+    source = pa.table({"id": [2, 4], "value": [22, 40]})
+
+    duckdb_path = tmp_path / "duckdb_update"
+    pyarrow_path = tmp_path / "pyarrow_update"
+
+    duckdb_io.write_dataset(base, str(duckdb_path), mode="overwrite")
+    pyarrow_io.write_dataset(base, str(pyarrow_path), mode="overwrite")
+
+    duckdb_result = duckdb_io.merge(
+        source,
+        str(duckdb_path),
+        strategy="update",
+        key_columns=["id"],
+    )
+    pyarrow_result = pyarrow_io.merge(
+        source,
+        str(pyarrow_path),
+        strategy="update",
+        key_columns=["id"],
+    )
+
+    assert duckdb_result.updated == 1
+    assert pyarrow_result.updated == 1
+    assert duckdb_result.target_count_after == 3
+    assert pyarrow_result.target_count_after == 3
+
+
+def test_merge_empty_source_parity(tmp_path, duckdb_io, pyarrow_io) -> None:
+    """Empty source returns a zero-change result in both backends."""
+    base = pa.table({"id": [1, 2, 3], "value": [10, 20, 30]})
+    empty_source = pa.table(
+        {"id": pa.array([], type=pa.int64()), "value": pa.array([], type=pa.int64())}
+    )
+
+    duckdb_path = tmp_path / "duckdb_empty"
+    pyarrow_path = tmp_path / "pyarrow_empty"
+
+    duckdb_io.write_dataset(base, str(duckdb_path), mode="overwrite")
+    pyarrow_io.write_dataset(base, str(pyarrow_path), mode="overwrite")
+
+    duckdb_result = duckdb_io.merge(
+        empty_source,
+        str(duckdb_path),
+        strategy="upsert",
+        key_columns=["id"],
+    )
+    pyarrow_result = pyarrow_io.merge(
+        empty_source,
+        str(pyarrow_path),
+        strategy="upsert",
+        key_columns=["id"],
+    )
+
+    assert duckdb_result.inserted == 0
+    assert pyarrow_result.inserted == 0
+    assert duckdb_result.updated == 0
+    assert pyarrow_result.updated == 0
+    assert duckdb_result.target_count_after == 3
+    assert pyarrow_result.target_count_after == 3
+
+
+def test_merge_duplicate_source_keys_parity(tmp_path, duckdb_io, pyarrow_io) -> None:
+    """Duplicate source keys are deduplicated (last-write-wins) in both backends."""
+    base = pa.table({"id": [1, 2], "value": [10, 20]})
+    source = pa.table({"id": [3, 3, 4], "value": [30, 999, 40]})
+
+    duckdb_path = tmp_path / "duckdb_dupe"
+    pyarrow_path = tmp_path / "pyarrow_dupe"
+
+    duckdb_io.write_dataset(base, str(duckdb_path), mode="overwrite")
+    pyarrow_io.write_dataset(base, str(pyarrow_path), mode="overwrite")
+
+    duckdb_result = duckdb_io.merge(
+        source,
+        str(duckdb_path),
+        strategy="upsert",
+        key_columns=["id"],
+    )
+    pyarrow_result = pyarrow_io.merge(
+        source,
+        str(pyarrow_path),
+        strategy="upsert",
+        key_columns=["id"],
+    )
+
+    # After dedup source has keys [3, 4] -> 2 inserts, target grows from 2 to 4.
+    assert duckdb_result.inserted == 2
+    assert pyarrow_result.inserted == 2
+    assert duckdb_result.target_count_after == 4
+    assert pyarrow_result.target_count_after == 4
+
+
 def test_compact_parquet_dataset_dry_run_parity(tmp_path, duckdb_io, pyarrow_io) -> None:
     data = pa.table({"id": [1, 2, 3, 4], "value": [10, 20, 30, 40]})
     tables = [data.slice(0, 2), data.slice(2, 2)]
