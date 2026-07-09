@@ -453,9 +453,10 @@ def compact_parquet_dataset_pyarrow(
         shared ``fsspeckit.core.maintenance`` module, ensuring consistent behavior
         across DuckDB and PyArrow backends.
     """
-    import uuid
-
-    from fsspeckit.core.maintenance import plan_compaction_groups
+    from fsspeckit.core.maintenance import (
+        execute_compaction_template,
+        plan_compaction_groups,
+    )
 
     fs = filesystem or fsspec_filesystem("file")
 
@@ -479,27 +480,13 @@ def compact_parquet_dataset_pyarrow(
     planned_stats.compression_codec = compression
     planned_stats.dry_run = dry_run
 
-    # If dry run, return the plan
-    if dry_run:
-        result = planned_stats.to_dict()
-        result["planned_groups"] = groups
-        return result
-
-    # Execute compaction
-    if not groups:
-        return planned_stats.to_dict()
-
-    # Execute the compaction
-    for group in groups:
+    def compact_group_fn(group, output_path):
+        """Read, concatenate, and write a single compaction group (PyArrow)."""
         # Read all files in this group
-        tables = []
-        for file_info in group.files:
-            file_path = file_info.path
-            table = pq.read_table(
-                file_path,
-                filesystem=fs,
-            )
-            tables.append(table)
+        tables = [
+            pq.read_table(file_info.path, filesystem=fs)
+            for file_info in group.files
+        ]
 
         # Concatenate tables
         if len(tables) > 1:
@@ -508,7 +495,6 @@ def compact_parquet_dataset_pyarrow(
             combined = tables[0]
 
         # Write to output file
-        output_path = f"{path.rstrip('/')}/compacted-{uuid.uuid4().hex[:16]}.parquet"
         pq.write_table(
             combined,
             output_path,
@@ -516,12 +502,14 @@ def compact_parquet_dataset_pyarrow(
             compression=compression or "snappy",
         )
 
-    # Remove original files
-    for group in groups:
-        for file_info in group.files:
-            fs.rm(file_info.path)
-
-    return planned_stats.to_dict()
+    return execute_compaction_template(
+        groups=groups,
+        planned_stats=planned_stats,
+        dataset_path=path,
+        compact_group_fn=compact_group_fn,
+        filesystem=fs,
+        dry_run=dry_run,
+    )
 
 
 def optimize_parquet_dataset_pyarrow(
