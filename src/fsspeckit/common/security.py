@@ -131,8 +131,8 @@ class PathValidator:
 
         if not cls.SAFE_PATH_PATTERN.match(path):
             raise ValueError(
-                f"Path contains invalid characters. "
-                f"Only alphanumeric, '.', '_', '-', '/', '*', ':' are allowed."
+                "Path contains invalid characters. "
+                "Only alphanumeric, '.', '_', '-', '/', '*', ':' are allowed."
             )
 
     @classmethod

@@ -9,12 +9,7 @@ import importlib.util
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import polars as pl
-    import pandas as pd
-    import pyarrow as pa
-    import duckdb
-    import sqlglot
-    import orjson
+    pass
 
 # Availability flags - check if optional packages are installed
 _POLARS_AVAILABLE = importlib.util.find_spec("polars") is not None

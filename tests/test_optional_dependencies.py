@@ -394,7 +394,7 @@ class TestBackwardCompatibility:
         """Test that existing import patterns still work."""
         # These should all work without errors
         from fsspeckit.common.datetime import get_timedelta_str
-        from fsspeckit.common.misc import run_parallel
+        from fsspeckit.common.parallel import run_parallel
         from fsspeckit.core.merge import MergeStrategy
 
         assert get_timedelta_str is not None

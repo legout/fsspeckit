@@ -5,9 +5,7 @@ from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 if TYPE_CHECKING:
-    import polars as pl
-    import polars.selectors as cs
-    import pyarrow as pa
+    pass
 
 
 def get_timestamp_column(df: Any) -> str | list[str]:
