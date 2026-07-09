@@ -43,7 +43,7 @@ except ImportError:
     POLARS_AVAILABLE = False
     pl = None
 
-from fsspeckit.common.types import to_pyarrow_table, dict_to_dataframe
+from fsspeckit.datasets.types import to_pyarrow_table, dict_to_dataframe
 
 
 def create_sample_data() -> pa.Table:

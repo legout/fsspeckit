@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Check package import layering rules.
 
-The canonical layering is documented in docs/architecture/0001-layering-rules.md.
+The canonical layering is documented in docs/adr/0001-layering-rules.md and
+docs/adr/0003-common-layer-independence.md.
 """
 
 from __future__ import annotations

@@ -1,10 +1,14 @@
 """Cross-cutting utilities for fsspeckit.
 
-This package contains utilities that are shared across different components:
+This package contains dependency-free utilities shared across all components:
 - Datetime parsing and manipulation utilities
 - Logging configuration and helpers
-- General purpose utility functions
-- Type conversion and data transformation utilities
+- General purpose utility functions (parallelism, filesystem sync)
+- Partition column helpers
+- Path and security validation
+
+Schema, polars, and type-conversion utilities live in ``fsspeckit.datasets``
+because they require optional dependencies (pyarrow, numpy, polars).
 """
 
 from .datetime import get_timestamp_column, get_timedelta_str, timestamp_from_string

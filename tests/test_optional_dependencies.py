@@ -255,9 +255,9 @@ class TestModuleImportsWithoutDependencies:
 
         assert optional is not None
 
-    def test_common_types_imports(self):
-        """Test that common.types module imports."""
-        from fsspeckit.common import types
+    def test_datasets_types_imports(self):
+        """Test that datasets.types module imports."""
+        from fsspeckit.datasets import types
 
         assert types is not None
         assert hasattr(types, "dict_to_dataframe")
@@ -374,21 +374,15 @@ class TestFunctionalityWithDependencies:
 class TestBackwardCompatibility:
     """Test that existing code patterns still work."""
 
-    def test_common_init_exports(self):
-        """Test that common.__init__ exports work correctly."""
-        from fsspeckit.common.optional import _POLARS_AVAILABLE
+    def test_common_init_no_heavy_exports(self):
+        """Test that common.__init__ no longer exports schema, polars, or types."""
+        import fsspeckit.common as common
 
-        if _POLARS_AVAILABLE:
-            from fsspeckit.common import opt_dtype_pl, pl
-
-            assert opt_dtype_pl is not None
-            assert pl is not None
-        else:
-            # Should still import but be None
-            from fsspeckit.common import opt_dtype_pl, pl
-
-            assert opt_dtype_pl is None
-            assert pl is None
+        # These were moved to fsspeckit.datasets
+        assert not hasattr(common, "opt_dtype_pl")
+        assert not hasattr(common, "pl")
+        assert not hasattr(common, "cast_schema")
+        assert not hasattr(common, "to_pyarrow_table")
 
     def test_datasets_init_exports(self):
         """Test that datasets.__init__ exports work correctly."""

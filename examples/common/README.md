@@ -118,7 +118,7 @@ successful = [r for r in results if "error" not in r]
 
 #### Conversion Functions
 ```python
-from fsspeckit.common.types import to_pyarrow_table, to_pandas_df, to_polars_df
+from fsspeckit.datasets.types import to_pyarrow_table, to_pandas_df, to_polars_df
 
 # Convert between formats
 arrow_table = create_arrow_table()
@@ -153,7 +153,7 @@ polars_df = to_polars_df(arrow_table)
 import logging
 from fsspeckit.common.logging import setup_logging
 from fsspeckit.common.misc import run_parallel
-from fsspeckit.common.types import to_pyarrow_table
+from fsspeckit.datasets.types import to_pyarrow_table
 
 # Setup logging
 logger = setup_logging(
