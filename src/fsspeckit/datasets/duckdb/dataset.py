@@ -155,7 +155,11 @@ def compact_parquet_dataset_duckdb(
     """
     from fsspec import filesystem as fsspec_filesystem
 
-    from fsspeckit.core.maintenance import plan_compaction_groups
+    from fsspeckit.core.maintenance import (
+        CompactionGroup,
+        execute_compaction_template,
+        plan_compaction_groups,
+    )
 
     fs = filesystem or fsspec_filesystem("file")
 
@@ -179,64 +183,49 @@ def compact_parquet_dataset_duckdb(
     planned_stats.compression_codec = compression
     planned_stats.dry_run = dry_run
 
-    # If dry run, return the plan
-    if dry_run:
-        result = planned_stats.to_dict()
-        result["planned_groups"] = plan_result["planned_groups"]
-        return result
-
-    # Execute compaction
-    if not groups:
-        return planned_stats.to_dict()
-
-    # Create DuckDB connection using context manager
+    # Execute compaction via the shared execution template. The template owns
+    # the dry-run early exit, empty-groups early exit, output-path generation,
+    # group iteration, and original-file removal.
     with create_duckdb_connection(filesystem=fs) as duckdb_conn:
-        conn = duckdb_conn.connection
 
-        # Execute the compaction using DuckDB SQL COPY
-        for group in groups:
-            # Build parquet_scan union query for this group
-            file_paths = [file_info.path for file_info in group.files]
+        def compact_group_fn(group: CompactionGroup, output_path: str) -> None:
+            """Compact a single group into ``output_path`` via DuckDB SQL COPY."""
+            conn = duckdb_conn.connection
 
-            # Validate and escape file paths for SQL
+            # Validate and escape source file paths for SQL
             escaped_paths = []
-            for fp in file_paths:
-                PathValidator.validate_path_for_sql(fp)
-                escaped_paths.append(PathValidator.escape_for_sql(fp))
+            for file_info in group.files:
+                PathValidator.validate_path_for_sql(file_info.path)
+                escaped_paths.append(PathValidator.escape_for_sql(file_info.path))
 
-            # Build union query
+            # Build parquet_scan union query for the group
             if len(escaped_paths) == 1:
                 source_query = f"SELECT * FROM parquet_scan('{escaped_paths[0]}')"
             else:
                 union_queries = " UNION ALL ".join(
-                    [f"SELECT * FROM parquet_scan('{ep}')" for ep in escaped_paths]
+                    f"SELECT * FROM parquet_scan('{ep}')" for ep in escaped_paths
                 )
                 source_query = f"({union_queries})"
 
-            # Generate output path
-            output_path = (
-                f"{path.rstrip('/')}/compacted-{uuid.uuid4().hex[:16]}.parquet"
-            )
+            # Validate and escape the generated output path
             PathValidator.validate_path_for_sql(output_path)
             escaped_output = PathValidator.escape_for_sql(output_path)
 
-            # Build COPY command with compression
+            # Build COPY command with compression options
             copy_command = f"COPY {source_query} TO '{escaped_output}'"
-            options = []
             if compression:
-                options.append(f"COMPRESSION {compression}")
-            if options:
-                copy_command += f" ({', '.join(options)})"
+                copy_command += f" (COMPRESSION {compression})"
 
-            # Execute COPY command
             conn.execute(copy_command)
 
-        # Remove original files
-        for group in groups:
-            for file_info in group.files:
-                fs.rm(file_info.path)
-
-    return planned_stats.to_dict()
+        return execute_compaction_template(
+            groups=groups,
+            planned_stats=planned_stats,
+            dataset_path=path,
+            compact_group_fn=compact_group_fn,
+            filesystem=fs,
+            dry_run=dry_run,
+        )
 
 
 # DuckDB exception types for specific error handling
