@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-07-08
+
+### Added
+- `execute_compaction_template` in `core.maintenance` — shared template for compaction execution lifecycle (dry-run, output path generation, group iteration, file removal, stats return). Backends supply a single `compact_group_fn` callback. (#14)
+- ADR-0003 (common layer independence) and ADR-0004 (maintenance execution template).
+
+### Changed
+- **Common layer is now dependency-free.** `schema`, `types`, and `polars` modules moved from `common` to `datasets`. (#8, #9)
+- **`core/ext` carved as its own tier** in the layering rules. The `ALLOWLIST` for common→core imports is removed; the `check_layering.py` script enforces the new rules. (#7)
+- **`common/logging_config.py` collapsed into `common.logging` package** — single import path. (#10)
+- **Optional dependency seam consolidated.** All inline `try/except` guards and bare top-level imports of optional packages in `common` are routed through `common.optional`. (#11)
+- **`common/misc.py` split** into `common.parallel` (parallelism), `common.sync` (filesystem sync), and `common.partitions` (partition helpers). The `misc` catch-all is deleted. (#17)
+- DuckDB and PyArrow compaction backends now consume `execute_compaction_template` instead of inlining execution boilerplate. (#15, #16)
+- Merge planning seam completed with parity tests. (#5)
+
+### Removed
+- `common/misc.py` (split into `parallel`, `sync`, `partitions`)
+- `common/logging_config.py` (collapsed into `common.logging`)
+- `ALLOWLIST` mechanism from `check_layering.py` (replaced by strict layering rules)
+
 ## [0.20.1] - 2026-02-14
 
 ### Changed
