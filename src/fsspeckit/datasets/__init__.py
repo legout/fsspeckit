@@ -20,6 +20,10 @@ from .exceptions import (
     DatasetValidationError,
 )
 from .path_utils import normalize_path, validate_dataset_path
+from .polars import (
+    opt_dtype as opt_dtype_pl,
+    pl,
+)
 from .pyarrow import (
     collect_dataset_stats_pyarrow,
     compact_parquet_dataset_pyarrow,
@@ -79,6 +83,9 @@ __all__ = [
     # Path utilities
     "normalize_path",
     "validate_dataset_path",
+    # Polars utilities
+    "opt_dtype_pl",
+    "pl",
     # PyArrow handlers
     "PyarrowDatasetIO",
     # PyArrow utilities

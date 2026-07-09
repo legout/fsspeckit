@@ -33,6 +33,8 @@ All other utils.* imports are deprecated and may be removed in future versions.
 from fsspeckit.datasets import DuckDBParquetHandler
 from fsspeckit.datasets.schema import cast_schema, convert_large_types_to_normal
 from fsspeckit.datasets.schema import opt_dtype as opt_dtype_pa
+from fsspeckit.datasets.polars import opt_dtype as opt_dtype_pl, pl
+from fsspeckit.datasets.types import dict_to_dataframe, to_pyarrow_table
 
 # Common utilities
 from fsspeckit.common.logging import setup_logging
@@ -42,8 +44,6 @@ from fsspeckit.common.misc import (
     sync_dir,
     sync_files,
 )
-from fsspeckit.common.polars import opt_dtype as opt_dtype_pl, pl
-from fsspeckit.datasets.types import dict_to_dataframe, to_pyarrow_table
 
 # Re-export Progress from rich for backwards compatibility
 # Used by tests that patch fsspeckit.utils.misc.Progress

@@ -74,7 +74,7 @@ def _read_csv_file(
 
     # Try to import polars utilities, but don't fail if they're not available
     try:
-        from fsspeckit.common.polars import opt_dtype as opt_dtype_pl
+        from fsspeckit.datasets.polars import opt_dtype as opt_dtype_pl
     except ImportError:
         opt_dtype_pl = None
 

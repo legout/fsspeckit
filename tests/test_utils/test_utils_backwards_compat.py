@@ -14,7 +14,11 @@ class TestUtilsBackwardsCompatibility:
         """Test that utils re-exports refer to same objects as canonical modules."""
         # DuckDBParquetHandler is removed - users should use create_duckdb_connection + DuckDBDatasetIO
         # Test that we're importing the right new APIs
-        from fsspeckit.datasets.duckdb import create_duckdb_connection, DuckDBDatasetIO
+        from fsspeckit.datasets.duckdb import (
+            create_duckdb_connection,
+            DuckDBDatasetIO,
+            MergeStrategy,
+        )
         from fsspeckit.datasets.duckdb import MergeStrategy as CanonicalMergeStrategy
 
         assert callable(create_duckdb_connection)
@@ -31,7 +35,7 @@ class TestUtilsBackwardsCompatibility:
 
         # Test polars utilities
         from fsspeckit.utils import opt_dtype_pl, pl
-        from fsspeckit.common.polars import (
+        from fsspeckit.datasets.polars import (
             opt_dtype as CanonicalOptDtypePl,
             pl as CanonicalPl,
         )

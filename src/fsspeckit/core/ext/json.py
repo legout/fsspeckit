@@ -10,14 +10,12 @@ files with support for:
 
 from __future__ import annotations
 
-import datetime as dt
 from typing import TYPE_CHECKING, Any, Generator
 
 if TYPE_CHECKING:
     # Type checking imports for optional dependencies
-    import orjson
+    import pandas as pd
     import pyarrow as pa
-    import pyarrow.dataset as pds
 
 # Import lazy helpers for optional dependencies
 from fsspeckit.common.optional import _import_orjson
@@ -29,8 +27,8 @@ from fsspeckit.common.logging import get_logger
 
 # Conditionally import polars utilities
 try:
-    from fsspeckit.common.polars import opt_dtype as opt_dtype_pl
-    from fsspeckit.common.polars import pl
+    from fsspeckit.datasets.polars import opt_dtype as opt_dtype_pl
+    from fsspeckit.datasets.polars import pl
 except ImportError:
     opt_dtype_pl = None
     pl = None
