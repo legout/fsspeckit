@@ -38,12 +38,9 @@ from fsspeckit.datasets.types import dict_to_dataframe, to_pyarrow_table
 
 # Common utilities
 from fsspeckit.common.logging import setup_logging
-from fsspeckit.common.misc import (
-    get_partitions_from_path,
-    run_parallel,
-    sync_dir,
-    sync_files,
-)
+from fsspeckit.common.parallel import run_parallel
+from fsspeckit.common.partitions import get_partitions_from_path
+from fsspeckit.common.sync import sync_dir, sync_files
 
 # Re-export Progress from rich for backwards compatibility
 # Used by tests that patch fsspeckit.utils.misc.Progress

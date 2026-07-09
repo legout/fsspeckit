@@ -35,7 +35,7 @@ from fsspeckit.datasets import (
     optimize_parquet_dataset_pyarrow,
     compact_parquet_dataset_pyarrow,
 )
-from fsspeckit.common.misc import run_parallel
+from fsspeckit.common.parallel import run_parallel
 
 
 def create_large_analytics_dataset() -> pa.Table:

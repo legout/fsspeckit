@@ -26,7 +26,7 @@ DuckDB, PyArrow, and future backends.
 from __future__ import annotations
 
 import os
-from pathlib import Path
+import posixpath
 from typing import Any
 
 
@@ -406,3 +406,56 @@ def apply_partition_pruning(
         return paths
 
     return filter_paths_by_partitions(paths, partition_filters, partitioning)
+
+
+def path_to_glob(path: str, format: str | None = None) -> str:
+    """Convert a path to a glob pattern for file matching.
+
+    Intelligently converts paths to glob patterns that match files of the specified
+    format, handling various directory and wildcard patterns.
+
+    Args:
+        path: Base path to convert. Can include wildcards (* or **).
+            Examples: "data/", "data/*.json", "data/**"
+        format: File format to match (without dot). If None, inferred from path.
+            Examples: "json", "csv", "parquet"
+
+    Returns:
+        str: Glob pattern that matches files of specified format.
+            Examples: "data/**/*.json", "data/*.csv"
+
+    Example:
+        ```python
+        # Basic directory
+        print(path_to_glob("data", "json"))
+        # 'data/**/*.json'
+
+        # With wildcards
+        print(path_to_glob("data/**", "csv"))
+        # 'data/**/*.csv'
+
+        # Format inference
+        print(path_to_glob("data/file.parquet"))
+        # 'data/file.parquet'
+        ```
+    """
+    path = path.rstrip("/")
+    if format is None:
+        if ".json" in path:
+            format = "json"
+        elif ".csv" in path:
+            format = "csv"
+        elif ".parquet" in path:
+            format = "parquet"
+
+    if format is not None and format in path:
+        return path
+    else:
+        if path.endswith("**"):
+            return posixpath.join(path, f"*.{format}")
+        elif path.endswith("*"):
+            if path.endswith("*/*"):
+                return path + f".{format}"
+            return posixpath.join(path.rstrip("/*"), f"*.{format}")
+        return posixpath.join(path, f"**/*.{format}")
+

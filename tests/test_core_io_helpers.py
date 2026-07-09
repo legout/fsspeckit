@@ -254,7 +254,7 @@ class TestJoblibAvailability:
             monkeypatch.setitem(sys.modules, "joblib", None)
 
         try:
-            from fsspeckit.common.misc import run_parallel
+            from fsspeckit.common.parallel import run_parallel
 
             # run_parallel should raise ImportError with clear message when joblib is missing
             with pytest.raises(ImportError) as exc_info:

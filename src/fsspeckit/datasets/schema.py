@@ -31,12 +31,10 @@ from __future__ import annotations
 
 import re
 from collections import Counter, defaultdict
-from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import numpy as np
 import pyarrow as pa
-import pyarrow.dataset as ds
 
 from fsspeckit.common.logging import get_logger
 
@@ -1225,7 +1223,7 @@ def opt_dtype(
         print(optimized.column(1).type)  # DataType(float32)
         ```
     """
-    from fsspeckit.common.misc import run_parallel
+    from fsspeckit.common.parallel import run_parallel
 
     if columns is None:
         columns = table.column_names

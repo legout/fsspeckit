@@ -22,7 +22,8 @@ from fsspeckit.common.optional import _import_orjson
 
 from fsspec import AbstractFileSystem
 
-from fsspeckit.common.misc import path_to_glob, run_parallel
+from fsspeckit.common.parallel import run_parallel
+from fsspeckit.common.partitions import path_to_glob
 from fsspeckit.common.logging import get_logger
 
 # Conditionally import polars utilities

@@ -147,7 +147,9 @@ class TestPackageBoundaries:
 
         # Import all common modules to ensure they work
         assert hasattr(common, "logging")
-        assert hasattr(common, "misc")
+        assert hasattr(common, "parallel")
+        assert hasattr(common, "sync")
+        assert hasattr(common, "partitions")
         assert not hasattr(common, "schema"), (
             "schema should live in datasets after issue #8"
         )

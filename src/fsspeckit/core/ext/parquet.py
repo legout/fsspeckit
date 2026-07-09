@@ -17,7 +17,8 @@ if TYPE_CHECKING:
 
 from fsspec import AbstractFileSystem
 
-from fsspeckit.common.misc import path_to_glob, run_parallel
+from fsspeckit.common.partitions import path_to_glob
+from fsspeckit.common.parallel import run_parallel
 from fsspeckit.datasets.schema import cast_schema
 from fsspeckit.datasets.schema import opt_dtype as opt_dtype_pa
 from fsspeckit.datasets.schema import unify_schemas as unify_schemas_pa

@@ -220,7 +220,7 @@ def write_files(
     Raises:
         FileExistsError: If file already exists and mode is 'error_if_exists'.
     """
-    from fsspeckit.common.misc import run_parallel
+    from fsspeckit.common.parallel import run_parallel
     from fsspeckit.datasets.types import dict_to_dataframe
 
     # Import polars for type checking and data manipulation
@@ -229,6 +229,13 @@ def write_files(
     # Normalize data to a list
     if not isinstance(data, list):
         data = [data]
+
+    from fsspeckit.common.optional import (
+        _PANDAS_AVAILABLE,
+        _PYARROW_AVAILABLE,
+        _import_pandas,
+        _import_pyarrow,
+    )
 
     # Handle concatenation
     if concat:
@@ -239,31 +246,21 @@ def write_files(
         if isinstance(data[0], pl.LazyFrame):
             data = pl.concat([d.collect() for d in data], how="diagonal_relaxed")
 
-        # Check for pyarrow types - we need to import them lazily
-        try:
-            from fsspeckit.common.optional import _import_pyarrow
-
+        # Check for pyarrow types
+        if _PYARROW_AVAILABLE:
             pa = _import_pyarrow()
-
             if isinstance(data[0], (pa.Table, pa.RecordBatch, pa.RecordBatchReader)):
                 data = pl.concat(
                     [pl.from_arrow(d) for d in data], how="diagonal_relaxed"
                 )
-        except ImportError:
-            pass  # PyArrow not available, skip this path
 
         # Check for pandas
-        try:
-            from fsspeckit.common.optional import _import_pandas
-
+        if _PANDAS_AVAILABLE:
             pd = _import_pandas()
-
             if isinstance(data[0], pd.DataFrame):
                 data = pl.concat(
                     [pl.from_pandas(d) for d in data], how="diagonal_relaxed"
                 )
-        except ImportError:
-            pass  # Pandas not available, skip this path
 
         if unique:
             data = data.unique(

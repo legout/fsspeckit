@@ -13,7 +13,7 @@ because they require optional dependencies (pyarrow, numpy, polars).
 
 from .datetime import get_timestamp_column, get_timedelta_str, timestamp_from_string
 from .logging import get_logger, setup_logging
-from .misc import run_parallel, sync_dir, sync_files
+from .parallel import run_parallel
 from .partitions import (
     get_partitions_from_path,
     normalize_partition_value,
@@ -35,6 +35,8 @@ from .security import (
     validate_columns,
     VALID_COMPRESSION_CODECS,
 )
+from .sync import sync_dir, sync_files
+
 
 __all__ = [
     # datetime utilities

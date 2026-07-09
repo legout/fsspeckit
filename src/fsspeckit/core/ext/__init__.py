@@ -11,8 +11,6 @@ This package contains focused submodules for different file formats and operatio
 All public APIs are re-exported here for convenient access.
 """
 
-import warnings
-from typing import Any
 
 # Import the registration layer to attach methods to AbstractFileSystem
 # This must happen after all imports

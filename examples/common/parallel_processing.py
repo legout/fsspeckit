@@ -28,7 +28,7 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-from fsspeckit.common.misc import run_parallel
+from fsspeckit.common.parallel import run_parallel
 
 
 def create_sample_datasets(num_datasets: int = 10) -> list[Path]:

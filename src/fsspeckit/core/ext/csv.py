@@ -21,7 +21,8 @@ from fsspec import AbstractFileSystem
 # Import lazy helpers for optional dependencies
 from fsspeckit.common.optional import _import_polars, _import_pandas, _import_pyarrow
 
-from fsspeckit.common.misc import path_to_glob, run_parallel
+from fsspeckit.common.partitions import path_to_glob
+from fsspeckit.common.parallel import run_parallel
 from fsspeckit.common.logging import get_logger
 
 # Get module logger
@@ -72,11 +73,8 @@ def _read_csv_file(
     # Import polars lazily
     pl = _import_polars()
 
-    # Try to import polars utilities, but don't fail if they're not available
-    try:
-        from fsspeckit.datasets.polars import opt_dtype as opt_dtype_pl
-    except ImportError:
-        opt_dtype_pl = None
+    # Import polars utilities lazily after confirming polars is available
+    from fsspeckit.datasets.polars import opt_dtype as opt_dtype_pl
 
     operation = "read CSV"
     context = {"path": path, "operation": operation}
@@ -501,21 +499,22 @@ def write_csv(
                     data.write_csv(f, **kwargs)
         else:
             # Handle other data types (pa.Table, pd.DataFrame, etc.)
-            try:
+            from fsspeckit.common.optional import (
+                _PANDAS_AVAILABLE,
+                _PYARROW_AVAILABLE,
+            )
+
+            if _PYARROW_AVAILABLE:
                 pa = _import_pyarrow()
                 if isinstance(data, pa.Table):
                     pl.from_arrow(data).write_csv(path, **kwargs)
                     return
-            except ImportError:
-                pass
 
-            try:
+            if _PANDAS_AVAILABLE:
                 pd = _import_pandas()
                 if isinstance(data, pd.DataFrame):
                     pl.from_pandas(data).write_csv(path, **kwargs)
                     return
-            except ImportError:
-                pass
 
             # Fallback: try to convert to DataFrame
             pl.DataFrame(data).write_csv(path, **kwargs)

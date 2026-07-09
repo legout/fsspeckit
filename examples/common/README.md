@@ -86,7 +86,7 @@ logger.info("Processing data", extra={
 
 #### Basic Parallel Execution
 ```python
-from fsspeckit.common.misc import run_parallel
+from fsspeckit.common.parallel import run_parallel
 
 def process_file(file_path):
     # Process single file
@@ -152,7 +152,7 @@ polars_df = to_polars_df(arrow_table)
 ```python
 import logging
 from fsspeckit.common.logging import setup_logging
-from fsspeckit.common.misc import run_parallel
+from fsspeckit.common.parallel import run_parallel
 from fsspeckit.datasets.types import to_pyarrow_table
 
 # Setup logging
