@@ -18,9 +18,9 @@ if TYPE_CHECKING:
 from fsspec import AbstractFileSystem
 
 from fsspeckit.common.misc import path_to_glob, run_parallel
-from fsspeckit.common.schema import cast_schema
-from fsspeckit.common.schema import opt_dtype as opt_dtype_pa
-from fsspeckit.common.schema import unify_schemas as unify_schemas_pa
+from fsspeckit.datasets.schema import cast_schema
+from fsspeckit.datasets.schema import opt_dtype as opt_dtype_pa
+from fsspeckit.datasets.schema import unify_schemas as unify_schemas_pa
 from fsspeckit.common.logging import get_logger
 
 # Get module logger
@@ -560,7 +560,7 @@ def write_parquet(
         ... )
     """
     from fsspeckit.common.optional import _import_pyarrow, _import_pyarrow_parquet
-    from fsspeckit.common.types import to_pyarrow_table
+    from fsspeckit.datasets.types import to_pyarrow_table
 
     _import_pyarrow()  # Ensure pyarrow is available
     pq = _import_pyarrow_parquet()

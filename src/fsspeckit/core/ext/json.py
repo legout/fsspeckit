@@ -549,7 +549,7 @@ def write_json(
     path = str(path)
 
     from fsspeckit.common.optional import _import_pyarrow
-    from fsspeckit.datasets.pyarrow import cast_schema, convert_large_types_to_normal
+    from fsspeckit.datasets.schema import cast_schema, convert_large_types_to_normal
 
     pa_mod = _import_pyarrow()
 

@@ -10,13 +10,36 @@ This package contains dataset-specific functionality including:
 import warnings
 from typing import Any
 
+from .exceptions import (
+    DatasetError,
+    DatasetFileError,
+    DatasetMergeError,
+    DatasetOperationError,
+    DatasetPathError,
+    DatasetSchemaError,
+    DatasetValidationError,
+)
+from .path_utils import normalize_path, validate_dataset_path
+from .pyarrow import (
+    collect_dataset_stats_pyarrow,
+    compact_parquet_dataset_pyarrow,
+    optimize_parquet_dataset_pyarrow,
+    # Dataset I/O class
+    PyarrowDatasetIO,
+)
+from .schema import (
+    cast_schema,
+    convert_large_types_to_normal,
+    opt_dtype as opt_dtype_pa,
+    unify_schemas as unify_schemas_pa,
+)
+
 _DEPRECATED_IMPORTS = {
     "duckdb_dataset": ("fsspeckit.datasets.duckdb.dataset", None),
     "duckdb_connection": ("fsspeckit.datasets.duckdb.connection", "DuckDBConnection"),
     "duckdb_helpers": ("fsspeckit.datasets.duckdb.helpers", None),
     "_duckdb_helpers": ("fsspeckit.datasets.duckdb.helpers", None),
     "pyarrow_dataset": ("fsspeckit.datasets.pyarrow.dataset", None),
-    "pyarrow_schema": ("fsspeckit.datasets.pyarrow.schema", None),
     "DuckDBParquetHandler": (
         "fsspeckit.datasets.duckdb.dataset",
         "DuckDBDatasetIO",
@@ -43,28 +66,6 @@ def __getattr__(name: str) -> Any:
         return getattr(module, attr) if attr else module
     raise AttributeError(f"module 'fsspeckit.datasets' has no attribute '{name}'")
 
-
-from .exceptions import (
-    DatasetError,
-    DatasetFileError,
-    DatasetMergeError,
-    DatasetOperationError,
-    DatasetPathError,
-    DatasetSchemaError,
-    DatasetValidationError,
-)
-from .path_utils import normalize_path, validate_dataset_path
-from .pyarrow import (
-    cast_schema,
-    collect_dataset_stats_pyarrow,
-    compact_parquet_dataset_pyarrow,
-    convert_large_types_to_normal,
-    optimize_parquet_dataset_pyarrow,
-    opt_dtype as opt_dtype_pa,
-    unify_schemas as unify_schemas_pa,
-    # Dataset I/O class
-    PyarrowDatasetIO,
-)
 
 __all__ = [
     # Exceptions

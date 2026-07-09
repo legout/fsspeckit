@@ -4,8 +4,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pytest
-
 
 class TestLayeringCompliance:
     """Test that import layering rules are enforced."""
@@ -47,9 +45,9 @@ class TestLayeringCompliance:
             "core.ext.parquet should not import from datasets.pyarrow"
         )
 
-        # Check that it imports from common.schema
-        assert "from fsspeckit.common.schema" in source, (
-            "core.ext.parquet should import from common.schema"
+        # Check that it imports from datasets.schema
+        assert "from fsspeckit.datasets.schema" in source, (
+            "core.ext.parquet should import from datasets.schema"
         )
 
     def test_core_does_not_import_from_sql(self):
@@ -61,8 +59,7 @@ class TestLayeringCompliance:
             if "__pycache__" in str(py_file):
                 continue
 
-            with open(py_file, "r", encoding="utf-8") as f:
-                content = f.read()
+            content = py_file.read_text(encoding="utf-8")
 
             # Skip test and shim files
             if "test_" in py_file.name or "_test" in str(py_file):
@@ -83,8 +80,7 @@ class TestLayeringCompliance:
             if "__pycache__" in str(py_file):
                 continue
 
-            with open(py_file, "r", encoding="utf-8") as f:
-                content = f.read()
+            content = py_file.read_text(encoding="utf-8")
 
             # Skip test and shim files
             if "test_" in py_file.name or "_test" in str(py_file):
@@ -100,10 +96,10 @@ class TestLayeringCompliance:
 class TestUtilsFaçade:
     """Test that utils façade maintains backwards compatibility."""
 
-    def test_utils_re_exports_common_schema(self):
-        """Test that utils re-exports from common.schema."""
+    def test_utils_re_exports_datasets_schema(self):
+        """Test that utils re-exports from datasets.schema."""
         from fsspeckit import utils
-        from fsspeckit.common import schema as common_schema
+        from fsspeckit.datasets import schema as datasets_schema
 
         # Check that utils has the schema functions
         assert hasattr(utils, "cast_schema"), "utils should export cast_schema"
@@ -113,20 +109,17 @@ class TestUtilsFaçade:
         assert hasattr(utils, "opt_dtype_pa"), "utils should export opt_dtype_pa"
 
         # Check that they're the same objects
-        assert utils.cast_schema is common_schema.cast_schema
-        assert utils.opt_dtype_pa is common_schema.opt_dtype
+        assert utils.cast_schema is datasets_schema.cast_schema
+        assert utils.opt_dtype_pa is datasets_schema.opt_dtype
 
     def test_utils_re_exports_datasets(self):
         """Test that utils re-exports from datasets."""
-        from fsspeckit import utils
         from fsspeckit.datasets import duckdb
 
         # DuckDBParquetHandler is removed - use create_duckdb_connection + DuckDBDatasetIO
         # Test that we're importing the right new APIs
-        from fsspeckit.datasets.duckdb.connection import (
-            create_duckdb_connection,
-            DuckDBDatasetIO,
-        )
+        from fsspeckit.datasets.duckdb.connection import create_duckdb_connection
+        from fsspeckit.datasets.duckdb.dataset import DuckDBDatasetIO
         from fsspeckit.core.merge import MergeStrategy as CanonicalMergeStrategy
 
         assert callable(create_duckdb_connection)
@@ -153,9 +146,11 @@ class TestPackageBoundaries:
         from fsspeckit import common
 
         # Import all common modules to ensure they work
-        assert hasattr(common, "schema")
         assert hasattr(common, "logging")
         assert hasattr(common, "misc")
+        assert not hasattr(common, "schema"), (
+            "schema should live in datasets after issue #8"
+        )
 
     def test_core_uses_common(self):
         """Test that core can import from common."""
@@ -164,7 +159,7 @@ class TestPackageBoundaries:
 
         # Core should be able to import from common
         assert hasattr(core, "filesystem")
-        assert hasattr(common, "schema")
+        assert hasattr(common, "logging")
 
     def test_datasets_uses_core_and_common(self):
         """Test that datasets can import from both core and common."""
@@ -175,8 +170,9 @@ class TestPackageBoundaries:
         # Datasets should be able to import from both
         assert hasattr(datasets, "pyarrow")
         assert hasattr(datasets, "duckdb")
+        assert hasattr(datasets, "schema")
         assert hasattr(core, "filesystem")
-        assert hasattr(common, "schema")
+        assert hasattr(common, "logging")
 
     def test_sql_uses_all_lower_packages(self):
         """Test that sql can import from all lower-level packages."""
@@ -187,6 +183,7 @@ class TestPackageBoundaries:
 
         # SQL should be able to import from all
         assert hasattr(sql, "filters")
-        assert hasattr(common, "schema")
+        assert hasattr(datasets, "schema")
         assert hasattr(core, "filesystem")
+        assert hasattr(common, "logging")
         assert hasattr(datasets, "duckdb")

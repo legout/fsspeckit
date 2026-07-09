@@ -21,7 +21,7 @@ class TestBackendConsistency:
 
         # Test that shared schema utilities can be imported and used
         try:
-            from fsspeckit.common.schema import unify_schemas
+            from fsspeckit.datasets.schema import unify_schemas
             import pyarrow as pa
 
             schema1 = pa.schema([pa.field("value", pa.int32())])
@@ -88,7 +88,7 @@ class TestSharedUtilitiesIntegration:
     def test_schema_and_partition_integration(self):
         """Test that schema and partition utilities work together."""
         try:
-            from fsspeckit.common.schema import (
+            from fsspeckit.datasets.schema import (
                 unify_schemas,
                 standardize_schema_timezones,
             )
@@ -130,7 +130,7 @@ class TestSharedUtilitiesIntegration:
     def test_error_handling_consistency(self):
         """Test that error handling is consistent."""
         try:
-            from fsspeckit.common.schema import unify_schemas
+            from fsspeckit.datasets.schema import unify_schemas
             from fsspeckit.common.partitions import get_partitions_from_path
             import pyarrow as pa
 

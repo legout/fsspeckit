@@ -221,7 +221,7 @@ def write_files(
         FileExistsError: If file already exists and mode is 'error_if_exists'.
     """
     from fsspeckit.common.misc import run_parallel
-    from fsspeckit.common.types import dict_to_dataframe
+    from fsspeckit.datasets.types import dict_to_dataframe
 
     # Import polars for type checking and data manipulation
     pl = _import_polars()

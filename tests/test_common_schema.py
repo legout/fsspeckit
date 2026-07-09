@@ -2,7 +2,7 @@
 
 import pytest
 import pyarrow as pa
-from fsspeckit.common.schema import (
+from fsspeckit.datasets.schema import (
     convert_large_types_to_normal,
     dominant_timezone_per_column,
     standardize_schema_timezones_by_majority,

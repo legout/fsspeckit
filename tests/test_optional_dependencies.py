@@ -307,7 +307,7 @@ class TestFunctionalityWithDependencies:
     def test_dict_to_dataframe_with_polars(self):
         """Test dict_to_dataframe when polars is available."""
         from fsspeckit.common.optional import _POLARS_AVAILABLE
-        from fsspeckit.common.types import dict_to_dataframe
+        from fsspeckit.datasets.types import dict_to_dataframe
 
         if not _POLARS_AVAILABLE:
             pytest.skip("polars not installed")
@@ -321,7 +321,7 @@ class TestFunctionalityWithDependencies:
     def test_to_pyarrow_table_conversion(self):
         """Test to_pyarrow_table when pyarrow is available."""
         from fsspeckit.common.optional import _PYARROW_AVAILABLE
-        from fsspeckit.common.types import to_pyarrow_table
+        from fsspeckit.datasets.types import to_pyarrow_table
 
         if not _PYARROW_AVAILABLE:
             pytest.skip("pyarrow not installed")

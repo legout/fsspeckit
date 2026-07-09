@@ -28,7 +28,12 @@ from fsspeckit.common.security import (
     validate_compression_codec,
     validate_path,
 )
-from fsspeckit.core.merge import normalize_key_columns
+from fsspeckit.core.merge import (
+    MergeTargetMetadata,
+    normalize_key_columns,
+    plan_merge_operation,
+    resolve_merge_plan_early_exit,
+)
 from fsspeckit.datasets.duckdb.connection import (
     DuckDBConnection,
     create_duckdb_connection,
@@ -260,7 +265,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
     This class provides methods for reading and writing parquet files and datasets
     using DuckDB's high-performance parquet engine.
 
-    Implements the DatasetHandler protocol to provide a consistent interface
+    Inherits the BaseDatasetHandler contract to provide a consistent interface
     across different backend implementations.
 
     Args:
@@ -457,7 +462,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
 
         table = self._combine_tables(data)
         if schema is not None:
-            from fsspeckit.common.schema import cast_schema
+            from fsspeckit.datasets.schema import cast_schema
 
             table = cast_schema(table, schema)
 
@@ -649,7 +654,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         source_table = self._combine_tables(data)
 
         if schema is not None:
-            from fsspeckit.common.schema import cast_schema
+            from fsspeckit.datasets.schema import cast_schema
 
             source_table = cast_schema(source_table, schema)
 
@@ -665,46 +670,39 @@ class DuckDBDatasetIO(BaseDatasetHandler):
 
         validate_no_null_keys(source_table, key_cols)
 
-        # De-duplicate source by key (last-write-wins).
-        source_table = self._dedupe_source_last_wins(source_table, key_cols)
-
-        # Extract source keys for planning.
-        if len(key_cols) == 1:
-            source_keys = source_table.column(key_cols[0]).to_pylist()
-            source_key_set: set[object] = set(source_keys)
-        else:
-            arrays = [source_table.column(c).to_pylist() for c in key_cols]
-            source_keys = list(zip(*arrays))
-            source_key_set = set(source_keys)
-
         fs = self._connection.filesystem
 
-        # List existing parquet files in the dataset.
+        # List existing parquet files in the dataset. Target discovery stays
+        # backend-local; core planning receives backend-neutral metadata only.
         target_files = list_dataset_files(path, filesystem=fs)
-        target_exists = bool(target_files)
-        self._validate_merge_strategy(strategy, target_exists)
-
-        target_count_before = sum(
-            pq.read_metadata(f, filesystem=fs).num_rows for f in target_files
+        target_metadata = MergeTargetMetadata(
+            exists=bool(target_files),
+            files=target_files,
+            row_count=sum(
+                pq.read_metadata(f, filesystem=fs).num_rows for f in target_files
+            ),
         )
 
-        if source_table.num_rows == 0:
-            return MergeResult(
-                strategy=strategy,
-                source_count=0,
-                target_count_before=target_count_before,
-                target_count_after=target_count_before,
-                inserted=0,
-                updated=0,
-                deleted=0,
-                files=[
-                    MergeFileMetadata(path=f, row_count=0, operation="preserved")
-                    for f in target_files
-                ],
-                rewritten_files=[],
-                inserted_files=[],
-                preserved_files=list(target_files),
-            )
+        plan = plan_merge_operation(
+            source_table=source_table,
+            strategy=strategy,
+            key_columns=key_cols,
+            target_metadata=target_metadata,
+            partition_columns=partition_cols,
+        )
+
+        source_table = plan.source_table
+        key_cols = plan.key_columns
+        partition_cols = plan.partition_columns
+        source_keys = plan.source_keys
+        source_key_set = plan.source_key_set
+        target_files = plan.target_files
+        target_exists = plan.target_exists
+        target_count_before = plan.target_count_before
+
+        early_result = resolve_merge_plan_early_exit(plan)
+        if early_result is not None:
+            return early_result
 
         if not target_exists:
             # INSERT/UPSERT into a non-existent dataset: write all rows as inserts.

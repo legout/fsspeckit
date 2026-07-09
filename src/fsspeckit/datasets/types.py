@@ -1,16 +1,9 @@
 """Type conversion and data transformation utilities."""
 
-from typing import TYPE_CHECKING, Any, Generator
-
-if TYPE_CHECKING:
-    import pandas as pd
-    import polars as pl
-    import pyarrow as pa
+from typing import Any, Generator
 
 
-def dict_to_dataframe(
-    data: dict | list[dict], unique: bool | list[str] | str = False
-) -> Any:
+def dict_to_dataframe(data: Any, unique: bool | list[str] | str = False) -> Any:
     """Convert a dictionary or list of dictionaries to a Polars DataFrame.
 
     Handles various input formats:
@@ -123,11 +116,7 @@ def dict_to_dataframe(
 
 
 def to_pyarrow_table(
-    data: (
-        Any  # pl.DataFrame, pl.LazyFrame, pd.DataFrame
-        | dict
-        | list[Any]  # list of DataFrames or dicts
-    ),
+    data: Any,
     concat: bool = False,
     unique: bool | list[str] | str = False,
 ) -> Any:
@@ -158,7 +147,7 @@ def to_pyarrow_table(
         _import_polars,
         _import_pyarrow,
     )
-    from fsspeckit.datasets.pyarrow import convert_large_types_to_normal
+    from fsspeckit.datasets.schema import convert_large_types_to_normal
 
     pl = _import_polars()
     pd = _import_pandas()

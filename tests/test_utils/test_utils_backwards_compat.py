@@ -41,7 +41,7 @@ class TestUtilsBackwardsCompatibility:
 
         # Test type utilities
         from fsspeckit.utils import to_pyarrow_table, dict_to_dataframe
-        from fsspeckit.common.types import (
+        from fsspeckit.datasets.types import (
             to_pyarrow_table as CanonicalToPyArrowTable,
             dict_to_dataframe as CanonicalDictToDataFrame,
         )

@@ -21,6 +21,11 @@ from fsspec import filesystem as fsspec_filesystem
 from fsspeckit.common.logging import get_logger
 from fsspeckit.common.optional import _import_pyarrow
 from fsspeckit.core.filesystem.paths import normalize_path as core_normalize_path
+from fsspeckit.core.merge import (
+    MergeTargetMetadata,
+    plan_merge_operation,
+    resolve_merge_plan_early_exit,
+)
 from fsspeckit.datasets.base import BaseDatasetHandler
 
 logger = get_logger(__name__)
@@ -137,7 +142,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             )
             schema = dataset.schema
 
-        from fsspeckit.sql.filters import sql2pyarrow_filter
+        from fsspeckit.common.sql_filters import sql2pyarrow_filter
 
         return sql2pyarrow_filter(filters, schema)
 
@@ -304,7 +309,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         table = self._combine_tables(data)
 
         if schema is not None:
-            from fsspeckit.common.schema import cast_schema
+            from fsspeckit.datasets.schema import cast_schema
 
             table = cast_schema(table, schema)
 
@@ -342,11 +347,13 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 partition_cols = (
                     [partition_by] if isinstance(partition_by, str) else partition_by
                 )
-                partition_schema = pa.schema([
-                    (col, table.schema.field(col).type)
-                    for col in partition_cols
-                    if col in table.schema.names
-                ])
+                partition_schema = pa.schema(
+                    [
+                        (col, table.schema.field(col).type)
+                        for col in partition_cols
+                        if col in table.schema.names
+                    ]
+                )
                 write_options["partitioning"] = pds.partitioning(
                     partition_schema, flavor="hive"
                 )
@@ -481,7 +488,6 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             PerformanceMonitor,
             _filter_by_key_membership,
             _make_struct_safe,
-            _table_drop_duplicates,
         )
         from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
 
@@ -507,7 +513,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         source_table = self._combine_tables(data)
 
         if schema is not None:
-            from fsspeckit.common.schema import cast_schema
+            from fsspeckit.datasets.schema import cast_schema
 
             source_table = cast_schema(source_table, schema)
 
@@ -521,56 +527,53 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             source_table.column_names,
         )
 
-        monitor.start_op("source_deduplication")
-        source_table = self._dedupe_source_last_wins(source_table, key_cols)
-        monitor.end_op()
-
-        # Validate no null keys in source
+        # Validate no null keys in source before planning/deduplication can mask rows.
         validate_no_null_keys(source_table, key_cols)
 
-        # Keep source keys as PyArrow Table/Array for vectorized operations
-        source_key_table = source_table.select(key_cols)
-        # Deduplicate keys
-        source_key_table = _table_drop_duplicates(source_key_table, subset=key_cols)
-
-        source_key_tracker = AdaptiveKeyTracker()
-        if len(key_cols) == 1:
-            # For single column, keep as PyArrow array for vectorized operations
-            source_key_array = source_key_table.column(0)
-            for key in source_key_array.to_pylist():
-                source_key_tracker.add(key)
-        else:
-            # For multi-column keys, use vectorized conversion
-            source_key_array = None
-            for d in _make_struct_safe(source_key_table, key_cols).to_pylist():
-                source_key_tracker.add(tuple(d.values()))
-
         target_files = list_dataset_files(path, filesystem=self._filesystem)
-        target_exists = bool(target_files)
-        self._validate_merge_strategy(strategy, target_exists)
-
-        target_count_before = sum(
-            pq.read_metadata(f, filesystem=self._filesystem).num_rows
-            for f in target_files
+        target_metadata = MergeTargetMetadata(
+            exists=bool(target_files),
+            files=target_files,
+            row_count=sum(
+                pq.read_metadata(f, filesystem=self._filesystem).num_rows
+                for f in target_files
+            ),
         )
 
-        if source_table.num_rows == 0:
-            return MergeResult(
-                strategy=strategy,
-                source_count=0,
-                target_count_before=target_count_before,
-                target_count_after=target_count_before,
-                inserted=0,
-                updated=0,
-                deleted=0,
-                files=[
-                    MergeFileMetadata(path=f, row_count=0, operation="preserved")
-                    for f in target_files
-                ],
-                rewritten_files=[],
-                inserted_files=[],
-                preserved_files=list(target_files),
-            )
+        monitor.start_op("source_deduplication")
+        plan = plan_merge_operation(
+            source_table=source_table,
+            strategy=strategy,
+            key_columns=key_cols,
+            target_metadata=target_metadata,
+            partition_columns=partition_cols,
+        )
+        monitor.end_op()
+
+        source_table = plan.source_table
+        key_cols = plan.key_columns
+        partition_cols = plan.partition_columns
+        target_files = plan.target_files
+        target_exists = plan.target_exists
+        target_count_before = plan.target_count_before
+
+        # Keep source keys as PyArrow Table/Array for vectorized operations.
+        source_key_table = source_table.select(key_cols)
+        source_key_tracker = AdaptiveKeyTracker()
+        if len(key_cols) == 1:
+            # For single column, keep as PyArrow array for vectorized operations.
+            source_key_array = source_key_table.column(0)
+            for key in plan.source_keys:
+                source_key_tracker.add(key)
+        else:
+            # For multi-column keys, use vectorized conversion.
+            source_key_array = None
+            for key in plan.source_keys:
+                source_key_tracker.add(key)
+
+        early_result = resolve_merge_plan_early_exit(plan)
+        if early_result is not None:
+            return early_result
 
         if not target_exists:
             self._filesystem.mkdirs(path, exist_ok=True)
@@ -817,9 +820,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 source_for_file = _select_rows_by_keys(source_table, file_matched)
 
                 if partition_cols:
-                    file_schema = pq.read_schema(
-                        file_path, filesystem=self._filesystem
-                    )
+                    file_schema = pq.read_schema(file_path, filesystem=self._filesystem)
                     available_columns = set(file_schema.names)
                     validation_columns = list(
                         dict.fromkeys(
