@@ -37,7 +37,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+import posixpath
 from typing import Any, Callable
+import uuid
 
 from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
@@ -880,3 +882,46 @@ def execute_deduplication_template(
     final_stats["execution_results"] = execution_results
 
     return final_stats
+
+
+def execute_compaction_template(
+    groups: list[CompactionGroup],
+    planned_stats: MaintenanceStats,
+    dataset_path: str,
+    compact_group_fn: Callable[[CompactionGroup, str], None],
+    filesystem: Any,
+    dry_run: bool,
+) -> dict[str, Any]:
+    """Template method for executing compaction across groups.
+
+    Args:
+        groups: List of compaction groups to process.
+        planned_stats: Planned statistics for the operation.
+        dataset_path: Root dataset path used for generated output files.
+        compact_group_fn: Backend-specific function that compacts a group
+            into the provided output path.
+        filesystem: Filesystem object used to remove original files.
+        dry_run: When ``True``, returns the plan without modifying files.
+
+    Returns:
+        Dictionary with execution statistics.
+    """
+    if dry_run:
+        result = planned_stats.to_dict()
+        result["planned_groups"] = [group.file_paths() for group in groups]
+        return result
+
+    if not groups:
+        return planned_stats.to_dict()
+
+    for group in groups:
+        output_path = posixpath.join(
+            dataset_path, f"compacted-{uuid.uuid4().hex[:16]}.parquet"
+        )
+        compact_group_fn(group, output_path)
+
+    for group in groups:
+        for file_info in group.files:
+            filesystem.rm(file_info.path)
+
+    return planned_stats.to_dict()
