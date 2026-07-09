@@ -1,11 +1,8 @@
 import datetime as dt
 import re
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any
+from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
-if TYPE_CHECKING:
-    pass
 
 
 def get_timestamp_column(df: Any) -> str | list[str]:

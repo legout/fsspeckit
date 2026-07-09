@@ -889,7 +889,7 @@ def execute_compaction_template(
     planned_stats: MaintenanceStats,
     dataset_path: str,
     compact_group_fn: Callable[[CompactionGroup, str], None],
-    filesystem: Any,
+    filesystem: AbstractFileSystem,
     dry_run: bool,
 ) -> dict[str, Any]:
     """Template method for executing compaction across groups.
