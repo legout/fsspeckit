@@ -183,6 +183,17 @@ def compact_parquet_dataset_duckdb(
     planned_stats.compression_codec = compression
     planned_stats.dry_run = dry_run
 
+    # Dry-run and empty-groups cases don't need a DuckDB connection.
+    if dry_run or not groups:
+        return execute_compaction_template(
+            groups=groups,
+            planned_stats=planned_stats,
+            dataset_path=path,
+            compact_group_fn=lambda g, p: None,
+            filesystem=fs,
+            dry_run=dry_run,
+        )
+
     # Execute compaction via the shared execution template. The template owns
     # the dry-run early exit, empty-groups early exit, output-path generation,
     # group iteration, and original-file removal.

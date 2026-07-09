@@ -22,8 +22,8 @@ from fsspec import filesystem as fsspec_filesystem
 from pyarrow.fs import FSSpecHandler, PyFileSystem
 
 from fsspeckit.common.logging import get_logger
+from fsspeckit.common.optional import _import_polars
 from fsspeckit.datasets.pyarrow.memory import MemoryMonitor, MemoryPressureLevel
-from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
 
 logger = get_logger(__name__)
 
@@ -175,7 +175,7 @@ def _table_drop_duplicates(
             # if last requested but not supported, we'll fall back to Polars below
 
     # Fallback to Polars for older/weird PyArrow environments or if keep='last' not supported
-    import polars as pl
+    pl = _import_polars()
 
     df = pl.from_arrow(table)
     assert isinstance(df, pl.DataFrame)
@@ -454,6 +454,7 @@ def compact_parquet_dataset_pyarrow(
         across DuckDB and PyArrow backends.
     """
     from fsspeckit.core.maintenance import (
+        CompactionGroup,
         execute_compaction_template,
         plan_compaction_groups,
     )
@@ -480,7 +481,7 @@ def compact_parquet_dataset_pyarrow(
     planned_stats.compression_codec = compression
     planned_stats.dry_run = dry_run
 
-    def compact_group_fn(group, output_path):
+    def compact_group_fn(group: CompactionGroup, output_path: str) -> None:
         """Read, concatenate, and write a single compaction group (PyArrow)."""
         # Read all files in this group
         tables = [
