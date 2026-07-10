@@ -2,18 +2,20 @@
 
 import pytest
 import pyarrow as pa
-import pyarrow.compute as pc
 
 from fsspeckit.core.merge import (
     MergeStrategy,
     MergePlan,
     MergeStats,
+    MergeTargetMetadata,
     normalize_key_columns,
     validate_merge_inputs,
     check_null_keys,
     calculate_merge_stats,
     validate_strategy_compatibility,
     get_canonical_merge_strategies,
+    plan_merge_operation,
+    resolve_merge_plan_early_exit,
 )
 
 
@@ -22,7 +24,13 @@ class TestMergeStrategy:
 
     def test_strategy_values(self):
         """Test that all expected strategies are defined."""
-        expected_strategies = ["upsert", "insert", "update", "full_merge", "deduplicate"]
+        expected_strategies = [
+            "upsert",
+            "insert",
+            "update",
+            "full_merge",
+            "deduplicate",
+        ]
         actual_strategies = [strategy.value for strategy in MergeStrategy]
 
         assert sorted(actual_strategies) == sorted(expected_strategies)
@@ -160,6 +168,91 @@ class TestMergePlan:
         assert plan.dedup_order_by == ["updated_at"]
 
 
+class TestMergeOperationPlanning:
+    """Test shared merge-operation planning."""
+
+    def test_plan_merge_operation_deduplicates_source_and_keeps_target_metadata(
+        self,
+    ):
+        source = pa.table(
+            {
+                "id": [1, 1, 2],
+                "region": ["eu", "eu", "us"],
+                "value": ["stale", "replacement", "other"],
+            }
+        )
+        target_metadata = MergeTargetMetadata(
+            exists=True,
+            files=["target.parquet"],
+            row_count=4,
+        )
+
+        plan = plan_merge_operation(
+            source_table=source,
+            strategy="upsert",
+            key_columns=["id"],
+            target_metadata=target_metadata,
+            partition_columns=["region"],
+        )
+
+        assert plan.strategy is MergeStrategy.UPSERT
+        assert plan.source_table.column("id").to_pylist() == [1, 2]
+        assert plan.source_table.column("value").to_pylist() == ["replacement", "other"]
+        assert plan.source_keys == [1, 2]
+        assert plan.source_key_set == {1, 2}
+        assert plan.partition_columns == ["region"]
+        assert plan.target_files == ["target.parquet"]
+        assert plan.target_exists is True
+        assert plan.target_count_before == 4
+
+    def test_plan_merge_operation_deduplicates_composite_keys_last_write_wins(self):
+        source = pa.table(
+            {
+                "region": ["eu", "eu", "us"],
+                "id": [1, 1, 2],
+                "value": ["stale", "fresh", "other"],
+            }
+        )
+        target_metadata = MergeTargetMetadata(
+            exists=False,
+            files=[],
+            row_count=0,
+        )
+
+        plan = plan_merge_operation(
+            source_table=source,
+            strategy="insert",
+            key_columns=["region", "id"],
+            target_metadata=target_metadata,
+        )
+
+        assert plan.source_table.num_rows == 2
+        assert plan.source_keys == [("eu", 1), ("us", 2)]
+        assert plan.source_key_set == {("eu", 1), ("us", 2)}
+        assert plan.target_exists is False
+        assert plan.target_count_before == 0
+
+    def test_resolve_merge_plan_early_exit_preserves_existing_target(self):
+        plan = plan_merge_operation(
+            source_table=pa.table({"id": pa.array([], type=pa.int64())}),
+            strategy="upsert",
+            key_columns=["id"],
+            target_metadata=MergeTargetMetadata(
+                exists=True,
+                files=["target.parquet"],
+                row_count=4,
+            ),
+        )
+
+        result = resolve_merge_plan_early_exit(plan)
+
+        assert result is not None
+        assert result.source_count == 0
+        assert result.target_count_before == 4
+        assert result.target_count_after == 4
+        assert result.preserved_files == ["target.parquet"]
+
+
 class TestMergeStats:
     """Test MergeStats dataclass functionality."""
 
@@ -213,9 +306,15 @@ class TestMergeStats:
         result = stats.to_dict()
 
         expected_keys = {
-            "inserted", "updated", "deleted", "total",
-            "source_count", "target_count_before", "target_count_after",
-            "total_processed", "strategy"
+            "inserted",
+            "updated",
+            "deleted",
+            "total",
+            "source_count",
+            "target_count_before",
+            "target_count_after",
+            "total_processed",
+            "strategy",
         }
 
         assert set(result.keys()) == expected_keys
@@ -231,17 +330,21 @@ class TestValidateMergeInputs:
 
     def test_valid_inputs_with_existing_target(self):
         """Test validation with valid inputs and existing target."""
-        source_schema = pa.schema([
-            pa.field("id", pa.int64()),
-            pa.field("name", pa.string()),
-            pa.field("value", pa.float64()),
-        ])
+        source_schema = pa.schema(
+            [
+                pa.field("id", pa.int64()),
+                pa.field("name", pa.string()),
+                pa.field("value", pa.float64()),
+            ]
+        )
 
-        target_schema = pa.schema([
-            pa.field("id", pa.int64()),
-            pa.field("name", pa.string()),
-            pa.field("value", pa.float64()),
-        ])
+        target_schema = pa.schema(
+            [
+                pa.field("id", pa.int64()),
+                pa.field("name", pa.string()),
+                pa.field("value", pa.float64()),
+            ]
+        )
 
         plan = validate_merge_inputs(
             source_schema=source_schema,
@@ -258,10 +361,12 @@ class TestValidateMergeInputs:
 
     def test_valid_inputs_without_target(self):
         """Test validation with valid inputs and no target."""
-        source_schema = pa.schema([
-            pa.field("id", pa.int64()),
-            pa.field("name", pa.string()),
-        ])
+        source_schema = pa.schema(
+            [
+                pa.field("id", pa.int64()),
+                pa.field("name", pa.string()),
+            ]
+        )
 
         plan = validate_merge_inputs(
             source_schema=source_schema,
@@ -278,10 +383,12 @@ class TestValidateMergeInputs:
 
     def test_missing_key_in_source(self):
         """Test error when key column missing from source."""
-        source_schema = pa.schema([
-            pa.field("name", pa.string()),
-            pa.field("value", pa.float64()),
-        ])
+        source_schema = pa.schema(
+            [
+                pa.field("name", pa.string()),
+                pa.field("value", pa.float64()),
+            ]
+        )
 
         with pytest.raises(ValueError, match="Key column.*missing from source.*id"):
             validate_merge_inputs(
@@ -320,14 +427,18 @@ class TestValidateMergeInputs:
 
     def test_schema_column_mismatch(self):
         """Test detection of schema column mismatches."""
-        source_schema = pa.schema([
-            pa.field("id", pa.int64()),
-            pa.field("name", pa.string()),
-        ])
-        target_schema = pa.schema([
-            pa.field("id", pa.int64()),
-            pa.field("different_col", pa.string()),
-        ])
+        source_schema = pa.schema(
+            [
+                pa.field("id", pa.int64()),
+                pa.field("name", pa.string()),
+            ]
+        )
+        target_schema = pa.schema(
+            [
+                pa.field("id", pa.int64()),
+                pa.field("different_col", pa.string()),
+            ]
+        )
 
         plan = validate_merge_inputs(
             source_schema=source_schema,
@@ -340,10 +451,12 @@ class TestValidateMergeInputs:
 
     def test_nullable_key_detection(self):
         """Test detection of nullable key columns."""
-        source_schema = pa.schema([
-            pa.field("id", pa.int64(), nullable=True),
-            pa.field("name", pa.string()),
-        ])
+        source_schema = pa.schema(
+            [
+                pa.field("id", pa.int64(), nullable=True),
+                pa.field("name", pa.string()),
+            ]
+        )
 
         plan = validate_merge_inputs(
             source_schema=source_schema,
@@ -360,55 +473,73 @@ class TestCheckNullKeys:
 
     def test_no_null_keys(self):
         """Test when no NULL keys are present."""
-        source_table = pa.table({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-        })
+        source_table = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+            }
+        )
 
         # Should not raise any exception
         check_null_keys(source_table, None, ["id"])
 
     def test_null_keys_in_source(self):
         """Test detection of NULL keys in source."""
-        source_table = pa.table({
-            "id": [1, None, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-        })
+        source_table = pa.table(
+            {
+                "id": [1, None, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+            }
+        )
 
-        with pytest.raises(ValueError, match="Key column 'id' contains.*NULL values in source"):
+        with pytest.raises(
+            ValueError, match="Key column 'id' contains.*NULL values in source"
+        ):
             check_null_keys(source_table, None, ["id"])
 
     def test_null_keys_in_target(self):
         """Test detection of NULL keys in target."""
-        source_table = pa.table({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-        })
-        target_table = pa.table({
-            "id": [4, None, 5],
-            "name": ["Dave", "Eve", "Frank"],
-        })
+        source_table = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+            }
+        )
+        target_table = pa.table(
+            {
+                "id": [4, None, 5],
+                "name": ["Dave", "Eve", "Frank"],
+            }
+        )
 
-        with pytest.raises(ValueError, match="Key column 'id' contains.*NULL values in target"):
+        with pytest.raises(
+            ValueError, match="Key column 'id' contains.*NULL values in target"
+        ):
             check_null_keys(source_table, target_table, ["id"])
 
     def test_multiple_key_columns(self):
         """Test NULL detection with multiple key columns."""
-        source_table = pa.table({
-            "id": [1, 2, 3],
-            "date": ["2023-01-01", "2023-01-02", None],
-            "name": ["Alice", "Bob", "Charlie"],
-        })
+        source_table = pa.table(
+            {
+                "id": [1, 2, 3],
+                "date": ["2023-01-01", "2023-01-02", None],
+                "name": ["Alice", "Bob", "Charlie"],
+            }
+        )
 
-        with pytest.raises(ValueError, match="Key column 'date' contains.*NULL values in source"):
+        with pytest.raises(
+            ValueError, match="Key column 'date' contains.*NULL values in source"
+        ):
             check_null_keys(source_table, None, ["id", "date"])
 
     def test_no_null_keys_when_target_none(self):
         """Test when target is None (doesn't exist)."""
-        source_table = pa.table({
-            "id": [1, 2, 3],
-            "name": ["Alice", "Bob", "Charlie"],
-        })
+        source_table = pa.table(
+            {
+                "id": [1, 2, 3],
+                "name": ["Alice", "Bob", "Charlie"],
+            }
+        )
 
         # Should not raise any exception
         check_null_keys(source_table, None, ["id"])
@@ -515,7 +646,9 @@ class TestValidateStrategyCompatibility:
 
     def test_update_with_empty_source_error(self):
         """Test UPDATE strategy with empty source should raise error."""
-        with pytest.raises(ValueError, match="UPDATE strategy requires non-empty source data"):
+        with pytest.raises(
+            ValueError, match="UPDATE strategy requires non-empty source data"
+        ):
             validate_strategy_compatibility(
                 strategy=MergeStrategy.UPDATE,
                 source_count=0,
@@ -542,7 +675,11 @@ class TestValidateStrategyCompatibility:
 
     def test_other_strategies_always_compatible(self):
         """Test that other strategies are always compatible."""
-        strategies = [MergeStrategy.UPSERT, MergeStrategy.INSERT, MergeStrategy.DEDUPLICATE]
+        strategies = [
+            MergeStrategy.UPSERT,
+            MergeStrategy.INSERT,
+            MergeStrategy.DEDUPLICATE,
+        ]
 
         for strategy in strategies:
             # Should not raise any exception for any combination
@@ -558,17 +695,21 @@ class TestIntegration:
     def test_complete_merge_validation_flow(self):
         """Test a complete merge validation flow."""
         # Create schemas
-        source_schema = pa.schema([
-            pa.field("id", pa.int64(), nullable=False),
-            pa.field("name", pa.string()),
-            pa.field("value", pa.float64()),
-        ])
+        source_schema = pa.schema(
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("name", pa.string()),
+                pa.field("value", pa.float64()),
+            ]
+        )
 
-        target_schema = pa.schema([
-            pa.field("id", pa.int64(), nullable=False),
-            pa.field("name", pa.string()),
-            pa.field("value", pa.float64()),
-        ])
+        target_schema = pa.schema(
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("name", pa.string()),
+                pa.field("value", pa.float64()),
+            ]
+        )
 
         # Validate inputs
         plan = validate_merge_inputs(
@@ -593,17 +734,21 @@ class TestIntegration:
     def test_realistic_merge_scenario(self):
         """Test a realistic merge scenario with actual data."""
         # Create test data
-        source_table = pa.table({
-            "id": [1, 2, 3, 4],
-            "name": ["Alice", "Bob", "Charlie", "David"],
-            "value": [10.5, 20.0, 15.5, 25.0],
-        })
+        source_table = pa.table(
+            {
+                "id": [1, 2, 3, 4],
+                "name": ["Alice", "Bob", "Charlie", "David"],
+                "value": [10.5, 20.0, 15.5, 25.0],
+            }
+        )
 
-        target_table = pa.table({
-            "id": [1, 3, 5],
-            "name": ["Alice", "Charlie", "Eve"],
-            "value": [10.0, 15.0, 30.0],
-        })
+        target_table = pa.table(
+            {
+                "id": [1, 3, 5],
+                "name": ["Alice", "Charlie", "Eve"],
+                "value": [10.0, 15.0, 30.0],
+            }
+        )
 
         # Test null key checking (should pass)
         check_null_keys(source_table, target_table, ["id"])

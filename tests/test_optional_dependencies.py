@@ -7,8 +7,6 @@ in fsspeckit, ensuring that:
 3. Full functionality when all dependencies are available
 """
 
-import importlib
-import sys
 from unittest.mock import patch
 
 import pytest
@@ -218,8 +216,6 @@ class TestErrorMessages:
         """Test that check_optional_dependency provides correct extras guidance."""
         from fsspeckit.common.optional import check_optional_dependency
 
-        from unittest.mock import patch
-        
         # Test specific packages and their expected extras
         test_cases = [
             ("polars", "datasets"),
@@ -228,7 +224,10 @@ class TestErrorMessages:
             ("sqlglot", "sql"),
             ("orjson", "sql"),
             ("joblib", "datasets"),
-            ("fsspeckit_definitely_non_existent_package_12345", "full"),  # fallback case
+            (
+                "fsspeckit_definitely_non_existent_package_12345",
+                "full",
+            ),  # fallback case
         ]
 
         # Mock find_spec to return None, forcing check_optional_dependency to raise ImportError
@@ -291,6 +290,9 @@ class TestModuleImportsWithoutDependencies:
         assert hasattr(merge, "MergeStrategy")
         assert hasattr(merge, "MergePlan")
         assert hasattr(merge, "MergeStats")
+        assert hasattr(merge, "MergeTargetMetadata")
+        assert hasattr(merge, "plan_merge_operation")
+        assert hasattr(merge, "resolve_merge_plan_early_exit")
 
     def test_sql_filters_imports(self):
         """Test that sql.filters module imports."""

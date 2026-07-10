@@ -414,6 +414,15 @@ def get_canonical_merge_strategies() -> list[str]:
 
 
 @dataclass
+class MergeTargetMetadata:
+    """Metadata describing the target dataset before a merge."""
+
+    exists: bool
+    files: list[str]
+    row_count: int
+
+
+@dataclass
 class MergePlanningResults:
     """Results from merge planning phase."""
 
@@ -429,6 +438,60 @@ class MergePlanningResults:
     target_files: list[str]
     validation_results: dict[str, Any]
     warnings: list[str]
+
+
+def plan_merge_operation(
+    source_table: pa.Table,
+    strategy: Literal["insert", "update", "upsert"],
+    key_columns: list[str],
+    target_metadata: MergeTargetMetadata,
+    partition_columns: list[str] | None = None,
+) -> MergePlanningResults:
+    """Build the shared merge plan used by PyArrow and DuckDB backends."""
+    strategy_enum = MergeStrategy(strategy)
+    target_files = list(target_metadata.files)
+    source_table_deduped = _dedupe_source_last_wins_common(
+        source_table,
+        key_columns,
+    )
+    source_keys, source_key_set = _extract_keys_from_table_common(
+        source_table_deduped,
+        key_columns,
+    )
+    validation_results, warnings = validate_merge_inputs_comprehensive(
+        strategy=strategy_enum,
+        source_table=source_table_deduped,
+        key_columns=key_columns,
+        target_files=target_files,
+    )
+
+    return MergePlanningResults(
+        strategy=strategy_enum,
+        key_columns=key_columns,
+        source_count=source_table_deduped.num_rows,
+        target_exists=target_metadata.exists,
+        target_count_before=target_metadata.row_count,
+        source_table=source_table_deduped,
+        source_keys=source_keys,
+        source_key_set=source_key_set,
+        partition_columns=list(partition_columns or []),
+        target_files=target_files,
+        validation_results=validation_results,
+        warnings=warnings,
+    )
+
+
+def resolve_merge_plan_early_exit(
+    plan: MergePlanningResults,
+) -> MergeResult | None:
+    """Return a completed result for no-op plans or reject invalid plans."""
+    if plan.source_table.num_rows == 0:
+        return _create_empty_source_result(plan)
+
+    if not plan.target_exists and plan.strategy is MergeStrategy.UPDATE:
+        raise ValueError("UPDATE strategy requires an existing target dataset")
+
+    return None
 
 
 def validate_merge_inputs_comprehensive(
