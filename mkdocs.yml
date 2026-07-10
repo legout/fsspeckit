@@ -7,8 +7,10 @@ repo_url: https://github.com/legout/fsspeckit
 nav:
   - Home: index.md
   - Tutorials:
+      - Overview: tutorials/index.md
       - Local Dataset Lifecycle: tutorials/local-dataset-lifecycle.md
   - How-to Guides:
+      - Overview: how-to/index.md
       - Read and Write Datasets: how-to/read-and-write-datasets.md
       - Merge Datasets: how-to/merge-datasets.md
       - Work with Filesystems: how-to/work-with-filesystems.md
@@ -17,6 +19,7 @@ nav:
       - Sync and Manage Files: how-to/sync-and-manage-files.md
       - Optimize Performance: how-to/optimize-performance.md
       - Memory-Constrained Environments: how-to/memory-constrained-environments.md
+      - Retired Memory Monitoring Guidance: how-to/optimize-memory-monitoring-performance.md
       - Adaptive Key Tracking: how-to/adaptive-key-tracking.md
       - Multi-Key Examples: how-to/multi-key-examples.md
       - Multi-Key Performance: how-to/multi-key-performance.md
@@ -30,7 +33,9 @@ nav:
       - Adaptive Key Tracking: reference/adaptive-key-tracking.md
       - Multi-Key Operations: reference/multi-key-api.md
       - Public API Inventory: reference/public-api-inventory.md
-      - Deprecation and Legacy Imports: reference/legacy-imports.md
+      - Deprecation and Legacy Imports:
+          - Overview: reference/legacy-imports.md
+          - Utils Compatibility Facade: reference/utils.md
       - Generated API:
           - Overview: api/index.md
           - Core:
