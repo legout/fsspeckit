@@ -60,6 +60,13 @@ _Avoid_: Snippet-execution framework, unreviewed tutorial code
 The pre-minor-release human review that checks site buildability, navigation, links, refactor accuracy, API discoverability, and tutorial prose without making any automated documentation check mandatory.
 _Avoid_: Required documentation CI, build-only validation
 
+**Bounded-impact documentation review**:
+The manual content-review scope for each minor release: always check the canonical
+tutorial, then check modified user-facing pages and every reference or migration
+page affected by a public-API, extras, or navigation change against the
+supported-public-API inventory.
+_Avoid_: Full-site reread, changed-files-only review
+
 **Legacy import policy**:
 The rule that current tutorials, how-to guides, and migration routes use canonical imports, while legacy import paths and renamed APIs appear only as deprecation notes in reference.
 _Avoid_: Contextual legacy notices, side-by-side imports
@@ -71,3 +78,33 @@ _Avoid_: All-version migration, versionless migration
 **Shared documentation audit**:
 The pre-minor-release manual documentation audit performed as a best-effort team convention without a designated accountable owner or release-blocking effect.
 _Avoid_: Release-owner audit, documentation-maintainer gate
+
+**Supported public API**:
+A stable export or explicitly inventoried direct-import module intended for library
+users. Public-test imports provide audit evidence but do not alone create a
+support commitment, and underscore-prefixed helpers remain internal.
+_Avoid_: Test-defined API, all-imports public surface
+
+**Integration and extras matrix**:
+The authoritative curated reference that maps each optional workflow or provider
+to its `fsspeckit` extra. Individual API pages state their requirement and link
+back to this matrix.
+_Avoid_: Per-page-only installation guidance, integration setup in the
+canonical tutorial
+
+**Compatibility façade**:
+The legacy `fsspeckit.utils` import surface, documented only through concise
+migration/deprecation mappings to canonical domain modules and omitted from
+generated API reference pages.
+_Avoid_: Primary API surface, generated compatibility reference
+
+**Composite-key dataset workflow**:
+An offline example workflow in which a persisted local dataset identifies a
+record by two or more fields, then demonstrates reconciliation and duplicate
+removal against that dataset.
+_Avoid_: In-memory compatibility demo, single-key-only example
+
+**Import-safe example**:
+An example whose module can load with the base development environment; optional
+provider setup is reached only through an explicitly selected integration path.
+_Avoid_: Import-time provider construction, hidden extra requirement

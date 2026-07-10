@@ -1,22 +1,22 @@
 """
 PyArrow Multi-Key Vectorization Examples
 
-This script demonstrates the new multi-column key vectorization capabilities
+This script demonstrates the persisted-dataset composite-key workflow
 in fsspeckit, providing examples of deduplication and merge operations
 with composite keys.
 
 Run with: python examples/multi_key_vectorization_demo.py
 """
 
-import pyarrow as pa
-import tempfile
 import os
-from pathlib import Path
+import tempfile
+import time
 
-# Import multi-key functions
+import pyarrow as pa
+
 from fsspeckit.datasets.pyarrow import (
-    deduplicate_pyarrow,
-    merge_parquet_dataset_pyarrow,
+    PyarrowDatasetIO,
+    deduplicate_parquet_dataset_pyarrow,
 )
 
 
@@ -46,16 +46,22 @@ def demo_basic_composite_key_deduplication():
     print("Sample rows:")
     print(table.slice(0, 5).to_pandas())
 
-    # Deduplicate using composite key [tenant_id, user_id, record_id]
-    unique_table = deduplicate_pyarrow(
-        table=table,
-        key_columns=["tenant_id", "user_id", "record_id"],
-        dedup_order_by=["timestamp"],  # Keep first occurrence by timestamp
-        keep="first",
-    )
+    with tempfile.TemporaryDirectory() as temp_dir:
+        dataset_path = os.path.join(temp_dir, "dedup_demo")
+
+        io = PyarrowDatasetIO()
+        io.write_dataset(table, dataset_path, mode="overwrite")
+
+        stats = deduplicate_parquet_dataset_pyarrow(
+            path=dataset_path,
+            key_columns=["tenant_id", "user_id", "record_id"],
+            dedup_order_by=["timestamp"],
+        )
+
+        unique_table = io.read_parquet(dataset_path)
 
     print(f"\nAfter deduplication: {unique_table.num_rows} rows")
-    print(f"Removed {table.num_rows - unique_table.num_rows} duplicate rows")
+    print(f"Removed {stats['deduplicated_rows']} duplicate rows")
     print("Unique rows:")
     print(unique_table.to_pandas().sort_values(["tenant_id", "user_id", "record_id"]))
     print()
@@ -89,19 +95,13 @@ def demo_composite_key_merge():
     print(f"Existing dataset: {existing_table.num_rows} rows")
     print(f"New data: {new_table.num_rows} rows")
 
-    # Use temporary directory for demo
     with tempfile.TemporaryDirectory() as temp_dir:
         dataset_path = os.path.join(temp_dir, "orders")
 
-        # Write initial dataset
-        merge_parquet_dataset_pyarrow(
-            data=existing_table,
-            path=dataset_path,
-            strategy="append",  # Initial load
-        )
+        io = PyarrowDatasetIO()
+        io.write_dataset(existing_table, dataset_path, mode="overwrite")
 
-        # Upsert new data using composite key
-        stats = merge_parquet_dataset_pyarrow(
+        result = io.merge(
             data=new_table,
             path=dataset_path,
             strategy="upsert",
@@ -109,20 +109,17 @@ def demo_composite_key_merge():
         )
 
         print(f"\nMerge Statistics:")
-        print(f"  Source rows: {stats.source_rows}")
-        print(f"  Existing rows: {stats.existing_rows}")
-        print(f"  Upserted rows: {stats.upserted_rows}")
-        print(f"  Inserted rows: {stats.inserted_rows}")
-        print(f"  Updated rows: {stats.updated_rows}")
+        print(f"  Source rows: {result.source_count}")
+        print(f"  Target rows before: {result.target_count_before}")
+        print(f"  Target rows after: {result.target_count_after}")
+        print(f"  Inserted rows: {result.inserted}")
+        print(f"  Updated rows: {result.updated}")
     print()
 
 
 def demo_performance_comparison():
     """Demonstrate performance comparison between single and multi-column keys."""
     print("=== Performance Comparison ===")
-
-    import time
-    from fsspeckit.datasets.pyarrow.dataset import PerformanceMonitor
 
     # Create larger test dataset
     n_rows = 10000
@@ -144,59 +141,50 @@ def demo_performance_comparison():
 
     results = {}
 
-    for scenario_name, key_columns in scenarios:
-        print(f"\nTesting {scenario_name}: {key_columns}")
+    with tempfile.TemporaryDirectory() as temp_dir:
+        for scenario_name, key_columns in scenarios:
+            print(f"\nTesting {scenario_name}: {key_columns}")
 
-        monitor = PerformanceMonitor(max_pyarrow_mb=512)
-        monitor.start_op("deduplication")
+            dataset_path = os.path.join(temp_dir, scenario_name)
+            io = PyarrowDatasetIO()
+            io.write_dataset(test_table, dataset_path, mode="overwrite")
 
-        start_time = time.time()
+            start_time = time.time()
 
-        try:
-            result = deduplicate_pyarrow(
-                table=test_table,
+            stats = deduplicate_parquet_dataset_pyarrow(
+                path=dataset_path,
                 key_columns=key_columns,
                 dedup_order_by=["timestamp"],
-                keep="first",
             )
 
             end_time = time.time()
-            monitor.end_op()
+            duration = end_time - start_time
 
-            metrics = monitor.get_metrics(
-                total_rows_before=test_table.num_rows,
-                total_rows_after=result.num_rows,
-                total_bytes=test_table.nbytes,
-            )
+            result_table = io.read_parquet(dataset_path)
+            rows_removed = stats["deduplicated_rows"]
 
             results[scenario_name] = {
-                "duration": end_time - start_time,
+                "duration": duration,
                 "rows_before": test_table.num_rows,
-                "rows_after": result.num_rows,
-                "memory_mb": metrics["memory_peak_mb"],
-                "throughput": metrics["rows_per_sec"],
+                "rows_after": result_table.num_rows,
+                "rows_removed": rows_removed,
+                "throughput": test_table.num_rows / duration if duration > 0 else 0.0,
             }
 
-            print(f"  Duration: {end_time - start_time:.2f}s")
-            print(f"  Rows removed: {test_table.num_rows - result.num_rows}")
-            print(f"  Memory: {metrics['memory_peak_mb']:.1f} MB")
-            print(f"  Throughput: {metrics['rows_per_sec']:.0f} rows/sec")
-
-        except Exception as e:
-            print(f"  Failed: {e}")
-            results[scenario_name] = {"error": str(e)}
+            print(f"  Duration: {duration:.2f}s")
+            print(f"  Rows removed: {rows_removed}")
+            print(f"  Throughput: {results[scenario_name]['throughput']:.0f} rows/sec")
 
     # Summary
-    print(f"\n=== Performance Summary ===")
+    print("\n=== Performance Summary ===")
     baseline = results.get("single_key", {}).get("duration", 1.0)
     for scenario, metrics in results.items():
-        if "error" not in metrics:
-            speedup = baseline / metrics["duration"] if baseline > 0 else 1.0
-            print(
-                f"{scenario:12}: {metrics['duration']:6.2f}s, "
-                f"{metrics['throughput']:8.0f} rows/sec, "
-                f"{speedup:5.1f}x vs single-key"
-            )
+        speedup = baseline / metrics["duration"] if metrics["duration"] > 0 else 1.0
+        print(
+            f"{scenario:12}: {metrics['duration']:6.2f}s, "
+            f"{metrics['throughput']:8.0f} rows/sec, "
+            f"{speedup:5.1f}x vs single-key"
+        )
     print()
 
 
@@ -224,24 +212,30 @@ def demo_mixed_type_keys():
     print("Schema:")
     print(table.schema)
 
-    try:
-        # This will use vectorized approach for compatible types,
-        # fallback for complex combos
-        unique_records = deduplicate_pyarrow(
-            table=table,
-            key_columns=["tenant_id", "record_id", "event_timestamp"],
-            dedup_order_by=["event_timestamp"],
-            keep="first",
-        )
+    with tempfile.TemporaryDirectory() as temp_dir:
+        dataset_path = os.path.join(temp_dir, "mixed_keys")
+        io = PyarrowDatasetIO()
+        io.write_dataset(table, dataset_path, mode="overwrite")
 
-        print(
-            f"\nSuccessfully processed mixed-type keys: {unique_records.num_rows} unique records"
-        )
-        print("Results:")
-        print(unique_records.to_pandas())
+        try:
+            stats = deduplicate_parquet_dataset_pyarrow(
+                path=dataset_path,
+                key_columns=["tenant_id", "record_id", "event_timestamp"],
+                dedup_order_by=["event_timestamp"],
+            )
 
-    except Exception as e:
-        print(f"Error with mixed types: {e}")
+            unique_records = io.read_parquet(dataset_path)
+
+            print(
+                f"\nSuccessfully processed mixed-type keys: "
+                f"{unique_records.num_rows} unique records "
+                f"({stats['deduplicated_rows']} removed)"
+            )
+            print("Results:")
+            print(unique_records.to_pandas())
+
+        except Exception as e:
+            print(f"Error with mixed types: {e}")
 
     print()
 
@@ -257,18 +251,18 @@ def main():
         demo_performance_comparison()
         demo_mixed_type_keys()
 
-        print("✅ All demos completed successfully!")
+        print("All demos completed successfully!")
         print("\nFor more examples and documentation:")
         print("- Multi-Key Usage Examples: docs/how-to/multi-key-examples.md")
         print("- Performance Guide: docs/how-to/multi-key-performance.md")
         print("- API Reference: docs/reference/multi-key-api.md")
 
     except ImportError as e:
-        print(f"❌ Import error: {e}")
+        print(f"Import error: {e}")
         print("Make sure fsspeckit with PyArrow support is installed:")
         print("pip install 'fsspeckit[datasets]'")
     except Exception as e:
-        print(f"❌ Error running demos: {e}")
+        print(f"Error running demos: {e}")
         raise
 
 

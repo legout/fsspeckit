@@ -1,0 +1,3 @@
+# Persisted dataset deduplication export
+
+`deduplicate_parquet_dataset_pyarrow` is a supported export of `fsspeckit.datasets.pyarrow`. The maintained composite-key dataset workflow uses this package-level API rather than an implementation-module import because users and examples need a stable, discoverable persisted-dataset deduplication contract; reintroducing the retired in-memory helper was rejected.

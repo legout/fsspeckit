@@ -102,6 +102,16 @@ EXAMPLE_CATEGORIES = {
         "description": "Cloud storage configuration",
         "examples": ["storage_options_example.py", "storage_options_example_mamo.py"],
     },
+    "root": {
+        "path": ".",
+        "description": "Standalone root-level examples",
+        "examples": [
+            "fsspeckit_interactive_playground.py",
+            "mo_playground.py",
+            "high_cardinality_deduplication.py",
+            "multi_key_vectorization_demo.py",
+        ],
+    },
 }
 
 # Learning path order
@@ -131,7 +141,7 @@ def list_examples():
         print(f"\n📂 {category}: {info['description']}")
         print(f"   Path: {info['path']}")
         for example in info["examples"]:
-            example_path = Path(info["path"]) / example
+            example_path = EXAMPLES_DIR / info["path"] / example
             if example_path.exists():
                 print(f"   ✅ {example}")
             else:
@@ -268,7 +278,7 @@ def run_category(category_name: str) -> Dict[str, Any]:
         return {"success": False, "error": f"Unknown category: {category_name}"}
 
     category_info = EXAMPLE_CATEGORIES[category_name]
-    category_path = Path(category_info["path"])
+    category_path = EXAMPLES_DIR / category_info["path"]
 
     print(f"\n📂 Running category: {category_name}")
     print(f"   Description: {category_info['description']}")

@@ -1,5 +1,8 @@
 .coverage
 dev/
+!archive/
+!archive/dev/
+!archive/dev/examples.ipynb
 **/__pycache__/
 documentation_report.md
 documentation_instructions.md
