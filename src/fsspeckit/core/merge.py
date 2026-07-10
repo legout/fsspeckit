@@ -485,11 +485,11 @@ def resolve_merge_plan_early_exit(
     plan: MergePlanningResults,
 ) -> MergeResult | None:
     """Return a completed result for no-op plans or reject invalid plans."""
+    if not plan.target_exists and plan.strategy is MergeStrategy.UPDATE:
+        raise ValueError("Cannot UPDATE a non-existent target dataset")
+
     if plan.source_table.num_rows == 0:
         return _create_empty_source_result(plan)
-
-    if not plan.target_exists and plan.strategy is MergeStrategy.UPDATE:
-        raise ValueError("UPDATE strategy requires an existing target dataset")
 
     return None
 
@@ -528,7 +528,7 @@ def validate_merge_inputs_comprehensive(
     # Validate strategy against target existence
     target_exists = target_files is not None and len(target_files) > 0
     try:
-        validate_strategy_compatibility(strategy, 0, target_exists)
+        validate_strategy_compatibility(strategy, source_table.num_rows, target_exists)
     except ValueError as e:
         validation_results["strategy_target_compatible"] = False
         warnings.append(f"Strategy compatibility warning: {e}")
@@ -799,7 +799,7 @@ def execute_merge_by_strategy(
         return _create_empty_source_result(planning_results)
 
     if not planning_results.target_exists and strategy == "update":
-        raise ValueError("UPDATE strategy requires an existing target dataset")
+        raise ValueError("Cannot UPDATE a non-existent target dataset")
 
     # Delegate to backend-specific implementation
     return backend_executor(planning_results, **kwargs)

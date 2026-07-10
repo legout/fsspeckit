@@ -195,7 +195,7 @@ class TestPyarrowMergeUpdateStrategy:
         source = pa.table({"id": [1, 2], "value": ["a", "b"]})
 
         io = PyarrowDatasetIO()
-        with pytest.raises(ValueError, match="UPDATE strategy requires"):
+        with pytest.raises(ValueError, match="non-existent target"):
             io.merge(
                 data=source,
                 path=str(target),

@@ -120,6 +120,30 @@ def test_merge_update_requires_existing_target(tmp_path, duckdb_io, pyarrow_io) 
         )
 
 
+def test_merge_update_missing_target_with_empty_source_fails(
+    tmp_path, duckdb_io, pyarrow_io
+) -> None:
+    """Empty-source UPDATE against missing target must fail before no-op."""
+    empty_source = pa.table({"id": pa.array([], type=pa.int64())})
+    missing_path = tmp_path / "missing_empty"
+
+    with pytest.raises(ValueError, match="non-existent target"):
+        duckdb_io.merge(
+            empty_source,
+            str(missing_path),
+            strategy="update",
+            key_columns=["id"],
+        )
+
+    with pytest.raises(ValueError, match="non-existent target"):
+        pyarrow_io.merge(
+            empty_source,
+            str(missing_path),
+            strategy="update",
+            key_columns=["id"],
+        )
+
+
 def test_merge_insert_parity(tmp_path, duckdb_io, pyarrow_io) -> None:
     """INSERT adds only new keys in both backends."""
     base = pa.table({"id": [1, 2, 3], "value": [10, 20, 30]})

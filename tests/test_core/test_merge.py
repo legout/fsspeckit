@@ -252,6 +252,71 @@ class TestMergeOperationPlanning:
         assert result.target_count_after == 4
         assert result.preserved_files == ["target.parquet"]
 
+    def test_plan_merge_operation_update_with_existing_target_reports_compatible(self):
+        """Valid nonempty UPDATE with existing target must report strategy compatibility."""
+        source = pa.table({"id": [1, 2], "value": [10, 20]})
+        target_metadata = MergeTargetMetadata(
+            exists=True,
+            files=["target.parquet"],
+            row_count=5,
+        )
+
+        plan = plan_merge_operation(
+            source_table=source,
+            strategy="update",
+            key_columns=["id"],
+            target_metadata=target_metadata,
+        )
+
+        assert plan.validation_results["strategy_target_compatible"] is True
+        # No false empty-source warning
+        assert not any("requires non-empty source data" in w for w in plan.warnings)
+
+    def test_plan_merge_operation_update_with_empty_source_reports_incompatible(self):
+        """Empty UPDATE source should still warn about incompatibility."""
+        source = pa.table({"id": pa.array([], type=pa.int64())})
+        target_metadata = MergeTargetMetadata(
+            exists=True,
+            files=["target.parquet"],
+            row_count=5,
+        )
+
+        plan = plan_merge_operation(
+            source_table=source,
+            strategy="update",
+            key_columns=["id"],
+            target_metadata=target_metadata,
+        )
+
+        assert plan.validation_results["strategy_target_compatible"] is False
+        assert any("requires non-empty source data" in w for w in plan.warnings)
+
+    def test_resolve_merge_plan_early_exit_rejects_update_on_missing_target_nonempty_source(
+        self,
+    ):
+        """Nonempty UPDATE against missing target must fail."""
+        plan = plan_merge_operation(
+            source_table=pa.table({"id": [1], "value": [99]}),
+            strategy="update",
+            key_columns=["id"],
+            target_metadata=MergeTargetMetadata(exists=False, files=[], row_count=0),
+        )
+        with pytest.raises(ValueError, match="non-existent target"):
+            resolve_merge_plan_early_exit(plan)
+
+    def test_resolve_merge_plan_early_exit_rejects_update_on_missing_target_empty_source(
+        self,
+    ):
+        """Empty UPDATE against missing target must also fail (before no-op)."""
+        plan = plan_merge_operation(
+            source_table=pa.table({"id": pa.array([], type=pa.int64())}),
+            strategy="update",
+            key_columns=["id"],
+            target_metadata=MergeTargetMetadata(exists=False, files=[], row_count=0),
+        )
+        with pytest.raises(ValueError, match="non-existent target"):
+            resolve_merge_plan_early_exit(plan)
+
 
 class TestMergeStats:
     """Test MergeStats dataclass functionality."""
