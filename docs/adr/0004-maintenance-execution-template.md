@@ -1,5 +1,12 @@
 # ADR-0004: Maintenance Execution Template
 
+> **Historical document.** This ADR records the decision to extract a shared
+> compaction execution template into `core.maintenance`. The implementation
+> it describes is complete in 0.22.x (`execute_compaction_template`).
+> For the current maintenance API, see
+> [Maintenance](../api/fsspeckit.core.maintenance.md). For the current
+> architecture, see [Architecture Overview](../explanation/architecture.md).
+
 ## Status
 
 Accepted

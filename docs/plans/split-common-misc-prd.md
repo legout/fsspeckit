@@ -1,5 +1,11 @@
 # Split common/misc.py PRD
 
+> **Historical planning document.** This PRD was the implementation plan for
+> splitting `fsspeckit.common.misc` into `common.parallel`, `common.sync`,
+> and `common.partitions`. The work is complete in 0.22.x. It is retained as
+> engineering history, not current guidance. For the current package layout,
+> see [Architecture Overview](../explanation/architecture.md).
+
 ## Summary
 
 Split `common/misc.py` (703 lines) into three focused modules: `common.parallel`

@@ -1,577 +1,194 @@
 # Merge Datasets
 
-This guide covers dataset merge operations using fsspeckit's `merge()` method for both PyArrow and DuckDB backends.
+This guide covers incremental dataset merges with fsspeckit's `merge()` method.
+Both the DuckDB and PyArrow backends share the same merge interface and result
+type.
 
-> **Package Structure Note:** fsspeckit uses a package-based structure. DuckDB functionality is under `datasets.duckdb` and PyArrow under `datasets.pyarrow`.
+`merge()` is distinct from `write_dataset()`: `write_dataset()` writes files
+and does not reconcile existing rows, while `merge()` reconciles a source
+against the existing dataset by rewriting only the files that contain matching
+keys. Use `write_dataset(mode="overwrite")` to clear existing dataset files
+first. For the shared contract and backend differences, see
+[Dataset Handlers](../dataset-handlers.md).
 
-For detailed backend-specific differences (filter types, merge parameters, etc.), see [Dataset Handler Interface](../dataset-handlers.md).
+Both backends require the `datasets` extra. See the
+[extras matrix](../installation.md#optional-extras).
 
-## Understanding merge()
-
-The `merge()` method performs incremental dataset updates by selectively rewriting only the files affected by key matches. This is more efficient than full dataset rewrites for incremental updates.
-
-**Key Concepts:**
-- **Incremental file-level rewrite**: Only files containing matching keys are rewritten
-- **Partition-aware**: Automatically prunes partitions based on source data
-- **Result tracking**: Returns detailed `MergeResult` with operation statistics
-
-## Merge Strategies
-
-### INSERT Strategy
-**Use Case:** Append-only scenarios where you never want to modify existing data
-
-- Event logs and audit trails
-- Incremental data loads where duplicates should be ignored
-- Time-series data where order matters
-
-**Behavior:** Only inserts records with keys that don't exist in the target dataset
+## Set up a handler
 
 ```python
-from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
 import pyarrow as pa
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
 
 io = PyarrowDatasetIO()
 
-# Create initial dataset
 initial = pa.table({"id": [1, 2], "value": ["a", "b"]})
 io.write_dataset(initial, "events/", mode="overwrite")
+```
 
-# Insert only new records
+For DuckDB, create a connection first and pass it to the handler:
+
+```python
+from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
+
+conn = create_duckdb_connection()
+io = DuckDBDatasetIO(conn)
+```
+
+## Merge strategies
+
+`merge()` takes a `strategy` and `key_columns`. A single string is equivalent
+to a one-column list.
+
+### insert
+
+Appends only rows whose keys do not already exist in the target. Existing
+files are never rewritten. Use it for append-only loads where duplicates should
+be ignored.
+
+```python
 new_events = pa.table({"id": [2, 3, 4], "value": ["b_dup", "c", "d"]})
 result = io.merge(
-    data=new_events,
-    path="events/",
+    new_events,
+    "events/",
     strategy="insert",
-    key_columns=["id"]
+    key_columns=["id"],
 )
 
-print(f"Inserted: {result.inserted}, Ignored: {result.source_count - result.inserted}")
-# Output: Inserted: 2, Ignored: 1 (id=2 already exists)
+print(f"Inserted: {result.inserted}")  # 2 (ids 3 and 4; id 2 already exists)
 ```
 
-### UPSERT Strategy
-**Use Case:** Change Data Capture (CDC) and synchronization scenarios
+### update
 
-- Customer data synchronization
-- Product catalog updates
-- Any scenario where you need to insert new records and update existing ones
-
-**Behavior:** Inserts new records and updates existing records based on key columns
+Rewrites only the files that contain keys being updated. Rows with keys absent
+from the target are ignored. Use it for dimension-table maintenance where new
+records should be rejected.
 
 ```python
-# Create initial customer dataset
-customers = pa.table({
-    "customer_id": [1, 2, 3],
-    "email": ["alice@example.com", "bob@example.com", "charlie@example.com"],
-    "status": ["active", "active", "inactive"]
-})
-io.write_dataset(customers, "customers/", mode="overwrite")
-
-# UPSERT: Update existing + insert new
-updates = pa.table({
-    "customer_id": [2, 3, 4],
-    "email": ["bob.new@example.com", "charlie@example.com", "diana@example.com"],
-    "status": ["active", "active", "active"]
-})
+price_updates = pa.table({"id": [1, 2, 9], "value": ["A2", "B2", "X"]})
 result = io.merge(
-    data=updates,
-    path="customers/",
+    price_updates,
+    "events/",
+    strategy="update",
+    key_columns=["id"],
+)
+
+print(f"Updated: {result.updated}")  # 2 (ids 1 and 2; id 9 ignored)
+```
+
+### upsert
+
+Rewrites affected files for existing keys and appends inserted keys as new
+files. Use it for change-data-capture and synchronization where you want both
+inserts and updates.
+
+```python
+updates = pa.table({"id": [2, 3, 5], "value": ["B3", "C3", "E"]})
+result = io.merge(
+    updates,
+    "events/",
     strategy="upsert",
-    key_columns=["customer_id"]
+    key_columns=["id"],
 )
 
 print(f"Inserted: {result.inserted}, Updated: {result.updated}")
-# Output: Inserted: 1 (id=4), Updated: 2 (id=2, id=3)
 ```
 
-### UPDATE Strategy
-**Use Case:** Dimension table updates where you only want to modify existing data
+## Interpreting the result
 
-- Product price updates
-- User profile changes
-- Status updates where new records should be rejected
-
-**Behavior:** Only updates existing records, ignores records with new keys
+`merge()` returns a `MergeResult` with row-level and file-level counts. Use
+these fields to audit the operation without re-reading the dataset:
 
 ```python
-# Create product catalog
-products = pa.table({
-    "product_id": [101, 102, 103],
-    "name": ["Widget A", "Widget B", "Widget C"],
-    "price": [19.99, 29.99, 39.99]
-})
-io.write_dataset(products, "products/", mode="overwrite")
-
-# UPDATE: Only modify existing products
-price_updates = pa.table({
-    "product_id": [102, 103, 104],  # 104 doesn't exist
-    "name": ["Widget B", "Widget C", "Widget D"],
-    "price": [24.99, 34.99, 49.99]
-})
-result = io.merge(
-    data=price_updates,
-    path="products/",
-    strategy="update",
-    key_columns=["product_id"]
-)
-
-print(f"Updated: {result.updated}, Ignored: {result.source_count - result.updated}")
-# Output: Updated: 2 (id=102, id=103), Ignored: 1 (id=104 doesn't exist)
-```
-
-## Using MergeResult
-
-The `merge()` method returns a `MergeResult` object with detailed operation statistics:
-
-```python
-result = io.merge(
-    data=updates,
-    path="dataset/",
-    strategy="upsert",
-    key_columns=["id"]
-)
+result = io.merge(updates, "events/", strategy="upsert", key_columns=["id"])
 
 # Row counts
-print(f"Source rows: {result.source_count}")
-print(f"Target before: {result.target_count_before}")
-print(f"Target after: {result.target_count_after}")
+result.source_count          # rows in the source data
+result.target_count_before   # target rows before the merge
+result.target_count_after    # target rows after the merge
+result.inserted
+result.updated
+result.deleted
 
-# Operation counts
-print(f"Inserted: {result.inserted}")
-print(f"Updated: {result.updated}")
-print(f"Deleted: {result.deleted}")
-
-# File operations
-print(f"Rewritten files: {len(result.rewritten_files)}")
-print(f"Inserted files: {len(result.inserted_files)}")
-print(f"Preserved files: {len(result.preserved_files)}")
-
-# Detailed file metadata
-for file_meta in result.files:
-    print(f"{file_meta.operation}: {file_meta.path} ({file_meta.row_count} rows)")
+# File lists
+result.rewritten_files       # existing files rewritten
+result.inserted_files        # new files created
+result.preserved_files       # files left untouched
 ```
 
-**MergeResult fields:**
-- `strategy`: Merge strategy used ('insert', 'update', 'upsert')
-- `source_count`: Number of rows in source data
-- `target_count_before`: Target dataset rows before merge
-- `target_count_after`: Target dataset rows after merge
-- `inserted`: Number of rows inserted
-- `updated`: Number of rows updated
-- `deleted`: Number of rows deleted
-- `files`: List of `MergeFileMetadata` objects
-- `rewritten_files`: Paths of files that were rewritten
-- `inserted_files`: Paths of new files created
-- `preserved_files`: Paths of files left unchanged
+## Composite keys
 
-## Advanced Features
-
-### Composite Keys
-
-Use multiple columns to uniquely identify records:
+Pass a list of column names for a composite key. All strategies support
+composite keys.
 
 ```python
-# Order items uniquely identified by order_id + line_number
-orders = pa.table({
-    "order_id": [1001, 1001, 1002],
-    "line_number": [1, 2, 1],
-    "product": ["Widget A", "Widget B", "Widget C"],
-    "quantity": [2, 1, 3]
-})
-io.write_dataset(orders, "orders/", mode="overwrite")
-
-# Update using composite key
-updates = pa.table({
-    "order_id": [1001, 1002],
-    "line_number": [2, 1],
-    "product": ["Widget B", "Widget C"],
-    "quantity": [5, 10]  # Updated quantities
-})
 result = io.merge(
-    data=updates,
-    path="orders/",
+    new_orders,
+    "orders/",
     strategy="upsert",
-    key_columns=["order_id", "line_number"]
+    key_columns=["order_id", "line_number"],
 )
-
-print(f"Updated: {result.updated}")
 ```
 
-### Partition-Aware Merges
+See [Multi-Key API](../reference/multi-key-api.md) for how composite keys are
+resolved internally.
 
-Merge operations automatically prune partitions for efficiency:
+## Partition-aware merges
+
+When the source is partitioned, pass `partition_columns` so the merge prunes
+partitions and rewrites only the relevant ones. Files in untouched partitions
+appear in `preserved_files`.
 
 ```python
-# Partitioned dataset by year and month
-data_2024_01 = pa.table({
-    "year": [2024] * 3,
-    "month": [1] * 3,
-    "id": [1, 2, 3],
-    "value": [100, 200, 300]
-})
-io.write_dataset(
-    data_2024_01,
+result = io.merge(
+    updates,
     "partitioned_data/",
-    mode="overwrite",
-    partition_by=["year", "month"]
-)
-
-# More data in different partition
-data_2024_02 = pa.table({
-    "year": [2024] * 2,
-    "month": [2] * 2,
-    "id": [4, 5],
-    "value": [400, 500]
-})
-io.write_dataset(
-    data_2024_02,
-    "partitioned_data/",
-    mode="append",
-    partition_by=["year", "month"]
-)
-
-# Merge only affects year=2024/month=1 partition
-updates = pa.table({
-    "year": [2024] * 2,
-    "month": [1] * 2,
-    "id": [2, 3],
-    "value": [999, 888]  # Updated values
-})
-result = io.merge(
-    data=updates,
-    path="partitioned_data/",
     strategy="upsert",
     key_columns=["id"],
-    partition_columns=["year", "month"]
+    partition_columns=["year", "month"],
 )
-
-print(f"Preserved files: {len(result.preserved_files)}")  # year=2024/month=2 files preserved
-print(f"Rewritten files: {len(result.rewritten_files)}")  # year=2024/month=1 files rewritten
 ```
 
-### Schema Evolution
+## Schema on new files
 
-Merge operations support schema evolution:
+Pass `schema` to enforce a schema for newly written files during the merge.
+This lets you evolve a dataset by adding columns to appended or rewritten
+files.
 
 ```python
-# Initial dataset with basic fields
-initial = pa.table({
-    "id": [1, 2],
-    "name": ["Alice", "Bob"]
-})
-io.write_dataset(initial, "users/", mode="overwrite")
-
-# Add new column during merge
-updates = pa.table({
-    "id": [2, 3],
-    "name": ["Bob Updated", "Charlie"],
-    "email": ["bob@example.com", "charlie@example.com"]  # New column
-})
-
-# Provide schema for new files
-schema = pa.schema([
-    ("id", pa.int64()),
-    ("name", pa.string()),
-    ("email", pa.string())
-])
+schema = pa.schema([("id", pa.int64()), ("value", pa.string()), ("note", pa.string())])
 
 result = io.merge(
-    data=updates,
-    path="users/",
+    updates,
+    "events/",
     strategy="upsert",
     key_columns=["id"],
-    schema=schema  # New files will use this schema
+    schema=schema,
 )
 ```
 
-## DuckDB Backend
+## Backend differences
 
-DuckDB provides the same `merge()` API with optimized parquet I/O for large datasets:
+The two backends share the same core parameters and result type. They differ
+in the knobs that are honored:
 
-```python
-from fsspeckit.datasets.duckdb import DuckDBDatasetIO
-import polars as pl
+- **DuckDB**: uses SQL-based merge logic. The streaming parameters
+  (`enable_streaming_merge`, `merge_max_memory_mb`, and friends) are accepted
+  for compatibility but ignored.
+- **PyArrow**: honors the streaming controls
+  (`merge_chunk_size_rows`, `enable_streaming_merge`, `merge_max_memory_mb`,
+  `merge_max_process_memory_mb`, `merge_min_system_available_mb`,
+  `merge_progress_callback`) for memory-bounded merges.
 
-io = DuckDBDatasetIO()
+For the full parameter list and the result-type reference, see
+[Dataset Handlers](../dataset-handlers.md). For memory tuning, see
+[Memory-Constrained Environments](memory-constrained-environments.md).
 
-# Create initial dataset
-initial = pl.DataFrame({"id": [1, 2], "value": ["a", "b"]})
-io.write_dataset(initial, "dataset/", mode="overwrite")
+## Related documentation
 
-# Merge with DuckDB (incremental rewrite)
-updates = pl.DataFrame({"id": [2, 3], "value": ["updated", "c"]})
-result = io.merge(
-    data=updates,
-    path="dataset/",
-    strategy="upsert",
-    key_columns=["id"]
-)
-
-print(f"Inserted: {result.inserted}, Updated: {result.updated}")
-# Output: Inserted: 1, Updated: 1
-```
-
-### Merge Implementation Note
-
-DuckDB merges currently use the incremental rewrite path. The `use_merge`
-parameter is accepted for backward compatibility but is ignored by the
-implementation.
-
-```python
-# use_merge is accepted but ignored
-result = io.merge(
-    data=updates,
-    path="dataset/",
-    strategy="upsert",
-    key_columns=["id"],
-    use_merge=True,
-)
-```
-
-## Backend Selection Guidance
-
-### PyArrow Backend
-**Best For:**
-- In-memory operations and moderate-sized datasets
-- Cloud storage operations (S3, GCS, Azure)
-- Schema flexibility and evolution
-- Cross-platform compatibility
-
-**Use When:**
-- Dataset fits in memory
-- Need maximum format compatibility
-- Working with cloud storage
-- Schema evolution is important
-
-### DuckDB Backend
-**Best For:**
-- Large datasets that don't fit in memory
-- Complex analytics and aggregations
-- SQL-heavy workflows
-- High-performance query requirements
-- Incremental rewrite merge operations for large datasets
-
-**Use When:**
-- Dataset exceeds available memory
-- Need complex SQL operations
-- Query performance is critical
-- Working with very large datasets
-- Need efficient incremental rewrites on large datasets
-
-## Performance Optimization
-
-### File Size Tuning
-
-```python
-# Optimize for PyArrow (moderate file sizes)
-result = io.merge(
-    data=updates,
-    path="dataset/",
-    strategy="upsert",
-    key_columns=["id"],
-    max_rows_per_file=1_000_000,
-    row_group_size=250_000,
-    compression="snappy"
-)
-
-# Optimize for DuckDB (larger file sizes)
-result = io.merge(
-    data=updates,
-    path="dataset/",
-    strategy="upsert",
-    key_columns=["id"],
-    max_rows_per_file=5_000_000,
-    row_group_size=500_000,
-    compression="snappy"
-)
-```
-
-### Compression Selection
-
-**snappy**: Fast compression/decompression, moderate compression ratio
-- Best for: Frequent reads, query workloads
-- Use with: DuckDB, interactive analytics
-
-**zstd**: Slower compression, higher compression ratio
-- Best for: Storage optimization, archival
-- Use with: PyArrow, long-term storage
-
-**gzip**: Balanced compression and compatibility
-- Best for: Data exchange, compatibility
-- Use with: Cross-platform scenarios
-
-## Merge Implementation Notes
-
-DuckDB merges currently use the incremental rewrite implementation. The
-`use_merge` parameter is accepted for backward compatibility but ignored.
-
-## Error Handling
-
-```python
-def safe_merge(io, data, path, strategy, key_columns):
-    """Perform merge with comprehensive error handling."""
-    try:
-        # Validate inputs
-        if strategy in ["insert", "update", "upsert"] and not key_columns:
-            raise ValueError(f"key_columns required for {strategy} strategy")
-        
-        # Perform merge
-        result = io.merge(
-            data=data,
-            path=path,
-            strategy=strategy,
-            key_columns=key_columns
-        )
-        
-        # Log success
-        print(f"Merge completed: {result.inserted} inserted, {result.updated} updated")
-        return result
-        
-    except FileNotFoundError:
-        print(f"Dataset not found at {path}, creating new dataset")
-        return io.write_dataset(data, path, mode="overwrite")
-        
-    except ValueError as e:
-        print(f"Validation error: {e}")
-        raise
-        
-    except Exception as e:
-        print(f"Merge failed: {e}")
-        raise
-
-# Usage
-result = safe_merge(
-    io=io,
-    data=updates,
-    path="dataset/",
-    strategy="upsert",
-    key_columns=["id"]
-)
-```
-
-## Real-World Examples
-
-### Customer Data Synchronization
-
-```python
-from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
-import pyarrow as pa
-
-io = PyarrowDatasetIO()
-
-def sync_customers(crm_updates):
-    """Synchronize customer data from CRM system."""
-    result = io.merge(
-        data=crm_updates,
-        path="s3://bucket/customers/",
-        strategy="upsert",
-        key_columns=["customer_id"],
-        compression="zstd",
-        max_rows_per_file=2_000_000
-    )
-    
-    print(f"Synced customers:")
-    print(f"  New: {result.inserted}")
-    print(f"  Updated: {result.updated}")
-    print(f"  Total: {result.target_count_after}")
-    
-    return result
-
-# Daily CRM sync
-daily_updates = pa.table({
-    "customer_id": [1001, 1002, 1003],
-    "email": ["alice@example.com", "bob@example.com", "charlie@example.com"],
-    "status": ["active", "active", "inactive"],
-    "updated_at": ["2024-01-15T10:30:00Z"] * 3
-})
-
-sync_customers(daily_updates)
-```
-
-### Incremental Event Log
-
-```python
-from fsspeckit.datasets.duckdb import DuckDBDatasetIO
-import polars as pl
-
-io = DuckDBDatasetIO()
-
-def append_events(new_events):
-    """Append events, ignoring duplicates."""
-    result = io.merge(
-        data=new_events,
-        path="s3://bucket/events/",
-        strategy="insert",
-        key_columns=["event_id"],
-        max_rows_per_file=5_000_000,
-        compression="snappy"
-    )
-    
-    print(f"Events processed:")
-    print(f"  New: {result.inserted}")
-    print(f"  Duplicates ignored: {result.source_count - result.inserted}")
-    
-    return result
-
-# Batch event ingestion
-events = pl.DataFrame({
-    "event_id": [f"evt_{i}" for i in range(10000)],
-    "user_id": [f"user_{i % 1000}" for i in range(10000)],
-    "timestamp": ["2024-01-15T10:00:00Z"] * 10000,
-    "event_type": ["page_view"] * 10000
-})
-
-append_events(events)
-```
-
-## Best Practices
-
-1. **Choose the Right Strategy**
-   - **INSERT**: Append-only data (event logs, audit trails)
-   - **UPSERT**: CDC and synchronization (customer data, product catalogs)
-   - **UPDATE**: Dimension updates (prices, statuses)
-
-2. **Key Column Selection**
-   - Use stable, unique identifiers
-   - Consider query patterns
-   - Use composite keys when needed
-
-3. **Performance Optimization**
-   - Tune file sizes for your backend
-   - Choose appropriate compression
-   - Monitor merge statistics
-   - Use partition pruning when possible
-
-4. **Error Handling**
-   - Validate key columns
-   - Handle missing datasets gracefully
-   - Log merge results for monitoring
-   - Implement retry logic for transient failures
-
-5. **Monitoring**
-   - Track merge result statistics
-   - Monitor file counts and sizes
-   - Log operation duration
-   - Alert on anomalies
-
-## Troubleshooting
-
-### Common Issues
-
-**"NULL values are not allowed in key column"**
-- Cause: Source data contains NULL values in key columns
-- Solution: Filter or fill NULL values before merge
-
-**"Partition column values cannot change for existing keys"**
-- Cause: Attempting to change partition column values during merge
-- Solution: Ensure partition columns remain constant for existing keys
-
-**High memory usage**
-- Cause: Dataset or merge operation too large for available memory
-- Solution: Use DuckDB backend or process in smaller batches
-
-**Slow merge performance**
-- Cause: Inappropriate file sizes or too many small files
-- Solution: Compact dataset or tune max_rows_per_file parameter
-
-For more information, see [Read and Write Datasets](read-and-write-datasets.md).
+- [Dataset Handlers](../dataset-handlers.md) - shared interface and result
+  types.
+- [Merge Operations Examples](merge-operations-examples.md) - end-to-end
+  scenarios.
+- [Multi-Key API](../reference/multi-key-api.md) - composite-key semantics.
+- [Read and Write Datasets](read-and-write-datasets.md) - `write_dataset()`.

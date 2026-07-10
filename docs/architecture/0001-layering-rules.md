@@ -1,5 +1,16 @@
 # ADR-0001: Import Layering Rules for Package Architecture
 
+> **Historical document.** This ADR records the import layering rules
+> established during the pre-0.22 refactor. The package boundaries it
+> describes (common, core, datasets, sql) still hold, but some module
+> placements it references have since changed: schema, type, and polars
+> utilities moved from `common` to `datasets` in 0.22.x, and `common.misc`
+> was split into `common.parallel`, `common.sync`, and `common.partitions`.
+> For the current layout, see
+> [Architecture Overview](../explanation/architecture.md). For the
+> import-path migration, see
+> [Move Your Package Imports](../migration/migrate-package-layout.md).
+
 ## Status
 
 Accepted
@@ -185,7 +196,7 @@ For existing code:
 
 ## References
 
-- [Migration Guide](../how-to/migrate-package-layout.md)
+- [Migration Guide](../migration/migrate-package-layout.md)
 - [CONTRIBUTING.md](../contributing.md)
 
 ## Date

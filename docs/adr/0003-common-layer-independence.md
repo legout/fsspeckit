@@ -1,5 +1,13 @@
 # ADR-0003: Common Layer Independence and core/ext Tier Separation
 
+> **Historical document.** This ADR records the decision to move schema,
+> polars, and type utilities out of `fsspeckit.common` into
+> `fsspeckit.datasets`, and to separate `core/ext` into its own layering
+> tier. The migration it describes is complete in 0.22.x. For the current
+> package layout, see [Architecture Overview](../explanation/architecture.md).
+> For import-path migration steps, see
+> [Move Your Package Imports](../migration/migrate-package-layout.md).
+
 ## Status
 
 Accepted

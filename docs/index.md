@@ -1,12 +1,19 @@
 # fsspeckit
 
-`fsspeckit` enhances `fsspec` with advanced utilities for multi-format I/O, cloud storage configuration, and high-performance data processing. It gives you one interface for reading and writing datasets across local and cloud storage, with SQL-based filtering and DuckDB-backed analytics built in.
+`fsspeckit` enhances `fsspec` with utilities for multi-format I/O, storage
+configuration, and dataset processing. It gives you one interface for reading
+and writing datasets across local and cloud storage, with SQL-based filtering
+and DuckDB-backed analytics built in.
 
-## Start Here
+## Start here
 
-New to fsspeckit? Work through the [Local Dataset Lifecycle tutorial](tutorials/local-dataset-lifecycle.md). It walks you through installing the library, connecting local and cloud storage, and running your first dataset operations. This is the recommended first path for anyone using fsspeckit as a library.
+New to fsspeckit? Work through the
+[Local Dataset Lifecycle tutorial](tutorials/local-dataset-lifecycle.md).
+It is a single, copyable, offline script: configure a local filesystem, write a
+Parquet dataset, read it back, verify the result, and clean up a named sandbox.
+This is the recommended first path for anyone using fsspeckit as a library.
 
-## Where to Go Next
+## Where to go next
 
 Once you have the basics, pick a lane:
 
@@ -16,18 +23,20 @@ Once you have the basics, pick a lane:
 - **[Migration](migration/dataset-module-refactor.md)** - moving from older module layouts
 - **Integrations** - wire up cloud backends in [Configure Cloud Storage](how-to/configure-cloud-storage.md) and query layers in [Use SQL Filters](how-to/use-sql-filters.md); check [Installation](installation.md) for the full extras matrix
 
-## Key Features
+## Key features
 
-- **Multi-Cloud Support**: Unified interface for AWS S3, Azure Blob Storage, and Google Cloud Storage
-- **Dataset Operations**: High-performance Parquet processing with DuckDB integration
-- **SQL Filter Translation**: Write filters once and run them across PyArrow and Polars
-- **Enhanced Filesystem API**: Extended I/O methods with automatic batching and threading
-- **Path Safety by Default**: Built-in protection against directory traversal attacks
-- **Domain Package Architecture**: Organized APIs for discoverability and type safety
+- **Multi-cloud support**: unified interface for AWS S3, Azure Blob Storage, and Google Cloud Storage
+- **Dataset operations**: Parquet processing with DuckDB and PyArrow backends
+- **SQL filter translation**: write filters once and run them across PyArrow and Polars
+- **Enhanced filesystem API**: extended I/O methods with automatic batching and threading
+- **Path safety by default**: built-in protection against directory traversal attacks
+- **Domain package architecture**: organized APIs for discoverability and type safety
 
 ## Contributing
 
-fsspeckit is open source. Read the [Contributing Guide](contributing.md) if you would like to help out, and file bugs or feature requests on [GitHub](https://github.com/legout/fsspeckit).
+fsspeckit is open source. Read the [Contributing Guide](contributing.md) if you
+would like to help out, and file bugs or feature requests on
+[GitHub](https://github.com/legout/fsspeckit).
 
 ## Badges
 

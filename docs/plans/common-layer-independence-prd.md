@@ -1,5 +1,11 @@
 # Common Layer Independence PRD
 
+> **Historical planning document.** This PRD was the implementation plan for
+> moving schema, polars, and type utilities from `fsspeckit.common` to
+> `fsspeckit.datasets`. The work is complete in 0.22.x. It is retained as
+> engineering history, not current guidance. For the current package layout,
+> see [Architecture Overview](../explanation/architecture.md).
+
 ## Summary
 
 Move schema, polars, and type-conversion utilities out of `fsspeckit.common`

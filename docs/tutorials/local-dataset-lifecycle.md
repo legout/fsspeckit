@@ -1,247 +1,184 @@
-# Getting Started
+# Local Dataset Lifecycle
 
-This tutorial will walk you through your first steps with `fsspeckit`. You'll learn how to install the library, work with local and cloud storage, and perform basic dataset operations.
+This tutorial walks through the canonical fsspeckit workflow: configure a local
+filesystem, write a small Parquet dataset, read it back, verify the result, and
+clean up. It runs entirely offline. No cloud credentials, no remote services.
 
-## Prerequisites
+If you are new to fsspeckit, start here. Everything else in the documentation
+builds on the three ideas in this script: a **filesystem**, a **dataset**, and a
+**write**.
 
-- Python 3.11 or higher
-- Basic familiarity with Python and data concepts
+## Before you begin
 
-## Installation
-
-First, install `fsspeckit` with the dependencies you need:
+You already manage a Python environment (a virtualenv, conda env, or similar)
+with Python 3.11 or higher. Install fsspeckit with the `datasets` extra, which
+provides the complete dataset workflow used in this tutorial:
 
 ```bash
-# Basic installation
-pip install fsspeckit
-
-# With cloud storage support
-pip install "fsspeckit[aws,gcp,azure]"
-
-# With all optional dependencies for data processing
-pip install "fsspeckit[aws,gcp,azure]" duckdb pyarrow polars sqlglot
+pip install "fsspeckit[datasets]"
 ```
 
-For detailed installation instructions, see the [Installation Guide](../installation.md).
+For the full extras matrix (cloud providers, DuckDB, SQL filters), see
+[Installation and optional extras](../installation.md).
 
-## Your First Local Filesystem
+## The complete script
 
-Let's start by creating a local filesystem and performing basic operations:
-
-```python
-from fsspeckit import filesystem
-import os
-
-# Create a local filesystem
-# Note: filesystem() wraps the filesystem in DirFileSystem by default (dirfs=True)
-# for path safety, confining all operations to the specified directory
-fs = filesystem("file")
-
-# Define a directory path
-local_dir = "./my_data/"
-os.makedirs(local_dir, exist_ok=True)
-
-# Create and write a file
-with fs.open(f"{local_dir}example.txt", "w") as f:
-    f.write("Hello, fsspeckit!")
-
-# Read the file
-with fs.open(f"{local_dir}example.txt", "r") as f:
-    content = f.read()
-print(f"Content: {content}")
-
-# List files in directory
-files = fs.ls(local_dir)
-print(f"Files: {files}")
-```
-
-**Path Safety:** The `filesystem()` function wraps filesystems in `DirFileSystem` by default (`dirfs=True`), which confines all operations to the specified directory path. This prevents accidental access to paths outside the intended directory.
-
-## Working with Cloud Storage
-
-Now let's configure cloud storage. We'll use environment variables for credentials:
+Copy this into a file and run it. It creates a single sandbox directory, writes
+and reads a dataset inside it, asserts the round trip, then removes only that
+sandbox.
 
 ```python
-from fsspeckit import filesystem
-from fsspeckit.storage_options import storage_options_from_env
+"""fsspeckit local dataset lifecycle: write, read back, verify, clean up.
 
-# Set environment variables (or set them in your environment)
-import os
-os.environ["AWS_ACCESS_KEY_ID"] = "your_access_key"
-os.environ["AWS_SECRET_ACCESS_KEY"] = "your_secret_key"
-os.environ["AWS_DEFAULT_REGION"] = "us-east-1"
+Run offline. No cloud credentials required.
+Requires: pip install "fsspeckit[datasets]"
+"""
+from __future__ import annotations
 
-# Load AWS options from environment
-aws_options = storage_options_from_env("s3")
-fs = filesystem("s3", storage_options=aws_options.to_dict())
+import shutil
+from pathlib import Path
 
-print(f"Created S3 filesystem in region: {aws_options.region}")
-```
-
-You can also configure storage manually:
-
-```python
-from fsspeckit import AwsStorageOptions
-
-# Configure AWS S3
-aws_options = AwsStorageOptions(
-    region="us-east-1",
-    access_key_id="YOUR_ACCESS_KEY",
-    secret_access_key="YOUR_SECRET_KEY"
-)
-
-# Create filesystem
-aws_fs = aws_options.to_filesystem()
-```
-
-## Protocol Inference
-
-The `filesystem()` function can automatically detect protocols from URIs:
-
-```python
-# Auto-detect protocols
-s3_fs = filesystem("s3://bucket/path")      # S3
-gcs_fs = filesystem("gs://bucket/path")      # Google Cloud Storage
-az_fs = filesystem("az://container/path")    # Azure Blob Storage
-github_fs = filesystem("github://owner/repo") # GitHub
-
-# All work with the same interface
-for name, fs in [("S3", s3_fs), ("GCS", gcs_fs)]:
-    try:
-        files = fs.ls("/")
-        print(f"{name} files: {len(files)}")
-    except Exception as e:
-        print(f"{name} error: {e}")
-```
-
-## Your First Dataset Operation
-
-Let's perform basic dataset operations using both DuckDB and PyArrow handlers:
-
-### DuckDB Approach
-
-```python
-from fsspeckit.datasets.duckdb import DuckDBDatasetIO, DuckDBDatasetHandler
-import polars as pl
-
-# Initialize I/O handler
-io = DuckDBDatasetIO()
-
-# Create sample data
-data = pl.DataFrame({
-    "id": [1, 2, 3, 4],
-    "category": ["A", "B", "A", "B"],
-    "value": [10.5, 20.3, 15.7, 25.1]
-})
-
-# Write dataset
-result = io.write_dataset(data, "s3://bucket/my-dataset/", mode="append")
-print(f"Wrote {result.total_rows} rows using {result.backend} backend")
-
-# Use handler wrapper for SQL operations
-handler = DuckDBDatasetHandler()
-query_result = handler.execute_sql("""
-    SELECT category, COUNT(*) as count, AVG(value) as avg_value
-    FROM parquet_scan('s3://bucket/my-dataset/')
-    GROUP BY category
-""")
-
-print(query_result)
-```
-
-### PyArrow Approach
-
-```python
-from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
 import pyarrow as pa
 
-# Initialize I/O handler
-io = PyarrowDatasetIO()
-
-# Create sample data
-data = pa.table({
-    "id": [1, 2, 3, 4],
-    "category": ["A", "B", "A", "B"],
-    "value": [10.5, 20.3, 15.7, 25.1]
-})
-
-# Write dataset
-result = io.write_dataset(data, "s3://bucket/my-dataset/", mode="append")
-print(f"Wrote {result.total_rows} rows across {len(result.files)} files")
-print(f"Backend: {result.backend}, Mode: {result.mode}")
-
-# Update existing records using merge
-updates = pa.table({
-    "id": [2, 4],
-    "category": ["B", "B"],
-    "value": [99.9, 88.8]
-})
-merge_result = io.merge(
-    data=updates,
-    path="s3://bucket/my-dataset/",
-    strategy="upsert",
-    key_columns=["id"]
-)
-print(f"Inserted: {merge_result.inserted}, Updated: {merge_result.updated}")
-
-# Reading and maintenance operations
-table = io.read_parquet("s3://bucket/my-dataset/", columns=["category", "value"])
-print(f"Read {table.num_rows} rows with columns: {table.column_names}")
-
-# Compact dataset
-stats = io.compact_parquet_dataset("s3://bucket/my-dataset/", target_mb_per_file=64)
-print(f"Compaction stats: {stats}")
-```
-
-## Domain Package Structure
-
-`fsspeckit` is organized into domain-specific packages. Import from the appropriate package for your use case:
-
-```python
-# Filesystem creation and core functionality
 from fsspeckit import filesystem
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
 
-# Storage configuration
-from fsspeckit import AwsStorageOptions, GcsStorageOptions
-from fsspeckit.storage_options import storage_options_from_env
+# 1. Named tutorial sandbox. We create it and remove only this directory.
+SANDBOX = Path("fsspeckit_tutorial_sandbox")
+DATASET_PATH = SANDBOX / "sensors"
+SANDBOX.mkdir(parents=True, exist_ok=True)
 
-# Dataset operations - I/O handlers
-from fsspeckit.datasets import DuckDBDatasetIO, DuckDBDatasetHandler
-from fsspeckit.datasets import PyarrowDatasetIO
+# 2. Local filesystem. dirfs=False returns the raw LocalFileSystem that the
+#    dataset I/O layer reads and writes through directly.
+fs = filesystem("file", dirfs=False)
 
-# SQL filter translation
-from fsspeckit.sql.filters import sql2pyarrow_filter, sql2polars_filter
+# 3. Minimal explicit schema. We fix column types up front so the written
+#    Parquet is stable. This tutorial does not cover schema evolution.
+schema = pa.schema([
+    pa.field("sensor_id", pa.int64()),
+    pa.field("reading", pa.float64()),
+    pa.field("recorded_at", pa.string()),
+])
 
-# Common utilities
-from fsspeckit.common.misc import run_parallel
-from fsspeckit.common.types import dict_to_dataframe
+# 4. Write the dataset. mode="overwrite" starts from a clean directory.
+io = PyarrowDatasetIO(filesystem=fs)
+records = pa.table(
+    {
+        "sensor_id": [1, 2, 3],
+        "reading": [21.4, 22.1, 19.8],
+        "recorded_at": [
+            "2026-07-10T08:00",
+            "2026-07-10T08:05",
+            "2026-07-10T08:10",
+        ],
+    },
+    schema=schema,
+)
+write_result = io.write_dataset(
+    records, str(DATASET_PATH), schema=schema, mode="overwrite"
+)
+print(f"Wrote {write_result.total_rows} rows with the {write_result.backend} backend.")
+
+# 5. Read the dataset back into a single PyArrow table.
+table = io.read_parquet(str(DATASET_PATH))
+
+# 6. Assert the read-back data matches what we wrote.
+assert table.num_rows == write_result.total_rows
+assert table.column_names == ["sensor_id", "reading", "recorded_at"]
+assert table.column("sensor_id").to_pylist() == [1, 2, 3]
+print(f"Read back {table.num_rows} rows. Local dataset lifecycle verified.")
+
+# 7. Clean up ONLY the named sandbox directory.
+shutil.rmtree(SANDBOX)
+print(f"Removed sandbox: {SANDBOX}")
 ```
 
-## Next Steps
+Expected output:
 
-Congratulations! You've completed the basic fsspeckit tutorial. Here are some recommended next steps:
+```text
+Wrote 3 rows with the pyarrow backend.
+Read back 3 rows. Local dataset lifecycle verified.
+Removed sandbox: fsspeckit_tutorial_sandbox
+```
 
-### Explore More Features
+## Walkthrough
 
-- **How-to Guides**: Dive into specific tasks with our [How-to Guides](../how-to/index.md)
-- **API Reference**: Browse the [API Reference](../reference/api-guide.md) for detailed documentation
-- **Architecture & Concepts**: Understand the design principles in [Architecture & Concepts](../explanation/index.md)
+### 1. The sandbox
 
-### Common Use Cases
+The script writes into one named directory, `fsspeckit_tutorial_sandbox/`, and
+removes exactly that directory at the end. Nothing outside the sandbox is
+touched. Using a dedicated directory keeps the tutorial reproducible and makes
+cleanup safe.
 
-1. **Cloud Data Processing**: Use `storage_options_from_env()` for production deployments
-2. **Dataset Operations**: Use `DuckDBDatasetIO` for SQL-based operations or `PyarrowDatasetIO` for PyArrow operations
-3. **Merge Operations**: Use `merge()` for incremental updates with `insert`, `update`, or `upsert` strategies
-4. **SQL Filtering**: Use `sql2pyarrow_filter()` and `sql2polars_filter()` for cross-framework compatibility
-5. **Safe Operations**: Use `DirFileSystem` for security-critical applications
-6. **Performance**: Use `run_parallel()` for concurrent file processing
+### 2. The filesystem
 
-### Production Tips
+`filesystem("file", dirfs=False)` returns the raw local filesystem. The dataset
+I/O layer reads and writes through this filesystem object, so the same code
+path works unchanged when you later swap in a cloud backend. The `dirfs=False`
+argument asks for the raw `LocalFileSystem` rather than a directory-confined
+view, which is what the dataset handlers expect.
 
-1. **Use Domain Packages**: Import from `fsspeckit.datasets`, `fsspeckit.storage_options`, etc. instead of utils
-2. **Environment Configuration**: Load credentials from environment variables in production
-3. **Error Handling**: Always wrap remote filesystem operations in try-except blocks
-4. **Type Safety**: Use structured `StorageOptions` classes instead of raw dictionaries
-5. **Testing**: Use `LocalStorageOptions` and `DirFileSystem` for isolated test environments
+### 3. The schema
 
-For more detailed information, explore the other sections of the documentation.
+A `pa.schema` fixes the column names and types stored in the Parquet files.
+Declaring it explicitly keeps the written data stable across runs. This
+tutorial deliberately stops there: schema evolution, validation, and
+unification are separate topics covered in the reference material.
+
+### 4. Writing the dataset
+
+`PyarrowDatasetIO` is the handler for this tutorial. You pass it the
+filesystem, then call `write_dataset` with the data, the target directory, the
+schema, and a mode. `mode="overwrite"` clears any existing Parquet files in the
+target first, so the script is safe to re-run.
+
+The call returns a `WriteDatasetResult` with the row count, the backend name,
+and per-file metadata. For the exact fields, see
+[Dataset Handlers](../dataset-handlers.md).
+
+### 5. Reading it back
+
+`read_parquet` reads the whole dataset directory into one PyArrow table. The
+same method works on a single file path.
+
+### 6. Verifying the round trip
+
+The assertions check row count, column order, and one column's values. They
+make the success of the lifecycle explicit rather than relying on a print
+statement alone.
+
+### 7. Cleanup
+
+`shutil.rmtree(SANDBOX)` removes only the sandbox directory the script created.
+It does not touch anything else on your machine.
+
+## When to write versus when to merge
+
+This tutorial writes a fresh dataset each run. That is the right starting point:
+a plain `write_dataset` call is enough whenever you are creating or replacing a
+dataset in full.
+
+Merging is for a different situation: updating an existing dataset in place by
+inserting, updating, or upserting only the rows that changed. That is an
+incremental operation with its own strategies and tradeoffs. When you need it,
+follow the [Merge Datasets](../how-to/merge-datasets.md) how-to instead of
+adapting this script.
+
+## Where to go next
+
+Now that you have a working local lifecycle, these routes take you further:
+
+- **Diagnose and reference**: [API Guide](../reference/api-guide.md) for
+  choosing imports and backends; [Public API Inventory](../reference/public-api-inventory.md)
+  for the full list of supported symbols; [Dataset Handlers](../dataset-handlers.md)
+  for the shared write, read, and maintenance interface.
+- **Concepts**: [Key Concepts](../explanation/concepts.md) for the import
+  hierarchy, path safety, and the package architecture.
+- **Incremental updates**: [Merge Datasets](../how-to/merge-datasets.md) for
+  insert, update, and upsert strategies.
+- **Migration**: [Upgrade from the Pre-refactor Layout](../migration/dataset-module-refactor.md)
+  if you are moving older code to the current domain-package imports.
+- **Optional integrations**: [Configure Cloud Storage](../how-to/configure-cloud-storage.md)
+  to point the same handlers at S3, GCS, or Azure; [Use SQL Filters](../how-to/use-sql-filters.md)
+  to push filters into reads; [Installation and optional extras](../installation.md)
+  for the complete extras matrix.

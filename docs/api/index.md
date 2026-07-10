@@ -1,49 +1,32 @@
 # `fsspeckit` API Reference
 
-Welcome to the `fsspeckit` API reference documentation. This section provides detailed information on the various modules, classes, and functions available in the library.
+Welcome to the generated `fsspeckit` API reference. This section renders
+docstrings and signatures directly from source for each approved public module.
+For guidance on which import to choose, backend and configuration decisions,
+and result interpretation, see the curated
+[API Guide](../reference/api-guide.md) and the
+[Public API Inventory](../reference/public-api-inventory.md).
 
-> **Package Structure**: fsspeckit is organized into domain-specific packages for better discoverability. See [Architecture](../explanation/architecture.md) for details.
+## Root / core
 
-## Domain Packages (Primary API)
+- [fsspeckit.core](fsspeckit.core.md) - Filesystem factory functions and classes
+- [fsspeckit.core.merge](fsspeckit.core.merge.md) - Merge strategy, planning, and execution
+- [fsspeckit.core.maintenance](fsspeckit.core.maintenance.md) - Compaction, optimization, and deduplication planning
 
-### Dataset Operations
-*   [`fsspeckit.datasets`](fsspeckit.datasets.md) - Dataset-level operations (DuckDB & PyArrow helpers)
-*   [`fsspeckit.datasets.pyarrow.memory`](fsspeckit.datasets.pyarrow.memory.md) - Enhanced PyArrow memory monitoring
+## Datasets / backends
 
-### SQL Utilities
-*   [`fsspeckit.sql.filters`](fsspeckit.sql.filters.md) - SQL-to-filter translation helpers
+- [fsspeckit.datasets](fsspeckit.datasets.md) - Dataset exceptions, path helpers, and PyArrow/Polars utilities
+- [fsspeckit.datasets.duckdb](fsspeckit.datasets.duckdb.md) - DuckDB dataset I/O and connection management
+- [fsspeckit.datasets.pyarrow](fsspeckit.datasets.pyarrow.md) - PyArrow dataset I/O, memory monitoring, and adaptive key tracking
 
-### Common Utilities
-*   [`fsspeckit.common`](fsspeckit.common.md) - Cross-cutting utilities (logging, parallelism, type conversion)
+## Storage options
 
-## Core Infrastructure
+- [fsspeckit.storage_options](fsspeckit.storage_options.md) - Cloud, local, and git storage configuration
 
-### Core Modules
-*   [`fsspeckit.core.base`](fsspeckit.core.base.md) - Base classes and interfaces
-*   [`fsspeckit.core.ext`](fsspeckit.core.ext.md) - Extended filesystem methods
-*   [`fsspeckit.core.filesystem`](fsspeckit.core.filesystem.md) - Filesystem factory functions
-*   [`fsspeckit.core.maintenance`](fsspeckit.core.maintenance.md) - Dataset maintenance utilities
-*   [`fsspeckit.core.merge`](fsspeckit.core.merge.md) - Dataset merging operations
+## Common utilities
 
-### Storage Options
-*   [`fsspeckit.storage_options.base`](fsspeckit.storage_options.base.md) - Base storage options
-*   [`fsspeckit.storage_options.cloud`](fsspeckit.storage_options.cloud.md) - Cloud storage configurations
-*   [`fsspeckit.storage_options.core`](fsspeckit.storage_options.core.md) - Core storage utilities
-*   [`fsspeckit.storage_options.git`](fsspeckit.storage_options.git.md) - Git-based storage options
+- [fsspeckit.common](fsspeckit.common.md) - Cross-cutting utilities (datetime, logging, partitions, security, parallelism, sync)
 
-## Backwards Compatibility (`fsspeckit.utils`)
+## SQL
 
-The `fsspeckit.utils` module provides a backwards-compatible façade that re-exports selected helpers from the domain packages. **New code should import directly from domain packages** for better discoverability.
-
-*   [`fsspeckit.utils.datetime`](fsspeckit.utils.datetime.md) - Date and time utilities
-*   [`fsspeckit.utils.logging`](fsspeckit.utils.logging.md) - Logging configuration and utilities
-*   [`fsspeckit.utils.misc`](fsspeckit.utils.misc.md) - Miscellaneous utility functions
-*   [`fsspeckit.utils.polars`](fsspeckit.utils.polars.md) - Polars DataFrame utilities
-*   [`fsspeckit.utils.pyarrow`](fsspeckit.utils.pyarrow.md) - PyArrow utilities and integrations
-*   [`fsspeckit.utils.sql`](fsspeckit.utils.sql.md) - SQL query and filter utilities
-*   [`fsspeckit.utils.types`](fsspeckit.utils.types.md) - Type definitions and utilities
-
-> **Migration Tip**: For new code, prefer importing directly from domain packages:
-> - `from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection`
-> - `from fsspeckit.datasets.pyarrow import PyarrowDatasetIO`
-> - `from fsspeckit.common.logging import setup_logging` instead of `from fsspeckit.utils import setup_logging`
+- [fsspeckit.sql.filters](fsspeckit.sql.filters.md) - SQL-to-filter expression translation

@@ -1,218 +1,140 @@
 # Dataset Handler Interface
 
-This document describes the shared interface for dataset handlers across different backends (DuckDB, PyArrow, etc.).
+Dataset handlers provide a consistent API for reading, writing, and maintaining
+parquet datasets across backends. This page explains the shared interface, how to
+choose a backend, and how to interpret results. For exact signatures, see the
+generated API for each backend.
 
-## Overview
+Both backends require the `datasets` extra. See the
+[extras matrix](installation.md#optional-extras).
 
-Dataset handlers provide a consistent API for reading, writing, and maintaining parquet datasets, regardless of the underlying backend. This allows users to switch between backends with minimal code changes while taking advantage of backend-specific optimizations.
+## Shared interface
 
-## Shared Interface
+All dataset handlers implement the `DatasetHandler` protocol
+(`fsspeckit.datasets.interfaces`). The core operations are:
 
-All dataset handlers implement the `DatasetHandler` protocol, which defines the following core operations:
+- `write_dataset(data, path, *, mode="append"|"overwrite")` - write a parquet
+  dataset, returning a `WriteDatasetResult` with per-file metadata.
+- `merge(data, path, strategy, key_columns, ...)` - incrementally merge data
+  into an existing dataset, returning a `MergeResult` with row and file counts.
+- `compact_parquet_dataset(path, ...)` - combine small files.
+- `optimize_parquet_dataset(path, ...)` - compaction plus optional deduplication.
+- `read_parquet(path, ...)` - read parquet files into a PyArrow table.
 
-### Core Methods
+For the authoritative signatures and parameter lists, see
+[fsspeckit.datasets.duckdb](api/fsspeckit.datasets.duckdb.md) and
+[fsspeckit.datasets.pyarrow](api/fsspeckit.datasets.pyarrow.md).
 
-#### `write_dataset()`
-Write a parquet dataset with explicit mode configuration.
+## Choosing a backend
 
-**Signature:**
-```python
-def write_dataset(
-    data: pa.Table | list[pa.Table],
-    path: str,
-    *,
-    mode: Literal["append"] | Literal["overwrite"] = "append",
-    basename_template: str | None = None,
-    schema: pa.Schema | None = None,
-    partition_by: str | list[str] | None = None,
-    compression: str | None = "snappy",
-    max_rows_per_file: int | None = 5_000_000,
-    row_group_size: int | None = 500_000,
-    **kwargs: Any,
-) -> WriteDatasetResult
-```
+| Choose DuckDB when | Choose PyArrow when |
+|--------------------|-------------------------|
+| SQL-based merge logic and ad-hoc `parquet_scan` queries | Streaming merge with explicit memory controls |
+| Very large datasets that benefit from DuckDB's optimizer | Predicate pushdown and the PyArrow ecosystem |
+| SQL-heavy workflows | Memory-constrained environments |
 
-**Parameters:**
-- `data`: PyArrow table or list of tables to write
-- `path`: Output directory path
-- `mode`: Write mode - `"append"` (default) or `"overwrite"`
-- `basename_template`: Template for file names
-- `schema`: Optional schema to enforce
-- `partition_by`: Column(s) to partition by
-- `compression`: Compression codec
-- `max_rows_per_file`: Maximum rows per file
-- `row_group_size`: Rows per row group
+Both backends share the same core parameters for `write_dataset` and `merge`
+(`mode`, `key_columns`, `partition_by`, `compression`, `max_rows_per_file`,
+`row_group_size`). Backend-specific knobs are noted below.
 
-#### `merge()`
-Perform incremental merge operations on existing datasets.
+## DuckDB backend
 
-**Signature:**
-```python
-def merge(
-    data: pa.Table | list[pa.Table],
-    path: str,
-    strategy: Literal["insert"] | Literal["update"] | Literal["upsert"],
-    key_columns: list[str] | str,
-    *,
-    partition_columns: list[str] | str | None = None,
-    schema: pa.Schema | None = None,
-    compression: str | None = "snappy",
-    max_rows_per_file: int | None = 5_000_000,
-    row_group_size: int | None = 500_000,
-    merge_chunk_size_rows: int = 100_000,
-    enable_streaming_merge: bool = True,
-    merge_max_memory_mb: int = 1024,
-    merge_max_process_memory_mb: int | None = None,
-    merge_min_system_available_mb: int = 512,
-    merge_progress_callback: Callable[[int, int], None] | None = None,
-    use_merge: bool | None = None,
-    **kwargs: Any,
-) -> MergeResult
-```
+`DuckDBDatasetIO` requires a `DuckDBConnection`. Create one with
+`create_duckdb_connection()`, optionally passing a filesystem.
 
-**Parameters:**
-- `data`: PyArrow table or list of tables to merge
-- `path`: Existing dataset directory path
-- `strategy`: Merge strategy:
-  - `'insert'`: Only insert new records
-  - `'update'`: Only update existing records
-  - `'upsert'`: Insert or update existing records
-- `key_columns`: Column(s) used as merge keys
-- `partition_columns`: Columns that must not change for existing keys
-- `schema`: Optional schema to enforce
-- `compression`: Compression codec
-- `max_rows_per_file`: Maximum rows per file
-- `row_group_size`: Rows per row group
-- `merge_chunk_size_rows`: Chunk size for streaming merges
-- `enable_streaming_merge`: Toggle streaming merge path
-- `merge_max_memory_mb`: Max PyArrow memory for merge
-- `merge_max_process_memory_mb`: Optional max process RSS
-- `merge_min_system_available_mb`: Minimum system available memory
-- `merge_progress_callback`: Optional progress callback
-- `use_merge`: Reserved for backward compatibility (ignored by DuckDB and PyArrow backends)
-
-#### `compact_parquet_dataset()`
-Compact a parquet dataset by combining small files.
-
-**Signature:**
-```python
-def compact_parquet_dataset(
-    path: str,
-    *,
-    target_mb_per_file: int | None = None,
-    target_rows_per_file: int | None = None,
-    partition_filter: list[str] | None = None,
-    compression: str | None = None,
-    dry_run: bool = False,
-    verbose: bool = False,
-    **kwargs: Any,
-) -> dict[str, Any]
-```
-
-#### `optimize_parquet_dataset()`
-Optimize a parquet dataset through compaction and maintenance.
-
-**Signature:**
-```python
-def optimize_parquet_dataset(
-    path: str,
-    *,
-    target_mb_per_file: int | None = None,
-    target_rows_per_file: int | None = None,
-    partition_filter: list[str] | None = None,
-    compression: str | None = None,
-    deduplicate_key_columns: list[str] | str | None = None,
-    dedup_order_by: list[str] | str | None = None,
-    verbose: bool = False,
-    **kwargs: Any,
-) -> dict[str, Any]
-```
-
-## Backend Comparison
-
-### DuckDB Dataset Handler (`DuckDBDatasetIO`)
-
-**Class-based interface** that provides high-performance parquet operations using DuckDB's engine.
-
-**Strengths:**
-- Excellent SQL-based merging capabilities
-- Fast merge operations using DuckDB's query optimizer
-- Efficient for large-scale dataset operations
-- Rich SQL syntax for complex merge strategies
-
-**Backend-specific features:**
-- `use_merge` is reserved for backward compatibility and ignored
-- SQL WHERE clause filters for `read_parquet`
-
-**Example usage:**
 ```python
 from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
 
 conn = create_duckdb_connection()
 io = DuckDBDatasetIO(conn)
 
-io.write_dataset(data, "/path/to/dataset/", mode="append")
-result = io.merge(
-    data,
-    "/path/to/dataset/",
-    strategy="upsert",
-    key_columns=["id"],
-)
+io.write_dataset(data, "dataset/", mode="append")
+result = io.merge(data, "dataset/", strategy="upsert", key_columns=["id"])
 ```
 
-### PyArrow Dataset Handler (`PyarrowDatasetIO`)
+The connection object also exposes `execute_sql(query)` for ad-hoc SQL against
+registered parquet files.
 
-**Class-based interface** using PyArrow's native parquet engine with API symmetry to DuckDB.
+Backend-specific notes:
 
-**Strengths:**
-- Direct PyArrow integration with schema enforcement
-- Streaming merge controls for memory-efficient operations
-- Partitioning support with predicate pushdown
-- Compatibility with the PyArrow ecosystem
+- `read_parquet` accepts SQL `WHERE` clause strings as filters.
+- `use_merge` is accepted for backwards compatibility and ignored.
 
-**Example usage:**
+## PyArrow backend
+
+`PyarrowDatasetIO` takes an optional filesystem (defaults to local).
+
 ```python
 from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
 
 io = PyarrowDatasetIO()
 
-io.write_dataset(data, "/path/to/dataset/", mode="append")
+io.write_dataset(data, "dataset/", mode="append")
 result = io.merge(
-    data,
-    "/path/to/dataset/",
-    strategy="upsert",
-    key_columns=["id"],
+    data, "dataset/", strategy="upsert", key_columns=["id"],
     enable_streaming_merge=True,
 )
 ```
 
-## Backend-Specific Differences
+Backend-specific notes:
+
+- `read_parquet` accepts PyArrow expressions, DNF tuples, or SQL-like strings
+  (converted to expressions).
+- `merge` exposes streaming controls: `merge_chunk_size_rows`,
+  `enable_streaming_merge`, `merge_max_memory_mb`, `merge_max_process_memory_mb`,
+  `merge_min_system_available_mb`, and `merge_progress_callback`.
+- `use_threads` is accepted for `write_dataset` but ignored by the PyArrow engine.
+
+## Result types
+
+### WriteDatasetResult
+
+Fields: `files` (list of `FileWriteMetadata` with `path`, `row_count`,
+`size_bytes`), `total_rows`, `mode`, `backend`.
+
+Use `result.total_rows` and `result.files` to audit what was written without
+re-reading the dataset.
+
+### MergeResult
+
+Fields: `strategy`, `source_count`, `target_count_before`,
+`target_count_after`, `inserted`, `updated`, `deleted`, `files`,
+`rewritten_files`, `inserted_files`, `preserved_files`.
+
+Use the row counts (`inserted`, `updated`, `deleted`) and file lists
+(`rewritten_files`, `inserted_files`, `preserved_files`) for auditing and
+downstream planning.
+
+## Backend comparison
 
 | Feature | DuckDB | PyArrow |
-|----------|--------|----------|
-| **Filters** | SQL WHERE clause strings (`str`) only | PyArrow expressions, DNF tuples, or SQL-like strings (converted to expressions) |
-| **Merge backend** | `use_merge` reserved for backward compatibility (ignored) | Streaming/in-memory merge knobs (merge_chunk_size_rows, enable_streaming_merge, merge_max_memory_mb, etc.) |
-| **Write backend** | `use_threads` parameter for write_parquet | `use_threads` accepted but ignored |
-| **Optimization features** | SQL-based query optimization | Adaptive key tracking + streaming merge controls |
-| **Best for** | Complex merge logic, very large datasets, SQL workflows | Partitioned datasets, predicate pushdown, memory-constrained environments |
+|---------|--------|---------|
+| Filters | SQL `WHERE` strings | PyArrow expressions, DNF tuples, SQL-like strings |
+| Merge controls | `use_merge` ignored | streaming knobs (`merge_chunk_size_rows`, etc.) |
+| Write threading | `use_threads` honored | `use_threads` accepted, ignored |
+| Optimization | SQL-based query optimization | Adaptive key tracking + streaming controls |
+| Best for | Complex SQL merge logic, very large datasets | Partitioned datasets, predicate pushdown, low memory |
 
-**Note:** These differences reflect backend-specific optimizations rather than incompatibilities. Both backends provide the same core API surface (`write_dataset`, `merge`, `compact_parquet_dataset`, `optimize_parquet_dataset`) with identical shared parameters.
+Both backends share core merge invariants from `fsspeckit.core.incremental` and
+validation from `fsspeckit.datasets.base`.
 
-## Type Safety
+## Type safety
 
-Both handlers implement the `DatasetHandler` protocol, which allows static analysis tools to provide better autocomplete and type checking:
+Both handlers satisfy the `DatasetHandler` protocol, so you can type against the
+protocol and swap backends:
 
 ```python
 from fsspeckit.datasets.interfaces import DatasetHandler
-from fsspeckit.datasets.duckdb import DuckDBDatasetIO
 
-def process_dataset(handler: DatasetHandler, data: pa.Table) -> None:
+def process(handler: DatasetHandler, data) -> None:
     handler.write_dataset(data, "output/")
     handler.merge(data, "output/", strategy="upsert", key_columns=["id"])
 ```
 
-## Implementation Notes
+## Related documentation
 
-- All handlers share core merge invariants defined in `fsspeckit.core.incremental`
-- Validation logic is centralized in `fsspeckit.datasets.base`
-- Result types are canonical (`WriteDatasetResult`, `MergeResult`)
+- [API Guide](reference/api-guide.md) - import selection across all packages.
+- [Adaptive Key Tracking](reference/adaptive-key-tracking.md) - tiered memory management for deduplication.
+- [Multi-Key API](reference/multi-key-api.md) - vectorized multi-column key helpers.
+- [Read and Write Datasets](how-to/read-and-write-datasets.md) - task-oriented recipe.
+- [Merge Datasets](how-to/merge-datasets.md) - task-oriented recipe.

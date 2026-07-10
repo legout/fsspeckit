@@ -1,214 +1,81 @@
 # fsspeckit Examples
 
-Welcome to the fsspeckit examples! This collection demonstrates the core capabilities of the fsspeckit ecosystem through practical, runnable examples that work offline without requiring credentials.
+This collection demonstrates fsspeckit's capabilities through practical, runnable
+examples. Every example works offline without cloud credentials.
 
-## 🎯 Overview
+## Start here first
 
-fsspeckit is a modular Python ecosystem for data processing that provides powerful tools for working with datasets, SQL operations, common utilities, and cloud storage options. These examples are designed to help you learn fsspeckit through hands-on practice.
+Before running these examples, work through the
+[Local Dataset Lifecycle tutorial](../docs/tutorials/local-dataset-lifecycle.md).
+It is a single, copyable script that covers the canonical workflow: configure a
+local filesystem, write a Parquet dataset, read it back, verify the result, and
+clean up. The examples below build on that foundation; they do not replace it.
 
-## 📚 Learning Path
-
-### 🟢 Getting Started (Beginner)
-*Perfect for newcomers to fsspeckit*
-
-**Location:** `datasets/getting_started/`
-
-1. **DuckDB Basics** - Learn database-style operations with parquet files
-2. **PyArrow Basics** - Master in-memory columnar data processing
-3. **Simple Merges** - Understand dataset combination techniques
-4. **PyArrow Merges** - Advanced merge operations with PyArrow
-
-**Time:** 1-2 hours | **Prerequisites:** Basic Python knowledge
-
----
-
-### 🟡 Intermediate (Building Skills)
-*Develop practical data processing skills*
-
-**Location:** `datasets/workflows/`
-1. **Cloud Datasets** - Work with S3, Azure, and Google Cloud Storage (works offline)
-2. **Performance Optimization** - Learn memory management and parallel processing
-
-**Location:** `sql/`
-1. **SQL Filter Basics** - Convert SQL to PyArrow/Polars filters
-2. **Advanced SQL** - Complex queries and performance benchmarking
-3. **Cross-Platform Filters** - Backend-agnostic SQL operations
-
-**Location:** `datasets/schema/`
-1. **Schema Basics** - Fundamental schema operations
-2. **Schema Unification** - Combine datasets with different schemas
-3. **Type Optimization** - Advanced memory and performance optimization
-
-**Location:** `common/`
-1. **Logging Setup** - Comprehensive structured logging
-2. **Parallel Processing** - Multi-core data processing patterns
-3. **Type Conversion** - Format conversion between data libraries
-
-**Time:** 6-8 hours | **Prerequisites:** Getting Started completion
-
----
-
-### 🔧 Functional Examples
-
-**Location:** `batch_processing/`
-- Large-scale batch data processing patterns
-
-**Location:** `caching/`
-- Efficient data caching strategies
-
-**Location:** `dir_file_system/`
-- Directory and filesystem operations
-
-**Location:** `read_folder/`
-- Folder reading and data ingestion patterns
-
-**Location:** `storage_options/`
-- Cloud storage configuration (graceful offline operation)
-
-## 🚀 Quick Start
-
-### Installation
+## Install
 
 ```bash
-# Install fsspeckit with core packages
-pip install fsspeckit[datasets,sql,common,storage_options]
-
-# Install basic dependencies for examples
-pip install pyarrow duckdb pandas polars
+pip install "fsspeckit[datasets]"
 ```
 
-### Your First Example
+For the full extras matrix, see
+[Installation and optional extras](../docs/installation.md).
 
-```python
-# Start with DuckDB basics
-from fsspeckit.datasets import DuckDBParquetHandler
+## Example categories
 
-# Process data with SQL
-with DuckDBParquetHandler() as handler:
-    # Write data
-    handler.write_parquet(data, "output.parquet")
+### Getting started
 
-    # Register and query
-    handler.register_dataset("my_data", "data.parquet")
-    result = handler.execute_sql("SELECT * FROM my_data WHERE value > 100")
-```
+Location: `datasets/getting_started/`
 
-### Choose Your Path
+Hands-on introductions to dataset operations. Start here after the tutorial.
 
-**🎯 For Data Analysts:** Start with `datasets/getting_started/01_duckdb_basics.py`
-- 🔄 **For Merge Operations:** Try `datasets/getting_started/03_simple_merges.py`
+1. `01_duckdb_basics.py` - DuckDB dataset operations with Parquet
+2. `02_pyarrow_basics.py` - in-memory columnar processing with PyArrow
+3. `03_simple_merges.py` - dataset combination techniques
+4. `04_pyarrow_merges.py` - merge operations with the PyArrow backend
+5. `05_duckdb_upserts.py` - upsert workflows with DuckDB
+6. `06_pyarrow_maintenance.py` - dataset maintenance with PyArrow
 
-**🚀 For Data Engineers:** Begin with `datasets/workflows/performance_optimization.py`
+### Workflows
 
-**☁️ For Cloud Architects:** Jump to `datasets/workflows/cloud_datasets.py`
+Location: `datasets/workflows/`
 
-**🔧 For Application Developers:** Explore `common/` and `batch_processing/`
+- `performance_optimization.py` - memory management and parallel processing
+- `cloud_datasets.py` - working with cloud backends (runs offline with local fallbacks)
 
-## 📁 Directory Structure
+### Schema
 
-```
-examples/
-├── README.md                    # This file - main guide
-├── requirements.txt             # Minimal example dependencies
-│
-├── datasets/                    # Core data processing examples
-│   ├── getting_started/         # Beginner tutorials (4 examples)
-│   │   ├── 01_duckdb_basics.py
-│   │   ├── 02_pyarrow_basics.py
-│   │   ├── 03_simple_merges.py
-│   │   └── 04_pyarrow_merges.py
-│   ├── workflows/               # Intermediate workflows (2 examples)
-│   └── schema/                  # Schema management (3 examples)
-│
-├── sql/                         # SQL operations (3 examples)
-│   ├── sql_filter_basic.py
-│   ├── sql_filter_advanced.py
-│   └── cross_platform_filters.py
-│
-├── common/                      # Common utilities (3 examples)
-│   ├── logging_setup.py
-│   ├── parallel_processing.py
-│   └── type_conversion.py
-│
-├── batch_processing/            # Batch processing patterns (3 examples)
-├── caching/                     # Caching strategies (3 examples)
-├── dir_file_system/             # Filesystem operations (3 examples)
-├── read_folder/                 # Data ingestion patterns (3 examples)
-└── storage_options/             # Cloud storage config (3 examples)
-```
+Location: `datasets/schema/`
 
-## 💡 Best Practices
+- `schema_basics.py` - fundamental schema operations
+- `schema_unification.py` - combining datasets with different schemas
+- `type_optimization.py` - memory and performance optimization through typing
 
-### 🔧 Development Best Practices
+### SQL filters
 
-1. **Start Simple, Scale Up**
-   ```python
-   # Begin with basic operations
-   result = handler.execute_sql("SELECT * FROM data LIMIT 1000")
+Location: `sql/`
 
-   # Then optimize and scale
-   optimized_query = optimize_sql_query("SELECT * FROM data WHERE category = 'A'")
-   ```
+- `sql_filter_basic.py` - convert SQL to PyArrow and Polars filters
+- `sql_filter_advanced.py` - complex queries and performance benchmarking
+- `cross_platform_filters.py` - backend-agnostic SQL filter operations
 
-2. **Use Context Managers**
-   ```python
-   # Always use context managers for resource management
-   with DuckDBParquetHandler() as handler:
-       result = handler.execute_sql(query)
-   # Resources automatically cleaned up
-   ```
+### Common utilities
 
-3. **Handle Large Data Efficiently**
-   ```python
-   # Process in chunks for memory efficiency
-   for batch in data_frame.take_batches(batch_size=10000):
-       process_batch(batch)
-   ```
+Location: `common/`
 
-### 🚀 Performance Best Practices
+- `logging_setup.py` - structured logging configuration
+- `parallel_processing.py` - multi-core data processing patterns
+- `type_conversion.py` - format conversion between data libraries
 
-1. **Optimize Data Layout**
-   ```python
-   # Use Z-ordering for better query performance
-   optimize_parquet_dataset_pyarrow(
-       "data/",
-       zorder_columns=["date", "region", "category"]
-   )
-   ```
+### Other categories
 
-2. **Choose the Right Tool**
-   ```python
-   # Use DuckDB for complex SQL
-   # Use PyArrow for simple transformations
-   # Use polars for high-performance operations
-   ```
+- `batch_processing/` - large-scale batch data processing patterns
+- `caching/` - data caching strategies
+- `dir_file_system/` - directory and filesystem operations
+- `read_folder/` - folder reading and data ingestion
+- `storage_options/` - storage configuration (graceful offline operation)
+- `maintenance/` - dataset deduplication and maintenance
 
-3. **Parallel Processing**
-   ```python
-   # Leverage multiple cores for heavy operations
-   from fsspeckit.common import run_parallel
-
-   results = run_parallel(process_data, data_chunks, max_workers=4)
-   ```
-
-## 🛠️ Environment Setup
-
-### Development Environment
-
-```bash
-# Clone the repository
-git clone https://github.com/your-org/fsspeckit.git
-cd fsspeckit/examples
-
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
-
-### Running Examples
+## Running examples
 
 ```bash
 # Run a specific example
@@ -217,139 +84,20 @@ python datasets/getting_started/01_duckdb_basics.py
 # Run all examples
 python run_examples.py
 
-# Test examples
-python test_examples.py
-```
-
-## 🧪 Testing
-
-### Running Tests
-
-```bash
-# Run example tests
+# Run the example test suite
 python -m pytest test_examples.py -v
-
-# Run specific category tests
-python -m pytest test_examples.py::test_datasets -v
 ```
 
-### Test Data
+Examples include built-in sample data generation and work offline with local
+test files.
 
-Examples include built-in sample data generation and use local test files:
+## Contributing
 
-```bash
-# Use built-in sample data generation
-python datasets/getting_started/01_duckdb_basics.py
+To add an example, choose the right category, follow the patterns in existing
+examples, use canonical imports from the domain packages, and add a test. See
+the [Contributing Guide](../docs/contributing.md) for details.
 
-# Examples work offline with included test data
-ls local:/          # Sample parquet files
-ls temp_multicloud_data/  # Multi-cloud test data
-```
+## License
 
-## 📈 Performance Benchmarks
-
-### Expected Performance
-
-| Operation | Dataset Size | Time | Memory | Notes |
-|-----------|--------------|------|--------|-------|
-| Basic SQL Query | 1M rows | <1s | <100MB | DuckDB optimized |
-| Parallel Processing | 10M rows | 5-10s | 1-2GB | 4-core parallel |
-| Schema Optimization | 100M rows | 2-5min | 8-16GB | With optimization |
-
-## 🔍 Troubleshooting
-
-### Common Issues
-
-**Import Errors:**
-```bash
-# Install missing dependencies
-pip install fsspeckit[datasets,sql,common,storage_options]
-```
-
-**Performance Issues:**
-```python
-# Enable query optimization
-optimized_query = optimize_sql_query(query)
-```
-
-**Memory Errors:**
-```python
-# Reduce batch size or use streaming
-handler = DuckDBParquetHandler(memory_limit="2GB")
-```
-
-### Getting Help
-
-- **Documentation**: [Complete API Reference](https://fsspeckit.readthedocs.io/)
-- **Examples**: This repository and inline code comments
-- **Community**: [GitHub Discussions](https://github.com/your-org/fsspeckit/discussions)
-- **Issues**: [GitHub Issues](https://github.com/your-org/fsspeckit/issues)
-
-## 🤝 Contributing
-
-We welcome contributions! Please see our [Contributing Guide](../CONTRIBUTING.md) for details.
-
-### Adding Examples
-
-1. **Choose the right category** (getting_started, workflows, etc.)
-2. **Follow the template** in existing examples
-3. **Include comprehensive documentation**
-4. **Add tests** for your example
-5. **Update this README** if adding new categories
-
-### Example Template
-
-```python
-"""
-Example Title and Description
-
-This example demonstrates...
-- Key concept 1
-- Key concept 2
-- Key concept 3
-
-Prerequisites: List prerequisites
-Time: Estimated completion time
-Complexity: Beginner/Intermediate/Advanced
-"""
-
-# Imports with comments explaining each
-import pyarrow as pa
-from fsspeckit.datasets import DuckDBParquetHandler
-
-def main():
-    """Main example function."""
-    print("🚀 Starting example...")
-
-    # Your example code here
-    # Include comments explaining each step
-
-    print("✅ Example completed!")
-
-if __name__ == "__main__":
-    main()
-```
-
-## 📄 License
-
-This project is licensed under the Apache License 2.0 - see the [LICENSE](../LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **PyArrow Team** - For the amazing columnar data processing library
-- **DuckDB Team** - For the fast analytical database
-- **Community Contributors** - For feedback, suggestions, and contributions
-
----
-
-## 🎉 Start Your Journey
-
-Ready to master fsspeckit? Choose your starting point:
-
-- 🟢 **New to fsspeckit?** Start with `datasets/getting_started/01_duckdb_basics.py`
-- 🔄 **DuckDB Merge Operations?** See `datasets/getting_started/03_simple_merges.py`
-- 🚀 **Have experience?** Jump to `datasets/workflows/performance_optimization.py`
-- 🏭 **Production ready?** Explore `common/parallel_processing.py`
-- 📚 **Want to learn everything?** Follow the complete learning path above
-
-Happy coding! 🚀
+This project is licensed under the Apache License 2.0 - see the
+[LICENSE](../LICENSE) file for details.

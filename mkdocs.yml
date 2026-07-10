@@ -22,37 +22,38 @@ nav:
       - Multi-Key Performance: how-to/multi-key-performance.md
       - Merge Operations Examples: how-to/merge-operations-examples.md
   - Reference:
-      - Installation: installation.md
+      - Overview: reference/index.md
+      - Installation and Optional Extras: installation.md
       - API Guide: reference/api-guide.md
       - Dataset Handlers: dataset-handlers.md
+      - Storage Options: reference/storage-options.md
+      - Adaptive Key Tracking: reference/adaptive-key-tracking.md
+      - Multi-Key Operations: reference/multi-key-api.md
+      - Public API Inventory: reference/public-api-inventory.md
+      - Deprecation and Legacy Imports: reference/legacy-imports.md
       - Generated API:
           - Overview: api/index.md
-          - Datasets:
-              - fsspeckit.datasets: api/fsspeckit.datasets.md
-              - Adaptive Key Tracking: api/fsspeckit.datasets.pyarrow.adaptive_tracker.md
-              - PyArrow Memory: api/fsspeckit.datasets.pyarrow.memory.md
           - Core:
-              - fsspeckit.core.base: api/fsspeckit.core.base.md
-              - fsspeckit.core.ext: api/fsspeckit.core.ext.md
-              - fsspeckit.core.filesystem: api/fsspeckit.core.filesystem.md
-              - fsspeckit.core.maintenance: api/fsspeckit.core.maintenance.md
-              - fsspeckit.core.merge: api/fsspeckit.core.merge.md
+              - fsspeckit.core: api/fsspeckit.core.md
+              - Merge Planning: api/fsspeckit.core.merge.md
+              - Maintenance: api/fsspeckit.core.maintenance.md
+          - Datasets and Backends:
+              - fsspeckit.datasets: api/fsspeckit.datasets.md
+              - DuckDB Backend: api/fsspeckit.datasets.duckdb.md
+              - PyArrow Backend: api/fsspeckit.datasets.pyarrow.md
           - Storage Options:
-              - fsspeckit.storage_options.base: api/fsspeckit.storage_options.base.md
-              - fsspeckit.storage_options.cloud: api/fsspeckit.storage_options.cloud.md
-              - fsspeckit.storage_options.core: api/fsspeckit.storage_options.core.md
-              - fsspeckit.storage_options.git: api/fsspeckit.storage_options.git.md
+              - fsspeckit.storage_options: api/fsspeckit.storage_options.md
+          - Common Utilities:
+              - fsspeckit.common: api/fsspeckit.common.md
           - SQL:
               - fsspeckit.sql.filters: api/fsspeckit.sql.filters.md
-          - Common:
-              - fsspeckit.common: api/fsspeckit.common.md
   - Explanation:
       - Overview: explanation/index.md
       - Key Concepts: explanation/concepts.md
       - Architecture: explanation/architecture.md
       - Migration:
           - Upgrade from the Pre-refactor Layout: migration/dataset-module-refactor.md
-          - Move Your Package Imports: how-to/migrate-package-layout.md
+          - Move Your Package Imports: migration/migrate-package-layout.md
   - Contributing: contributing.md
 
 theme:
@@ -123,6 +124,11 @@ markdown_extensions:
   - pymdownx.tilde
 
 plugins:
+  - redirects:
+      redirect_maps:
+        how-to/migrate-package-layout.md: migration/migrate-package-layout.md
+        migration/append-mode-default.md: migration/dataset-module-refactor.md
+        migration/enhanced-memory-monitoring.md: how-to/memory-constrained-environments.md
   - search
   - mkdocstrings:
       handlers:

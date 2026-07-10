@@ -1,5 +1,11 @@
 # Maintenance Execution Template PRD
 
+> **Historical planning document.** This PRD was the implementation plan for
+> extracting the shared compaction execution template into `core.maintenance`.
+> The work is complete in 0.22.x. It is retained as engineering history, not
+> current guidance. For the current maintenance API, see
+> [Maintenance](../api/fsspeckit.core.maintenance.md).
+
 ## Summary
 
 Extract the duplicated compaction execution orchestration from both backend
