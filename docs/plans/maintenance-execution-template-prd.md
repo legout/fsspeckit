@@ -6,6 +6,12 @@
 > current guidance. For the current maintenance API, see
 > [Maintenance](../api/fsspeckit.core.maintenance.md).
 
+> **Successor design.** The historical extraction described below is superseded
+> as forward-looking maintenance architecture guidance by
+> [ADR-0006: Coordinated dataset maintenance guarantees](../adr/0006-coordinated-dataset-maintenance.md).
+> ADR-0006 records a proposed major-version redesign; it does not describe the
+> already-completed 0.22.x implementation.
+
 ## Summary
 
 Extract the duplicated compaction execution orchestration from both backend
