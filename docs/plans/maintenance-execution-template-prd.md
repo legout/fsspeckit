@@ -114,4 +114,4 @@ same format. No drift possible.
 ## References
 
 - [ADR-0004: Maintenance Execution Template](../adr/0004-maintenance-execution-template.md)
-- [ADR-0002: Merge Planning Seam Before Backend Writes](../adr/0002-merge-planning-seam.md)
+- ADR-0002: Merge Planning Seam Before Backend Writes (unpublished)

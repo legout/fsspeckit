@@ -6,15 +6,13 @@ repo_url: https://github.com/legout/fsspeckit
 
 nav:
   - Home: index.md
-  - Getting Started:
-      - Overview: tutorials/index.md
-      - Tutorial: tutorials/getting-started.md
+  - Tutorials:
+      - Local Dataset Lifecycle: tutorials/local-dataset-lifecycle.md
   - How-to Guides:
-      - Overview: how-to/index.md
-      - Configure Cloud Storage: how-to/configure-cloud-storage.md
-      - Work with Filesystems: how-to/work-with-filesystems.md
       - Read and Write Datasets: how-to/read-and-write-datasets.md
       - Merge Datasets: how-to/merge-datasets.md
+      - Work with Filesystems: how-to/work-with-filesystems.md
+      - Configure Cloud Storage: how-to/configure-cloud-storage.md
       - Use SQL Filters: how-to/use-sql-filters.md
       - Sync and Manage Files: how-to/sync-and-manage-files.md
       - Optimize Performance: how-to/optimize-performance.md
@@ -23,23 +21,16 @@ nav:
       - Multi-Key Examples: how-to/multi-key-examples.md
       - Multi-Key Performance: how-to/multi-key-performance.md
       - Merge Operations Examples: how-to/merge-operations-examples.md
-      - Migrate Package Layout: how-to/migrate-package-layout.md
-       - Optimize Memory Monitoring Performance: how-to/optimize-memory-monitoring-performance.md
-    - API Reference:
-        - API Guide: reference/api-guide.md
-        - Utils Reference: reference/utils.md
-        - Adaptive Key Tracking Reference: reference/adaptive-key-tracking.md
-        - Multi-Key API Reference: reference/multi-key-api.md
-        - Dataset Handlers: dataset-handlers.md
-        - Installation: installation.md
-        - Generated API:
-           - api/index.md
-           - Domain Packages:
+  - Reference:
+      - Installation: installation.md
+      - API Guide: reference/api-guide.md
+      - Dataset Handlers: dataset-handlers.md
+      - Generated API:
+          - Overview: api/index.md
+          - Datasets:
               - fsspeckit.datasets: api/fsspeckit.datasets.md
-              - fsspeckit.datasets.pyarrow.adaptive_tracker: api/fsspeckit.datasets.pyarrow.adaptive_tracker.md
-              - fsspeckit.datasets.pyarrow.memory: api/fsspeckit.datasets.pyarrow.memory.md
-              - fsspeckit.sql.filters: api/fsspeckit.sql.filters.md
-              - fsspeckit.common: api/fsspeckit.common.md
+              - Adaptive Key Tracking: api/fsspeckit.datasets.pyarrow.adaptive_tracker.md
+              - PyArrow Memory: api/fsspeckit.datasets.pyarrow.memory.md
           - Core:
               - fsspeckit.core.base: api/fsspeckit.core.base.md
               - fsspeckit.core.ext: api/fsspeckit.core.ext.md
@@ -51,23 +42,17 @@ nav:
               - fsspeckit.storage_options.cloud: api/fsspeckit.storage_options.cloud.md
               - fsspeckit.storage_options.core: api/fsspeckit.storage_options.core.md
               - fsspeckit.storage_options.git: api/fsspeckit.storage_options.git.md
-          - Utils (Backwards Compatibility):
-              - fsspeckit.utils.datetime: api/fsspeckit.utils.datetime.md
-              - fsspeckit.utils.logging: api/fsspeckit.utils.logging.md
-              - fsspeckit.utils.misc: api/fsspeckit.utils.misc.md
-              - fsspeckit.utils.polars: api/fsspeckit.utils.polars.md
-              - fsspeckit.utils.pyarrow: api/fsspeckit.utils.pyarrow.md
-              - fsspeckit.utils.sql: api/fsspeckit.utils.sql.md
-              - fsspeckit.utils.types: api/fsspeckit.utils.types.md
-  - Architecture & Concepts:
+          - SQL:
+              - fsspeckit.sql.filters: api/fsspeckit.sql.filters.md
+          - Common:
+              - fsspeckit.common: api/fsspeckit.common.md
+  - Explanation:
       - Overview: explanation/index.md
-      - Architecture Overview: explanation/architecture.md
       - Key Concepts: explanation/concepts.md
-      - Layering Rules: architecture/0001-layering-rules.md
-  - Migration Guides:
-      - Append Mode Default: migration/append-mode-default.md
-      - Enhanced Memory Monitoring: migration/enhanced-memory-monitoring.md
-      - Dataset Module Refactor: migration/dataset-module-refactor.md
+      - Architecture: explanation/architecture.md
+      - Migration:
+          - Upgrade from the Pre-refactor Layout: migration/dataset-module-refactor.md
+          - Move Your Package Imports: how-to/migrate-package-layout.md
   - Contributing: contributing.md
 
 theme:

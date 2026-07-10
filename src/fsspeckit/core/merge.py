@@ -780,7 +780,7 @@ def execute_merge_by_strategy(
     strategy: Literal["insert", "update", "upsert"],
     planning_results: MergePlanningResults,
     backend_executor: Callable[[MergePlanningResults], MergeResult],
-    **kwargs,
+    **kwargs: Any,
 ) -> MergeResult:
     """
     Execute merge operation using template method pattern.

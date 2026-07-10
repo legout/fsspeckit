@@ -171,11 +171,11 @@ def _execute_parallel_without_progress(
 
 def run_parallel(
     func: Callable,
-    *args,
+    *args: Any,
     n_jobs: int = -1,
     backend: str = "threading",
     verbose: bool = True,
-    **kwargs,
+    **kwargs: Any,
 ) -> list[Any]:
     """Runs a function for a list of parameters in parallel.
 

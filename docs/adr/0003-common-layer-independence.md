@@ -139,8 +139,8 @@ Rejected: reintroduces the duplication the original refactor eliminated.
 
 ## References
 
-- [ADR-0001: Import Layering Rules for Package Architecture](0001-layering-rules.md)
-- [ADR-0002: Merge Planning Seam Before Backend Writes](0002-merge-planning-seam.md)
+- [ADR-0001: Import Layering Rules for Package Architecture](../architecture/0001-layering-rules.md)
+- ADR-0002: Merge Planning Seam Before Backend Writes (unpublished)
 - [Common Layer Independence PRD](../plans/common-layer-independence-prd.md)
 
 ## Date

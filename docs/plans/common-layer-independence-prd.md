@@ -122,4 +122,4 @@ Mitigation: the checker change is small and testable. The existing
 ## References
 
 - [ADR-0003: Common Layer Independence and core/ext Tier Separation](../adr/0003-common-layer-independence.md)
-- [ADR-0001: Import Layering Rules for Package Architecture](../adr/0001-layering-rules.md)
+- [ADR-0001: Import Layering Rules for Package Architecture](../architecture/0001-layering-rules.md)

@@ -8,6 +8,7 @@ This module contains classes and functions for managing cache filesystems:
 import inspect
 import os
 import posixpath
+from typing import Any
 
 import fsspec
 from fsspec import AbstractFileSystem
@@ -104,7 +105,7 @@ class MonitoredSimpleCacheFileSystem(SimpleCacheFileSystem):
         fs: fsspec.AbstractFileSystem | None = None,
         cache_storage: str = "~/.cache/fsspec",
         verbose: bool = False,
-        **kwargs,
+        **kwargs: Any,
     ):
         """Initialize monitored cache filesystem.
 
@@ -122,7 +123,7 @@ class MonitoredSimpleCacheFileSystem(SimpleCacheFileSystem):
         if self._verbose:
             logger.info(f"Initialized cache filesystem with storage: {cache_storage}")
 
-    def open(self, path, mode="rb", **kwargs):
+    def open(self, path: str, mode: str = "rb", **kwargs: Any) -> Any:
         """Open a file from cache or remote filesystem.
 
         Args:

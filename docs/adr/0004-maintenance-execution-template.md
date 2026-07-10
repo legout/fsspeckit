@@ -112,7 +112,7 @@ justify three callbacks. One `compact_group_fn` is the right granularity.
 
 ## References
 
-- [ADR-0002: Merge Planning Seam Before Backend Writes](0002-merge-planning-seam.md)
+- ADR-0002: Merge Planning Seam Before Backend Writes (unpublished)
 - [Maintenance Execution Template PRD](../plans/maintenance-execution-template-prd.md)
 
 ## Date

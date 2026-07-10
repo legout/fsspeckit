@@ -1,68 +1,33 @@
 # fsspeckit
 
-`fsspeckit` enhances `fsspec` with advanced utilities for multi-format I/O, cloud storage configuration, and high-performance data processing.
+`fsspeckit` enhances `fsspec` with advanced utilities for multi-format I/O, cloud storage configuration, and high-performance data processing. It gives you one interface for reading and writing datasets across local and cloud storage, with SQL-based filtering and DuckDB-backed analytics built in.
 
-## Quick Start
+## Start Here
 
-**New to fsspeckit?** Start with our [Getting Started](tutorials/getting-started.md) tutorial for a complete walkthrough.
+New to fsspeckit? Work through the [Local Dataset Lifecycle tutorial](tutorials/local-dataset-lifecycle.md). It walks you through installing the library, connecting local and cloud storage, and running your first dataset operations. This is the recommended first path for anyone using fsspeckit as a library.
 
-**Looking for specific tasks?** Browse our [How-to Guides](how-to/index.md) for practical recipes:
+## Where to Go Next
 
-- [Configure Cloud Storage](how-to/configure-cloud-storage.md) - AWS, GCP, Azure setup
-- [Work with Filesystems](how-to/work-with-filesystems.md) - Local and remote operations  
-- [Read and Write Datasets](how-to/read-and-write-datasets.md) - JSON, CSV, Parquet operations
-- [Use SQL Filters](how-to/use-sql-filters.md) - Cross-framework filtering
-- [Sync and Manage Files](how-to/sync-and-manage-files.md) - File synchronization
-- [Optimize Performance](how-to/optimize-performance.md) - Caching and parallel processing
-- [Multi-Key Usage Examples](how-to/multi-key-examples.md) - Composite key operations with 10-100x performance gains
-- [Multi-Key Performance Guide](how-to/multi-key-performance.md) - Performance characteristics and optimization
+Once you have the basics, pick a lane:
+
+- **[How-to Guides](how-to/index.md)** - practical recipes for specific tasks
+- **[Reference](reference/api-guide.md)** - the complete API tour; see also [Installation](installation.md) for setup and the dependency matrix
+- **[Explanation](explanation/index.md)** - the concepts and architecture behind fsspeckit
+- **[Migration](migration/dataset-module-refactor.md)** - moving from older module layouts
+- **Integrations** - wire up cloud backends in [Configure Cloud Storage](how-to/configure-cloud-storage.md) and query layers in [Use SQL Filters](how-to/use-sql-filters.md); check [Installation](installation.md) for the full extras matrix
 
 ## Key Features
 
-- **Multi-Cloud Support**: Unified interface for AWS S3, Azure Blob Storage, Google Cloud Storage
-- **Advanced Dataset Operations**: High-performance Parquet processing with DuckDB integration
-- **SQL Filter Translation**: Write filters once, use across PyArrow and Polars
+- **Multi-Cloud Support**: Unified interface for AWS S3, Azure Blob Storage, and Google Cloud Storage
+- **Dataset Operations**: High-performance Parquet processing with DuckDB integration
+- **SQL Filter Translation**: Write filters once and run them across PyArrow and Polars
 - **Enhanced Filesystem API**: Extended I/O methods with automatic batching and threading
 - **Path Safety by Default**: Built-in protection against directory traversal attacks
-- **Domain Package Architecture**: Organized APIs for better discoverability and type safety
+- **Domain Package Architecture**: Organized APIs for discoverability and type safety
 
-## Documentation
+## Contributing
 
-### Learning Paths
-
-**Beginners**: Start with [Getting Started](tutorials/getting-started.md) for hands-on learning
-
-**Practical Users**: Jump to [How-to Guides](how-to/index.md) for specific task solutions
-
-**Developers**: Reference [API Guide](reference/api-guide.md) for capability overview
-
-**Architects**: Understand design decisions in [Architecture & Concepts](explanation/index.md)
-
-### Reference Materials
-
-- **[Installation](installation.md)** - Setup and dependency management
-- **[API Reference](reference/api-guide.md)** - Complete API documentation
-- **[Multi-Key API Reference](reference/multi-key-api.md)** - PyArrow vectorized multi-key functions
-- **[Utils Reference](reference/utils.md)** - Backwards compatibility guide
-
-## Architecture Overview
-
-fsspeckit is organized into domain-specific packages:
-
-- **`fsspeckit.core`** - Filesystem creation and extended I/O
-- **`fsspeckit.storage_options`** - Cloud provider configuration
-- **`fsspeckit.datasets`** - Large-scale dataset operations
-- **`fsspeckit.sql`** - Cross-framework SQL translation
-- **`fsspeckit.common`** - Shared utilities and helpers
-- **`fsspeckit.utils`** - Backwards compatibility façade
-
-## Getting Help
-
-**Contributing**: See our [Contributing Guide](contributing.md) to help improve fsspeckit
-
-**Issues**: Report bugs and request features on [GitHub](https://github.com/legout/fsspeckit)
-
-**Community**: Join discussions and connect with other users
+fsspeckit is open source. Read the [Contributing Guide](contributing.md) if you would like to help out, and file bugs or feature requests on [GitHub](https://github.com/legout/fsspeckit).
 
 ## Badges
 
