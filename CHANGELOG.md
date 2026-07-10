@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-07-10
+
+### Fixed
+- **Package-level merge import recovered.** `MergeTargetMetadata`, `plan_merge_operation`, and `resolve_merge_plan_early_exit` added to `core.merge`, fixing the `ImportError` that blocked both dataset backends. (#19)
+- **Missing-target UPDATE parity preserved.** UPDATE against a non-existent target now fails before any no-op result, regardless of source size, with the established `non-existent target` error wording across both backends. (#20)
+- **Accurate UPDATE plan validation.** Strategy compatibility is now evaluated from the actual prepared source-row count instead of a hardcoded sentinel, so valid nonempty UPDATE plans report truthful compatibility metadata. (#21)
+
 ## [0.21.0] - 2026-07-08
 
 ### Added
