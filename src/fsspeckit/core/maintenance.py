@@ -35,21 +35,27 @@ produce identical grouping decisions and statistics structures.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from pathlib import Path
+import os
 import posixpath
-from typing import Any, Callable
 import uuid
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from pathlib import Path
+from typing import Any, cast
+
+import pyarrow as pa
 
 from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
 
 from fsspeckit.common.logging import get_logger
 
-logger = get_logger(__name__)
+logger: Any = get_logger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class FileInfo:
     """Information about a single parquet file with validation.
 
@@ -135,7 +141,7 @@ class MaintenanceStats:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary format for backward compatibility."""
-        result = {
+        result: dict[str, Any] = {
             "before_file_count": self.before_file_count,
             "after_file_count": self.after_file_count,
             "before_total_bytes": self.before_total_bytes,
@@ -154,7 +160,7 @@ class MaintenanceStats:
         return result
 
 
-@dataclass
+@dataclass(frozen=True)
 class CompactionGroup:
     """A group of files to be compacted or optimized together.
 
@@ -163,26 +169,28 @@ class CompactionGroup:
     bounding the amount of data processed at once.
 
     Attributes:
-        files: List of FileInfo objects in this group.
-        total_size_bytes: Total size of all files in this group (computed).
-        total_rows: Total rows across all files in this group (computed).
+        files: Tuple of FileInfo objects in this group.
 
     Note:
         Must contain at least one file. The total_size_bytes and total_rows
-        are computed during initialization and used for planning decisions.
+        are computed on demand as properties and used for planning decisions.
         This structure enables per-group streaming processing without
         materializing entire datasets.
     """
 
-    files: list[FileInfo]
-    total_size_bytes: int = field(init=False)
-    total_rows: int = field(init=False)
+    files: tuple[FileInfo, ...]
 
     def __post_init__(self) -> None:
         if not self.files:
             raise ValueError("CompactionGroup must contain at least one file")
-        self.total_size_bytes = sum(f.size_bytes for f in self.files)
-        self.total_rows = sum(f.num_rows for f in self.files)
+
+    @property
+    def total_size_bytes(self) -> int:
+        return sum(f.size_bytes for f in self.files)
+
+    @property
+    def total_rows(self) -> int:
+        return sum(f.num_rows for f in self.files)
 
     @property
     def file_count(self) -> int:
@@ -347,12 +355,12 @@ def plan_compaction_groups(
 
     # Convert to FileInfo objects if needed
     if file_infos and isinstance(file_infos[0], dict):
+        dict_files = cast(list[dict[str, Any]], file_infos)
         files = [
-            FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"])  # type: ignore[union-attr]
-            for fi in file_infos  # type: ignore[union-attr]
+            FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"]) for fi in dict_files
         ]
     else:
-        files = file_infos  # type: ignore
+        files = cast(list[FileInfo], file_infos)
 
     size_threshold_bytes = (
         target_mb_per_file * 1024 * 1024 if target_mb_per_file is not None else None
@@ -361,12 +369,12 @@ def plan_compaction_groups(
     # Separate candidate files (eligible for compaction) from large files.
     candidates: list[FileInfo] = []
     large_files: list[FileInfo] = []
-    for file_info in files:  # type: ignore[union-attr]
-        size_bytes = file_info.size_bytes  # type: ignore[union-attr]
+    for file_info in files:
+        size_bytes = file_info.size_bytes
         if size_threshold_bytes is None or size_bytes < size_threshold_bytes:
-            candidates.append(file_info)  # type: ignore[union-attr]
+            candidates.append(file_info)
         else:
-            large_files.append(file_info)  # type: ignore[union-attr]
+            large_files.append(file_info)
 
     # Build groups based on thresholds.
     groups: list[list[FileInfo]] = []
@@ -405,15 +413,15 @@ def plan_compaction_groups(
     # Only compact groups that contain more than one file; singleton groups
     # would just rewrite an existing file.
     finalized_groups: list[CompactionGroup] = [
-        CompactionGroup(files=group) for group in groups if len(group) > 1
+        CompactionGroup(files=tuple(group)) for group in groups if len(group) > 1
     ]
 
     # Calculate statistics
     before_file_count = len(files)
-    before_total_bytes = sum(f.size_bytes for f in files)  # type: ignore[union-attr]
+    before_total_bytes = sum(f.size_bytes for f in files)
 
     compacted_file_count = sum(len(group.files) for group in finalized_groups)
-    untouched_files = large_files + [  # type: ignore[operator]
+    untouched_files = large_files + [
         file_info
         for file_info in candidates
         if not any(file_info in group.files for group in finalized_groups)
@@ -423,7 +431,7 @@ def plan_compaction_groups(
 
     # Estimate after_total_bytes (assume minimal compression change for planning)
     compacted_bytes = sum(group.total_size_bytes for group in finalized_groups)
-    untouched_bytes = sum(f.size_bytes for f in untouched_files)  # type: ignore[union-attr]
+    untouched_bytes = sum(f.size_bytes for f in untouched_files)
     after_total_bytes = untouched_bytes + compacted_bytes  # Rough estimate
 
     rewritten_bytes = compacted_bytes
@@ -503,12 +511,12 @@ def plan_optimize_groups(
 
     # Convert to FileInfo objects if needed
     if file_infos and isinstance(file_infos[0], dict):
+        dict_files = cast(list[dict[str, Any]], file_infos)
         files = [
-            FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"])  # type: ignore[union-attr]
-            for fi in file_infos  # type: ignore[union-attr]
+            FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"]) for fi in dict_files
         ]
     else:
-        files = file_infos  # type: ignore
+        files = cast(list[FileInfo], file_infos)
 
     # For optimization, we typically want to process all files unless they're
     # already large enough to be left alone
@@ -519,12 +527,12 @@ def plan_optimize_groups(
     # Separate candidate files from large files
     candidates: list[FileInfo] = []
     large_files: list[FileInfo] = []
-    for file_info in files:  # type: ignore[union-attr]
-        size_bytes = file_info.size_bytes  # type: ignore[union-attr]
+    for file_info in files:
+        size_bytes = file_info.size_bytes
         if size_threshold_bytes is None or size_bytes < size_threshold_bytes:
-            candidates.append(file_info)  # type: ignore[union-attr]
+            candidates.append(file_info)
         else:
-            large_files.append(file_info)  # type: ignore[union-attr]
+            large_files.append(file_info)
 
     # Group files for optimization - similar to compaction but more aggressive
     # since optimization typically rewrites all eligible files
@@ -567,11 +575,11 @@ def plan_optimize_groups(
     finalized_groups: list[CompactionGroup] = []
     for group in groups:
         if len(group) > 0:  # Include single files too
-            finalized_groups.append(CompactionGroup(files=group))
+            finalized_groups.append(CompactionGroup(files=tuple(group)))
 
     # Calculate statistics
     before_file_count = len(files)
-    before_total_bytes = sum(f.size_bytes for f in files)  # type: ignore[union-attr]
+    before_total_bytes = sum(f.size_bytes for f in files)
 
     optimized_file_count = sum(len(group.files) for group in finalized_groups)
     untouched_files = large_files  # Only large files are left untouched in optimization
@@ -580,7 +588,7 @@ def plan_optimize_groups(
 
     # Estimate after_total_bytes (optimization may improve compression)
     optimized_bytes = sum(group.total_size_bytes for group in finalized_groups)
-    untouched_bytes = sum(f.size_bytes for f in untouched_files)  # type: ignore[union-attr]
+    untouched_bytes = sum(f.size_bytes for f in untouched_files)
     after_total_bytes = untouched_bytes + optimized_bytes  # Rough estimate
 
     rewritten_bytes = optimized_bytes
@@ -650,12 +658,12 @@ def plan_deduplication_groups(
 
     # Convert to FileInfo objects if needed
     if file_infos and isinstance(file_infos[0], dict):
+        dict_files = cast(list[dict[str, Any]], file_infos)
         files = [
-            FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"])  # type: ignore[union-attr]
-            for fi in file_infos  # type: ignore[union-attr]
+            FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"]) for fi in dict_files
         ]
     else:
-        files = file_infos  # type: ignore
+        files = cast(list[FileInfo], file_infos)
 
     size_threshold_bytes = (
         target_mb_per_file * 1024 * 1024 if target_mb_per_file is not None else None
@@ -666,12 +674,12 @@ def plan_deduplication_groups(
     # Only exclude files that are already large enough to be left alone
     candidates: list[FileInfo] = []
     large_files: list[FileInfo] = []
-    for file_info in files:  # type: ignore[union-attr]
-        size_bytes = file_info.size_bytes  # type: ignore[union-attr]
+    for file_info in files:
+        size_bytes = file_info.size_bytes
         if size_threshold_bytes is None or size_bytes < size_threshold_bytes:
-            candidates.append(file_info)  # type: ignore[union-attr]
+            candidates.append(file_info)
         else:
-            large_files.append(file_info)  # type: ignore[union-attr]
+            large_files.append(file_info)
 
     # Group files for deduplication - similar to optimization but more aggressive
     # since deduplication typically processes all files
@@ -714,11 +722,11 @@ def plan_deduplication_groups(
     finalized_groups: list[CompactionGroup] = []
     for group in groups:
         if len(group) > 0:  # Include all groups
-            finalized_groups.append(CompactionGroup(files=group))
+            finalized_groups.append(CompactionGroup(files=tuple(group)))
 
     # Calculate statistics
     before_file_count = len(files)
-    before_total_bytes = sum(f.size_bytes for f in files)  # type: ignore[union-attr]
+    before_total_bytes = sum(f.size_bytes for f in files)
 
     deduplicated_file_count = sum(len(group.files) for group in finalized_groups)
     untouched_files = large_files  # Only large files are left untouched
@@ -727,7 +735,7 @@ def plan_deduplication_groups(
 
     # Estimate after_total_bytes (deduplication may reduce data size)
     deduplicated_bytes = sum(group.total_size_bytes for group in finalized_groups)
-    untouched_bytes = sum(f.size_bytes for f in untouched_files)  # type: ignore[union-attr]
+    untouched_bytes = sum(f.size_bytes for f in untouched_files)
     after_total_bytes = untouched_bytes + deduplicated_bytes  # Rough estimate
 
     rewritten_bytes = deduplicated_bytes
@@ -925,3 +933,797 @@ def execute_compaction_template(
             filesystem.rm(file_info.path)
 
     return planned_stats.to_dict()
+
+
+# --------------------------------------------------------------------------- #
+# Typed maintenance planning and guarantee classification
+# --------------------------------------------------------------------------- #
+
+
+class MaintenanceOperation(str, Enum):
+    """Supported maintenance operations."""
+
+    COMPACTION = "compaction"
+    PARTITION_LOCAL_DEDUPLICATION = "partition_local_deduplication"
+    GLOBAL_REPARTITION_DEDUPLICATION = "global_repartition_deduplication"
+    COORDINATED_OPTIMIZATION = "coordinated_optimization"
+
+
+class GuaranteeLevel(str, Enum):
+    """Publication guarantee levels for maintenance plans."""
+
+    ATOMIC_LOCAL = "atomic_local"
+    BEST_EFFORT_OBJECT_STORE = "best_effort_object_store"
+
+
+class ValidationLevel(str, Enum):
+    """Validation levels for maintenance plans."""
+
+    DEFAULT = "default"
+    FULL_DISTINCT_KEY_SCAN = "full_distinct_key_scan"
+
+
+class SchemaOutcome(str, Enum):
+    """Outcome of schema reconciliation during maintenance."""
+
+    LOSSLESS_PRESERVED = "lossless_preserved"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
+
+
+class PartitionScopeType(str, Enum):
+    """Partition scope classification for a maintenance plan."""
+
+    FULL = "full"
+    FILTERED = "filtered"
+    REPARTITION = "repartition"
+
+
+class MaintenanceBackend(str, Enum):
+    """Supported maintenance backends."""
+
+    PYARROW = "pyarrow"
+    DUCKDB = "duckdb"
+
+
+@dataclass(frozen=True)
+class SourceFileInfo:
+    """A single file entry in a maintenance source snapshot.
+
+    Attributes:
+        relative_path: Path relative to the dataset root.
+        absolute_path: Absolute path as reported by the filesystem.
+        size_bytes: File size in bytes at snapshot time.
+        num_rows: Number of rows according to the latest Parquet metadata read.
+        content_token: A best-effort content token for drift detection.
+    """
+
+    relative_path: str
+    absolute_path: str
+    size_bytes: int
+    num_rows: int
+    content_token: str
+
+
+@dataclass(frozen=True)
+class SourceSnapshot:
+    """Immutable snapshot of the source dataset captured at plan time.
+
+    Attributes:
+        dataset_path: Root path of the dataset.
+        filesystem_protocol: Canonical fsspec protocol of the filesystem.
+        files: Tuple of SourceFileInfo entries.
+        total_bytes: Sum of file sizes.
+        total_rows: Sum of row counts.
+        captured_at: ISO-8601 timestamp of snapshot capture.
+    """
+
+    dataset_path: str
+    filesystem_protocol: str
+    files: tuple[SourceFileInfo, ...]
+    total_bytes: int
+    total_rows: int
+    captured_at: str
+
+
+@dataclass(frozen=True)
+class PartitionScope:
+    """Partition scope for a maintenance plan.
+
+    Attributes:
+        scope_type: Classification of the scope.
+        partition_filter: Optional filter prefixes that constrained planning.
+        partition_paths: Optional paths of the affected partitions.
+        partition_columns: Output partition columns for a repartition operation.
+    """
+
+    scope_type: PartitionScopeType
+    partition_filter: tuple[str, ...] | None = None
+    partition_paths: tuple[str, ...] | None = None
+    partition_columns: tuple[str, ...] | None = None
+
+
+@dataclass(frozen=True)
+class MaintenancePlan:
+    """Base immutable maintenance plan.
+
+    Attributes:
+        operation: The maintenance operation this plan represents.
+        source_snapshot: Snapshot of the source dataset at plan time.
+        selected_backend: Backend pinned to this plan.
+        guarantee_level: Automatic guarantee classification.
+        partition_scope: Partition scope of the operation.
+        schema_outcome: Lossless schema-reconciliation outcome.
+        selected_codec: Selected compression codec.
+        max_rows_per_file: Hard upper bound on output rows per file.
+        target_byte_size: Advisory target for output bytes per file.
+        validation_level: Validation level requested for the operation.
+        schema: Optional captured source schema.
+    """
+
+    operation: MaintenanceOperation
+    source_snapshot: SourceSnapshot
+    selected_backend: str
+    guarantee_level: GuaranteeLevel
+    partition_scope: PartitionScope
+    schema_outcome: SchemaOutcome
+    selected_codec: str
+    max_rows_per_file: int | None
+    target_byte_size: int | None
+    validation_level: ValidationLevel
+    schema: pa.Schema | None = None
+
+
+@dataclass(frozen=True)
+class CompactionPlan(MaintenancePlan):
+    """Immutable plan for a compaction operation."""
+
+    operation: MaintenanceOperation = field(
+        default=MaintenanceOperation.COMPACTION, init=False
+    )
+    compaction_groups: tuple[CompactionGroup, ...] = ()
+
+
+@dataclass(frozen=True)
+class PartitionLocalDeduplicationPlan(MaintenancePlan):
+    """Immutable plan for partition-local deduplication."""
+
+    operation: MaintenanceOperation = field(
+        default=MaintenanceOperation.PARTITION_LOCAL_DEDUPLICATION, init=False
+    )
+    dedup_key_columns: tuple[str, ...] | None = None
+    dedup_order_by: tuple[str, ...] | None = None
+    dedup_groups: tuple[CompactionGroup, ...] = ()
+
+
+@dataclass(frozen=True)
+class GlobalRepartitionDeduplicationPlan(MaintenancePlan):
+    """Immutable plan for global-repartitioning deduplication."""
+
+    operation: MaintenanceOperation = field(
+        default=MaintenanceOperation.GLOBAL_REPARTITION_DEDUPLICATION, init=False
+    )
+    partition_columns: tuple[str, ...] = ()
+    dedup_key_columns: tuple[str, ...] | None = None
+    dedup_order_by: tuple[str, ...] | None = None
+    dedup_groups: tuple[CompactionGroup, ...] = ()
+
+
+@dataclass(frozen=True)
+class CoordinatedOptimizationPlan(MaintenancePlan):
+    """Immutable plan for coordinated optimization (optional dedup + compaction)."""
+
+    operation: MaintenanceOperation = field(
+        default=MaintenanceOperation.COORDINATED_OPTIMIZATION, init=False
+    )
+    dedup_key_columns: tuple[str, ...] | None = None
+    dedup_order_by: tuple[str, ...] | None = None
+    optimization_groups: tuple[CompactionGroup, ...] = ()
+
+
+# Strict native local/POSIX protocol allowlist that earns the atomic_local
+# guarantee. Every other fsspec filesystem (S3, GCS, Azure, memory, ...) is
+# classified best_effort_object_store.
+_ATOMIC_LOCAL_PROTOCOLS = frozenset({"local", "file", "os"})
+
+
+def _is_local_filesystem(filesystem: AbstractFileSystem) -> bool:
+    """Return True if the filesystem is a strict native local/POSIX filesystem.
+
+    Classification is protocol-based so the allowlist matches fsspec's native
+    local backends rather than two concrete classes. A directory view (or any
+    wrapper exposing ``.fs``) is classified by its inner filesystem, so a DirFileSystem
+    over a local fs keeps the atomic_local guarantee.
+    """
+    inner = getattr(filesystem, "fs", None)
+    if inner is not None and inner is not filesystem:
+        return _is_local_filesystem(inner)
+    protocol = getattr(filesystem, "protocol", "unknown")
+    if isinstance(protocol, (list, tuple)):
+        protocol = protocol[0] if protocol else "unknown"
+    return str(protocol) in _ATOMIC_LOCAL_PROTOCOLS
+
+
+def _classify_guarantee(filesystem: AbstractFileSystem) -> GuaranteeLevel:
+    """Classify the publication guarantee for a filesystem."""
+    if _is_local_filesystem(filesystem):
+        return GuaranteeLevel.ATOMIC_LOCAL
+    return GuaranteeLevel.BEST_EFFORT_OBJECT_STORE
+
+
+def _protocol_str(filesystem: AbstractFileSystem) -> str:
+    """Return the canonical protocol string for a filesystem."""
+    inner = getattr(filesystem, "fs", None)
+    if inner is not None and inner is not filesystem:
+        return _protocol_str(inner)
+    protocol = getattr(filesystem, "protocol", "unknown")
+    if isinstance(protocol, (list, tuple)):
+        return protocol[0] if protocol else "unknown"
+    return str(protocol)
+
+
+def _content_token(info: dict[str, Any], size_bytes: int) -> str:
+    """Build a best-effort content token for drift detection."""
+    mtime = info.get("mtime")
+    if mtime is None:
+        mtime = info.get("created")
+    if mtime is not None and hasattr(mtime, "isoformat"):
+        mtime = mtime.isoformat()
+    return f"{size_bytes}:{mtime}"
+
+
+def _relative_file_path(absolute_path: str, dataset_root: str) -> str:
+    """Return the path of a file relative to the dataset root."""
+    if absolute_path == dataset_root:
+        return ""
+    try:
+        rel = posixpath.relpath(absolute_path, dataset_root)
+        if rel.startswith(".."):
+            return posixpath.basename(absolute_path)
+        return rel
+    except ValueError:
+        return posixpath.basename(absolute_path)
+
+
+def _partition_paths(
+    file_stats: list[dict[str, Any]],
+    dataset_root: str,
+) -> tuple[str, ...]:
+    """Return the sorted unique partition directory paths relative to the dataset root."""
+    paths: set[str] = set()
+    for file_stat in file_stats:
+        rel = _relative_file_path(file_stat["path"], dataset_root)
+        dir_path = posixpath.dirname(rel)
+        if dir_path:
+            paths.add(dir_path)
+    return tuple(sorted(paths))
+
+
+def _resolve_dataset_root(filesystem: AbstractFileSystem, dataset_path: str) -> str:
+    """Resolve a stable dataset root for source snapshots."""
+    if _is_local_filesystem(filesystem):
+        return os.path.abspath(dataset_path)
+    return dataset_path
+
+
+def _capture_source_snapshot(
+    filesystem: AbstractFileSystem,
+    dataset_path: str,
+    file_stats: list[dict[str, Any]],
+) -> SourceSnapshot:
+    """Capture a lock-free source snapshot for drift detection."""
+    root = _resolve_dataset_root(filesystem, dataset_path)
+    source_files: list[SourceFileInfo] = []
+    total_bytes = 0
+    total_rows = 0
+
+    for file_stat in file_stats:
+        absolute_path = file_stat["path"]
+        size_bytes = file_stat["size_bytes"]
+        num_rows = file_stat["num_rows"]
+        relative_path = _relative_file_path(absolute_path, root)
+
+        try:
+            info = filesystem.info(absolute_path)
+        except Exception:
+            info = {}
+        token = _content_token(info, size_bytes)
+
+        source_files.append(
+            SourceFileInfo(
+                relative_path=relative_path,
+                absolute_path=absolute_path,
+                size_bytes=size_bytes,
+                num_rows=num_rows,
+                content_token=token,
+            )
+        )
+        total_bytes += size_bytes
+        total_rows += num_rows
+
+    return SourceSnapshot(
+        dataset_path=root,
+        filesystem_protocol=_protocol_str(filesystem),
+        files=tuple(source_files),
+        total_bytes=total_bytes,
+        total_rows=total_rows,
+        captured_at=datetime.now(tz=timezone.utc).isoformat(),
+    )
+
+
+def _partition_scope(
+    operation: MaintenanceOperation,
+    partition_filter: list[str] | None,
+    partition_columns: list[str] | None = None,
+    partition_paths: tuple[str, ...] | None = None,
+) -> PartitionScope:
+    """Build a partition scope descriptor for a plan."""
+    if operation == MaintenanceOperation.GLOBAL_REPARTITION_DEDUPLICATION:
+        return PartitionScope(
+            scope_type=PartitionScopeType.REPARTITION,
+            partition_columns=tuple(partition_columns) if partition_columns else None,
+        )
+    if partition_filter:
+        return PartitionScope(
+            scope_type=PartitionScopeType.FILTERED,
+            partition_filter=tuple(partition_filter),
+            partition_paths=partition_paths,
+        )
+    return PartitionScope(
+        scope_type=PartitionScopeType.FULL,
+        partition_paths=partition_paths,
+    )
+
+
+def _coerce_validation_level(
+    value: ValidationLevel | str | None,
+) -> ValidationLevel:
+    """Coerce a validation level argument to the enum type."""
+    if value is None:
+        return ValidationLevel.DEFAULT
+    if isinstance(value, ValidationLevel):
+        return value
+    return ValidationLevel(value)
+
+
+def _coerce_backend(value: str | MaintenanceBackend) -> str:
+    """Coerce a backend argument to its string value."""
+    if isinstance(value, MaintenanceBackend):
+        return value.value
+    return value
+
+
+def _reconcile_schema(
+    filesystem: AbstractFileSystem,
+    file_stats: list[dict[str, Any]],
+) -> tuple[SchemaOutcome, Any]:
+    """Reconcile source schemas across all discovered files.
+
+    Planning is lock-free and reads only metadata; it does not rewrite files.
+    If any file cannot be read or its schema differs from the first file, the
+    outcome is ``RECONCILIATION_REQUIRED``.
+    """
+    if not file_stats:
+        return SchemaOutcome.LOSSLESS_PRESERVED, None
+    import pyarrow.parquet as pq
+
+    def _read_schema(path: str) -> Any:
+        with filesystem.open(path, "rb") as fh:
+            return pq.ParquetFile(fh).schema_arrow
+
+    try:
+        base_schema = _read_schema(file_stats[0]["path"])
+    except Exception:
+        return SchemaOutcome.RECONCILIATION_REQUIRED, None
+
+    for fi in file_stats[1:]:
+        try:
+            other_schema = _read_schema(fi["path"])
+        except Exception:
+            return SchemaOutcome.RECONCILIATION_REQUIRED, None
+        if not base_schema.equals(other_schema):
+            return SchemaOutcome.RECONCILIATION_REQUIRED, None
+
+    return SchemaOutcome.LOSSLESS_PRESERVED, base_schema
+
+
+def _prepare_plan_inputs(
+    operation: MaintenanceOperation,
+    dataset_path: str,
+    filesystem: AbstractFileSystem | None,
+    partition_filter: list[str] | None,
+    partition_columns: list[str] | None,
+    target_mb_per_file: int | None,
+    validation_level: ValidationLevel | str | None,
+    codec: str | None,
+) -> tuple[
+    AbstractFileSystem,
+    list[dict[str, Any]],
+    SourceSnapshot,
+    PartitionScope,
+    SchemaOutcome,
+    Any,
+    str,
+    int | None,
+    ValidationLevel,
+]:
+    """Collect the common, lock-free planning inputs shared by all operations."""
+    fs = filesystem or fsspec_filesystem("file")
+    file_stats = collect_dataset_stats(
+        dataset_path, fs, partition_filter=partition_filter
+    )["files"]
+    snapshot = _capture_source_snapshot(fs, dataset_path, file_stats)
+    schema_outcome, schema = _reconcile_schema(fs, file_stats)
+    if schema_outcome == SchemaOutcome.RECONCILIATION_REQUIRED:
+        raise ValueError(
+            "Schema reconciliation required; the dataset contains incompatible schemas. "
+            "Maintenance cannot proceed without a lossless reconciliation."
+        )
+    partition_paths = _partition_paths(file_stats, snapshot.dataset_path)
+    scope = _partition_scope(
+        operation, partition_filter, partition_columns, partition_paths
+    )
+    selected_codec = codec or "snappy"
+    target_byte_size = target_mb_per_file * 1024 * 1024 if target_mb_per_file else None
+    validation = _coerce_validation_level(validation_level)
+    return (
+        fs,
+        file_stats,
+        snapshot,
+        scope,
+        schema_outcome,
+        schema,
+        selected_codec,
+        target_byte_size,
+        validation,
+    )
+
+
+def _plan_partition_local_deduplication_groups(
+    file_stats: list[dict[str, Any]],
+    dataset_root: str,
+    key_columns: list[str] | None,
+    dedup_order_by: list[str] | None,
+    target_mb_per_file: int | None,
+    target_rows_per_file: int | None,
+) -> tuple[CompactionGroup, ...]:
+    """Plan deduplication groups that never cross a partition boundary.
+
+    Files are grouped by their partition directory (the directory containing the
+    file relative to the dataset root). Each partition is planned independently
+    so retained rows are never written into another physical partition.
+    """
+    partitions: dict[str, list[dict[str, Any]]] = {}
+    for file_stat in file_stats:
+        rel = _relative_file_path(file_stat["path"], dataset_root)
+        partition_dir = posixpath.dirname(rel)
+        partitions.setdefault(partition_dir, []).append(file_stat)
+
+    groups: list[CompactionGroup] = []
+    for partition_dir in sorted(partitions):
+        partition_files = partitions[partition_dir]
+        groups.extend(
+            plan_deduplication_groups(
+                partition_files,
+                key_columns=key_columns,
+                dedup_order_by=dedup_order_by,
+                target_mb_per_file=target_mb_per_file,
+                target_rows_per_file=target_rows_per_file,
+            )["groups"]
+        )
+    return tuple(groups)
+
+
+class DatasetMaintenanceCoordinator:
+    """Direct coordinator that creates immutable, backend-pinned maintenance plans.
+
+    Planning is lock-free and does not modify dataset files. Execution is
+    intentionally deferred to downstream issue #37.
+    """
+
+    def __init__(self, backend: str | MaintenanceBackend) -> None:
+        self.backend = _coerce_backend(backend)
+
+    # ------------------------------------------------------------------ #
+    # Planning API
+    # ------------------------------------------------------------------ #
+
+    def _common_plan_inputs(
+        self,
+        operation: MaintenanceOperation,
+        dataset_path: str,
+        filesystem: AbstractFileSystem | None,
+        partition_filter: list[str] | None,
+        target_mb_per_file: int | None,
+        validation_level: ValidationLevel | str | None,
+        codec: str | None,
+    ) -> tuple[
+        AbstractFileSystem,
+        list[dict[str, Any]],
+        SourceSnapshot,
+        PartitionScope,
+        SchemaOutcome,
+        Any,
+        str,
+        int | None,
+        ValidationLevel,
+    ]:
+        """Internal helper that delegates to the module-level input builder."""
+        return _prepare_plan_inputs(
+            operation,
+            dataset_path,
+            filesystem,
+            partition_filter,
+            None,
+            target_mb_per_file,
+            validation_level,
+            codec,
+        )
+
+    def plan_compaction(
+        self,
+        dataset_path: str,
+        filesystem: AbstractFileSystem | None = None,
+        target_mb_per_file: int | None = None,
+        target_rows_per_file: int | None = None,
+        partition_filter: list[str] | None = None,
+        validation_level: ValidationLevel | str | None = None,
+        codec: str | None = None,
+    ) -> CompactionPlan:
+        """Create an immutable compaction plan without modifying files."""
+        (
+            fs,
+            file_stats,
+            snapshot,
+            scope,
+            schema_outcome,
+            schema,
+            selected_codec,
+            target_byte_size,
+            validation,
+        ) = self._common_plan_inputs(
+            MaintenanceOperation.COMPACTION,
+            dataset_path,
+            filesystem,
+            partition_filter,
+            target_mb_per_file,
+            validation_level,
+            codec,
+        )
+        groups = plan_compaction_groups(
+            file_stats, target_mb_per_file, target_rows_per_file
+        )
+        return CompactionPlan(
+            source_snapshot=snapshot,
+            selected_backend=self.backend,
+            guarantee_level=_classify_guarantee(fs),
+            partition_scope=scope,
+            schema_outcome=schema_outcome,
+            selected_codec=selected_codec,
+            max_rows_per_file=target_rows_per_file,
+            target_byte_size=target_byte_size,
+            validation_level=validation,
+            schema=schema,
+            compaction_groups=tuple(groups["groups"]),
+        )
+
+    def plan_partition_local_deduplication(
+        self,
+        dataset_path: str,
+        filesystem: AbstractFileSystem | None = None,
+        key_columns: list[str] | None = None,
+        dedup_order_by: list[str] | None = None,
+        target_mb_per_file: int | None = None,
+        target_rows_per_file: int | None = None,
+        partition_filter: list[str] | None = None,
+        validation_level: ValidationLevel | str | None = None,
+        codec: str | None = None,
+    ) -> PartitionLocalDeduplicationPlan:
+        """Create an immutable partition-local deduplication plan."""
+        (
+            fs,
+            file_stats,
+            snapshot,
+            scope,
+            schema_outcome,
+            schema,
+            selected_codec,
+            target_byte_size,
+            validation,
+        ) = self._common_plan_inputs(
+            MaintenanceOperation.PARTITION_LOCAL_DEDUPLICATION,
+            dataset_path,
+            filesystem,
+            partition_filter,
+            target_mb_per_file,
+            validation_level,
+            codec,
+        )
+        normalized_key_columns, normalized_dedup_order_by = (
+            validate_deduplication_inputs(key_columns, dedup_order_by)
+        )
+        groups = _plan_partition_local_deduplication_groups(
+            file_stats,
+            snapshot.dataset_path,
+            normalized_key_columns,
+            normalized_dedup_order_by,
+            target_mb_per_file,
+            target_rows_per_file,
+        )
+        return PartitionLocalDeduplicationPlan(
+            source_snapshot=snapshot,
+            selected_backend=self.backend,
+            guarantee_level=_classify_guarantee(fs),
+            partition_scope=scope,
+            schema_outcome=schema_outcome,
+            selected_codec=selected_codec,
+            max_rows_per_file=target_rows_per_file,
+            target_byte_size=target_byte_size,
+            validation_level=validation,
+            schema=schema,
+            dedup_key_columns=(
+                tuple(normalized_key_columns) if normalized_key_columns else None
+            ),
+            dedup_order_by=(
+                tuple(normalized_dedup_order_by) if normalized_dedup_order_by else None
+            ),
+            dedup_groups=groups,
+        )
+
+    def plan_global_repartition_deduplication(
+        self,
+        dataset_path: str,
+        partition_columns: list[str],
+        filesystem: AbstractFileSystem | None = None,
+        key_columns: list[str] | None = None,
+        dedup_order_by: list[str] | None = None,
+        target_mb_per_file: int | None = None,
+        target_rows_per_file: int | None = None,
+        validation_level: ValidationLevel | str | None = None,
+        codec: str | None = None,
+    ) -> GlobalRepartitionDeduplicationPlan:
+        """Create an immutable global-repartitioning deduplication plan."""
+        if not partition_columns:
+            raise ValueError("partition_columns must be a non-empty list")
+        (
+            fs,
+            file_stats,
+            snapshot,
+            scope,
+            schema_outcome,
+            schema,
+            selected_codec,
+            target_byte_size,
+            validation,
+        ) = _prepare_plan_inputs(
+            MaintenanceOperation.GLOBAL_REPARTITION_DEDUPLICATION,
+            dataset_path,
+            filesystem,
+            None,
+            partition_columns,
+            target_mb_per_file,
+            validation_level,
+            codec,
+        )
+        normalized_key_columns, normalized_dedup_order_by = (
+            validate_deduplication_inputs(key_columns, dedup_order_by)
+        )
+        groups = plan_deduplication_groups(
+            file_stats,
+            key_columns=normalized_key_columns,
+            dedup_order_by=normalized_dedup_order_by,
+            target_mb_per_file=target_mb_per_file,
+            target_rows_per_file=target_rows_per_file,
+        )
+        return GlobalRepartitionDeduplicationPlan(
+            source_snapshot=snapshot,
+            selected_backend=self.backend,
+            guarantee_level=_classify_guarantee(fs),
+            partition_scope=scope,
+            schema_outcome=schema_outcome,
+            selected_codec=selected_codec,
+            max_rows_per_file=target_rows_per_file,
+            target_byte_size=target_byte_size,
+            validation_level=validation,
+            schema=schema,
+            partition_columns=tuple(partition_columns),
+            dedup_key_columns=(
+                tuple(normalized_key_columns) if normalized_key_columns else None
+            ),
+            dedup_order_by=(
+                tuple(normalized_dedup_order_by) if normalized_dedup_order_by else None
+            ),
+            dedup_groups=tuple(groups["groups"]),
+        )
+
+    def plan_coordinated_optimization(
+        self,
+        dataset_path: str,
+        filesystem: AbstractFileSystem | None = None,
+        dedup_key_columns: list[str] | None = None,
+        dedup_order_by: list[str] | None = None,
+        target_mb_per_file: int | None = None,
+        target_rows_per_file: int | None = None,
+        partition_filter: list[str] | None = None,
+        validation_level: ValidationLevel | str | None = None,
+        codec: str | None = None,
+    ) -> CoordinatedOptimizationPlan:
+        """Create an immutable coordinated optimization plan.
+
+        Coordinated optimization is defined as optional deduplication followed
+        by compaction. No z-ordering, sorting, or implicit repartitioning is
+        planned.
+        """
+        (
+            fs,
+            file_stats,
+            snapshot,
+            scope,
+            schema_outcome,
+            schema,
+            selected_codec,
+            target_byte_size,
+            validation,
+        ) = self._common_plan_inputs(
+            MaintenanceOperation.COORDINATED_OPTIMIZATION,
+            dataset_path,
+            filesystem,
+            partition_filter,
+            target_mb_per_file,
+            validation_level,
+            codec,
+        )
+        if dedup_key_columns is not None:
+            normalized_key_columns, normalized_dedup_order_by = (
+                validate_deduplication_inputs(dedup_key_columns, dedup_order_by)
+            )
+            groups = _plan_partition_local_deduplication_groups(
+                file_stats,
+                snapshot.dataset_path,
+                normalized_key_columns,
+                normalized_dedup_order_by,
+                target_mb_per_file,
+                target_rows_per_file,
+            )
+        else:
+            normalized_key_columns = None
+            normalized_dedup_order_by = None
+            compaction_result = plan_compaction_groups(
+                file_stats, target_mb_per_file, target_rows_per_file
+            )
+            groups = tuple(compaction_result["groups"])
+        return CoordinatedOptimizationPlan(
+            source_snapshot=snapshot,
+            selected_backend=self.backend,
+            guarantee_level=_classify_guarantee(fs),
+            partition_scope=scope,
+            schema_outcome=schema_outcome,
+            selected_codec=selected_codec,
+            max_rows_per_file=target_rows_per_file,
+            target_byte_size=target_byte_size,
+            validation_level=validation,
+            schema=schema,
+            dedup_key_columns=(
+                tuple(normalized_key_columns) if normalized_key_columns else None
+            ),
+            dedup_order_by=(
+                tuple(normalized_dedup_order_by) if normalized_dedup_order_by else None
+            ),
+            optimization_groups=groups,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Execution seam (downstream)
+    # ------------------------------------------------------------------ #
+
+    def execute(self, plan: MaintenancePlan) -> Any:
+        """Execute an accepted maintenance plan.
+
+        .. todo::
+            Issue #37: implement the full plan-driven execution lifecycle
+            (stage, reconcile schema, write, validate, publish, recover).
+        """
+        # TODO(#37): implement execute(plan) publish/stage/validate/rollback lifecycle.
+        raise NotImplementedError(
+            "execute() is intentionally not implemented in #36; "
+            "see downstream issue #37 for the publish/stage/validate/rollback lifecycle."
+        )

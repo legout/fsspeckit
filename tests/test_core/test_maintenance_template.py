@@ -24,7 +24,7 @@ class FakeCompactRecorder:
 
 def make_stats(**overrides: Any) -> MaintenanceStats:
     """Create a baseline MaintenanceStats with optional overrides."""
-    defaults = {
+    defaults: dict[str, Any] = {
         "before_file_count": 2,
         "after_file_count": 1,
         "before_total_bytes": 200,
@@ -42,7 +42,7 @@ class TestExecuteCompactionTemplate:
     def test_dry_run_returns_planned_groups_without_callback(self):
         """Dry-run should return planned groups without invoking compact_group_fn."""
         files = [FileInfo(path="a.parquet", size_bytes=10, num_rows=1)]
-        group = CompactionGroup(files=files)
+        group = CompactionGroup(files=tuple(files))
         planned_stats = make_stats()
         recorder = FakeCompactRecorder()
         fs = MemoryFileSystem()
@@ -88,15 +88,13 @@ class TestExecuteCompactionTemplate:
         fs.pipe("/dataset/g2/c.parquet", b"data-c")
 
         group1 = CompactionGroup(
-            files=[
+            files=(
                 FileInfo(path="/dataset/g1/a.parquet", size_bytes=5, num_rows=1),
                 FileInfo(path="/dataset/g1/b.parquet", size_bytes=5, num_rows=1),
-            ]
+            )
         )
         group2 = CompactionGroup(
-            files=[
-                FileInfo(path="/dataset/g2/c.parquet", size_bytes=5, num_rows=1),
-            ]
+            files=(FileInfo(path="/dataset/g2/c.parquet", size_bytes=5, num_rows=1),)
         )
         planned_stats = make_stats(
             before_file_count=3,
