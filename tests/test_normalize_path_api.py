@@ -216,52 +216,60 @@ def test_normalize_path_validate_true_without_filesystem():
 
 
 def test_normalize_path_validate_true_with_local_filesystem():
-    """Test normalize_path with validate=True and local filesystem."""
+    """Test normalize_path with validate=True and local filesystem.
+
+    Core performs only generic security validation (null bytes, forbidden
+    characters). Dataset-specific checks (existence, parent-directory, protocol)
+    live in ``datasets.path_utils.validate_dataset_path`` and are exercised in
+    ``tests/test_error_handling_and_path_normalization.py`` (issue #47).
+    """
     from fsspeckit.core.filesystem import normalize_path
-    from fsspeckit.datasets.exceptions import DatasetPathError
     import tempfile
     import os
 
     fs = LocalFileSystem()
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Valid path for read operation
+        # Valid path normalizes to an absolute path under core.
         result = normalize_path(tmpdir, filesystem=fs, validate=True, operation="read")
         assert os.path.isabs(result)
 
-    # Nonexistent path should fail with DatasetPathError for read operation
-    with pytest.raises(DatasetPathError, match="does not exist"):
-        normalize_path(
-            "/nonexistent/path", filesystem=fs, validate=True, operation="read"
-        )
+    # Core does NOT perform dataset-specific existence checks; a nonexistent
+    # path still normalizes successfully (existence is the datasets layer's job).
+    result = normalize_path(
+        "/nonexistent/path", filesystem=fs, validate=True, operation="read"
+    )
+    assert os.path.isabs(result)
 
 
 def test_normalize_path_validate_true_with_remote_filesystem():
-    """Test normalize_path with validate=True and remote filesystem."""
+    """Test normalize_path with validate=True and remote filesystem.
+
+    Core normalizes the path and applies generic security validation only.
+    Existence and protocol checks belong to ``validate_dataset_path`` in the
+    datasets layer (issue #47).
+    """
     from fsspeckit.core.filesystem import normalize_path
-    from fsspeckit.datasets.exceptions import DatasetPathError
     from unittest.mock import Mock
 
     fs = Mock()
     fs.protocol = "s3"
-    fs.exists.return_value = True
-    fs._parent.return_value = "s3://bucket/parent"
 
-    # Valid path should pass
+    # Core normalization succeeds regardless of existence.
     result = normalize_path(
         "s3://bucket/key/file.parquet", filesystem=fs, validate=True, operation="read"
     )
     assert result == "s3://bucket/key/file.parquet"
 
-    # Nonexistent path should fail for read
-    fs.exists.return_value = False
-    with pytest.raises(DatasetPathError, match="does not exist"):
-        normalize_path(
-            "s3://bucket/nonexistent.parquet",
-            filesystem=fs,
-            validate=True,
-            operation="read",
-        )
+    # Core does NOT check existence; it only normalizes. Even a nonexistent
+    # path normalizes successfully under core.
+    result = normalize_path(
+        "s3://bucket/nonexistent.parquet",
+        filesystem=fs,
+        validate=True,
+        operation="read",
+    )
+    assert result == "s3://bucket/nonexistent.parquet"
 
 
 def test_normalize_path_different_operations():

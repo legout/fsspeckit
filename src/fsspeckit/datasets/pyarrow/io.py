@@ -90,14 +90,20 @@ class PyarrowDatasetIO(BaseDatasetHandler):
     def _normalize_path(self, path: str, operation: str = "other") -> str:
         """Normalize path based on filesystem type and validate it.
 
-        This method now uses core/filesystem/paths.normalize_path with validation
-        and operation context, providing unified path normalization with
+        Core handles generic path normalization and security validation; the
+        datasets layer then applies dataset-specific checks (path existence,
+        parent-directory creation, protocol allow-list) via
+        ``validate_dataset_path``. This split keeps core independent of
+        dataset semantics (issue #47) while preserving the historical
         filesystem-aware behavior.
         """
-        # Use core normalize_path with validate and operation parameters
         normalized = core_normalize_path(
             path, filesystem=self._filesystem, validate=True, operation=operation
         )
+        # Dataset-specific validation lives at the datasets boundary.
+        from fsspeckit.datasets.path_utils import validate_dataset_path
+
+        validate_dataset_path(normalized, self._filesystem, operation)
         return normalized
 
     def _clear_dataset_parquet_only(self, path: str) -> None:

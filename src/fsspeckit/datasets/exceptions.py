@@ -26,36 +26,24 @@ Error Handling Patterns:
 
 from __future__ import annotations
 
-from typing import Any
 
+# ``DatasetError`` and ``DatasetPathError`` are defined in the core layer so that
+# ``core.filesystem.paths.normalize_path`` can raise path-validation errors
+# without importing from ``datasets`` (which would invert the layering). This
+# module re-exports them to preserve the historical import surface — every
+# existing ``from fsspeckit.datasets.exceptions import DatasetPathError``
+# resolves to the same class object that core raises.
+from fsspeckit.core.exceptions import DatasetError, DatasetPathError
 
-class DatasetError(Exception):
-    """Base exception for all dataset operations.
-
-    Attributes:
-        message: Human-readable error description
-        operation: The operation that failed (e.g., 'read', 'write', 'merge')
-        details: Additional context about the error
-    """
-
-    def __init__(
-        self,
-        message: str,
-        operation: str | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.operation = operation
-        self.details = details or {}
-
-    def __str__(self) -> str:
-        parts = [str(self.args[0])]
-        if self.operation:
-            parts.append(f"Operation: {self.operation}")
-        if self.details:
-            detail_str = ", ".join(f"{k}={v}" for k, v in self.details.items())
-            parts.append(f"Details: {detail_str}")
-        return " | ".join(parts)
+__all__ = [
+    "DatasetError",
+    "DatasetFileError",
+    "DatasetMergeError",
+    "DatasetOperationError",
+    "DatasetPathError",
+    "DatasetSchemaError",
+    "DatasetValidationError",
+]
 
 
 class DatasetOperationError(DatasetError):
@@ -79,11 +67,8 @@ class DatasetFileError(DatasetError):
     """
 
 
-class DatasetPathError(DatasetError):
-    """Raised when path-related operations fail.
-
-    Use this for path normalization failures, missing paths, invalid protocols, etc.
-    """
+# ``DatasetPathError`` is imported from core above; it is listed in __all__
+# so existing imports continue to resolve to the core-defined class.
 
 
 class DatasetMergeError(DatasetError):

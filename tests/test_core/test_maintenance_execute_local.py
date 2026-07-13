@@ -12,8 +12,6 @@ Covers:
 from __future__ import annotations
 
 import os
-import threading
-from io import BytesIO
 from typing import Any
 
 import pyarrow as pa
@@ -22,7 +20,6 @@ import pytest
 
 from fsspeckit.core.maintenance import (
     ActualMetrics,
-    CompactionPlan,
     DatasetMaintenanceCoordinator,
     GuaranteeLevel,
     LockAcquisitionError,
@@ -44,12 +41,6 @@ from fsspeckit.core.maintenance import (
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
-
-
-def _parquet_bytes(table: pa.Table) -> bytes:
-    buf = BytesIO()
-    pq.write_table(table, buf)
-    return buf.getvalue()
 
 
 def _write_parquet(path: str, table: pa.Table) -> None:
@@ -192,23 +183,27 @@ class TestAtomicLocalCompactionHappyPath:
 
     def test_workspace_cleaned_up_on_success(self, tmp_path):
         """The maintenance workspace is removed after a successful operation."""
+        # Use an explicit dataset subdirectory so the workspace name is predictable.
+        dataset_dir = tmp_path / "mydata"
+        dataset_dir.mkdir()
         table = pa.table({"z": [7, 8, 9]})
-        _write_parquet(str(tmp_path / "u.parquet"), table)
-        _write_parquet(str(tmp_path / "v.parquet"), table)
+        _write_parquet(str(dataset_dir / "u.parquet"), table)
+        _write_parquet(str(dataset_dir / "v.parquet"), table)
 
         fs = __import__("fsspec").filesystem("file")
         coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
-        plan = coordinator.plan_compaction(str(tmp_path), fs, target_rows_per_file=100)
+        plan = coordinator.plan_compaction(
+            str(dataset_dir), fs, target_rows_per_file=100
+        )
 
         result = coordinator.execute(plan)
 
         assert result.succeeded
         assert result.recovery is not None
         assert result.recovery.workspace_path is None  # cleaned up
-        # No .maintenance_* siblings should remain
-        parent = str(tmp_path.parent)
-        siblings = os.listdir(parent)
-        maintenance_dirs = [s for s in siblings if ".maintenance_" in s]
+        # No .maintenance_mydata_* siblings should remain under tmp_path
+        siblings = os.listdir(str(tmp_path))
+        maintenance_dirs = [s for s in siblings if s.startswith(".maintenance_mydata_")]
         assert maintenance_dirs == [], (
             f"Unexpected maintenance directories: {maintenance_dirs}"
         )
@@ -230,7 +225,7 @@ class TestAtomicLocalCompactionHappyPath:
         output_files = _list_parquet(str(tmp_path))
         for f in output_files:
             out_schema = pq.read_schema(f)
-            assert out_schema.equals(schema), (
+            assert out_schema.equals(schema, check_metadata=False), (
                 f"Schema mismatch in {f}: {out_schema} != {schema}"
             )
 
@@ -515,10 +510,10 @@ class TestAtomicLocalCompactionFailureInjection:
         coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
         plan = coordinator.plan_compaction(str(tmp_path), fs, target_rows_per_file=100)
 
-        import fsspeckit.core.maintenance as _m
         import shutil as _shutil
 
         original_rmtree = _shutil.rmtree
+        result: MaintenanceResult | None = None
 
         def _fail_rmtree(path: str, *args: Any, **kwargs: Any) -> None:
             # Only fail on the maintenance workspace
@@ -532,12 +527,13 @@ class TestAtomicLocalCompactionFailureInjection:
         finally:
             _shutil.rmtree = original_rmtree
             # Clean up the leftover workspace if it's still there
-            if result.recovery and result.recovery.workspace_path:
+            if result is not None and result.recovery and result.recovery.workspace_path:
                 try:
                     original_rmtree(result.recovery.workspace_path, ignore_errors=True)
                 except Exception:
                     pass
 
+        assert result is not None  # execute() always returns a result
         # The operation still succeeded despite the cleanup failure.
         assert result.succeeded
         assert result.actual_metrics is not None

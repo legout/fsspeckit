@@ -106,9 +106,10 @@ def normalize_path(
             try:
                 result = security_validate_path(result)
             except ValueError as e:
-                # Re-raise with context if operation provided
+                # Re-raise with context if operation provided. DatasetPathError
+                # is defined in the core layer so this does not import datasets.
                 if operation:
-                    from fsspeckit.datasets.exceptions import DatasetPathError
+                    from fsspeckit.core.exceptions import DatasetPathError
 
                     raise DatasetPathError(
                         str(e), operation=operation, details={"path": path_str}
@@ -141,14 +142,18 @@ def normalize_path(
         result = path_str.replace("\\", "/")
         result = posixpath.normpath(result)
 
-    # Optional validation with filesystem
+    # Optional validation with filesystem. Core performs only generic security
+    # validation; dataset-specific validation (path existence, parent checks,
+    # protocol allow-list) lives in ``datasets.path_utils.validate_dataset_path``
+    # and is invoked by the datasets layer after core normalization. This keeps
+    # the core path layer independent of dataset semantics (issue #47).
     if validate:
-        # Import validation functions
         from fsspeckit.common.security import validate_path as security_validate_path
-        from fsspeckit.datasets.exceptions import DatasetPathError
+        from fsspeckit.core.exceptions import DatasetPathError
 
         try:
-            # Basic security validation
+            # Basic security validation only — dataset-specific checks belong
+            # at the datasets boundary.
             security_validate_path(result)
         except ValueError as e:
             if operation:
@@ -156,17 +161,6 @@ def normalize_path(
                     str(e), operation=operation, details={"path": path_str}
                 ) from e
             raise
-
-        # Operation-specific validation with filesystem
-        if operation:
-            # Import path_utils for dataset-specific validation
-            try:
-                from fsspeckit.datasets.path_utils import validate_dataset_path
-
-                validate_dataset_path(result, filesystem, operation)
-            except ImportError:
-                # If datasets.path_utils not available, skip dataset-specific validation
-                pass
 
     return result
 
