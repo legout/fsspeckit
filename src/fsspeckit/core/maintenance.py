@@ -801,13 +801,12 @@ def validate_deduplication_inputs(
             raise ValueError("key_columns cannot be empty when provided")
         normalized_key_columns = normalize_key_columns(key_columns)
 
-    # Normalize dedup order by
-    normalized_dedup_order_by = None
-    if dedup_order_by is not None:
-        normalized_dedup_order_by = normalize_key_columns(dedup_order_by)
-    elif normalized_key_columns is not None:
-        normalized_dedup_order_by = normalized_key_columns
-
+    # An omitted business order intentionally preserves snapshot-local physical
+    # row order.  It must not silently become key-column ordering: callers who
+    # need a business winner must provide it explicitly.
+    normalized_dedup_order_by = (
+        normalize_key_columns(dedup_order_by) if dedup_order_by is not None else None
+    )
     return normalized_key_columns, normalized_dedup_order_by
 
 
@@ -1329,7 +1328,7 @@ def _reconcile_schema(
             other_schema = _read_schema(fi["path"])
         except Exception:
             return SchemaOutcome.RECONCILIATION_REQUIRED, None
-        if not base_schema.equals(other_schema):
+        if not base_schema.equals(other_schema, check_metadata=True):
             return SchemaOutcome.RECONCILIATION_REQUIRED, None
 
     return SchemaOutcome.LOSSLESS_PRESERVED, base_schema
@@ -1356,6 +1355,8 @@ def _prepare_plan_inputs(
     ValidationLevel,
 ]:
     """Collect the common, lock-free planning inputs shared by all operations."""
+    if target_mb_per_file is not None and target_mb_per_file <= 0:
+        raise ValueError("target_mb_per_file must be > 0")
     fs = filesystem or fsspec_filesystem("file")
     file_stats = collect_dataset_stats(
         dataset_path, fs, partition_filter=partition_filter
@@ -1408,32 +1409,24 @@ def _group_file_stats_by_partition(
 def _plan_partition_local_deduplication_groups(
     file_stats: list[dict[str, Any]],
     dataset_root: str,
-    key_columns: list[str] | None,
-    dedup_order_by: list[str] | None,
-    target_mb_per_file: int | None,
-    target_rows_per_file: int | None,
 ) -> tuple[CompactionGroup, ...]:
-    """Plan deduplication groups that never cross a partition boundary.
+    """Plan one deduplication group per physical partition.
 
-    Files are grouped by their partition directory (the directory containing the
-    file relative to the dataset root). Each partition is planned independently
-    so retained rows are never written into another physical partition.
+    Unlike compaction, deduplication must inspect every source file in a
+    partition as one logical input.  Thresholds govern only output splitting;
+    they must never split a partition's input and allow cross-file duplicates
+    to survive.
     """
     partitions = _group_file_stats_by_partition(file_stats, dataset_root)
-
-    groups: list[CompactionGroup] = []
-    for partition_dir in sorted(partitions):
-        partition_files = partitions[partition_dir]
-        groups.extend(
-            plan_deduplication_groups(
-                partition_files,
-                key_columns=key_columns,
-                dedup_order_by=dedup_order_by,
-                target_mb_per_file=target_mb_per_file,
-                target_rows_per_file=target_rows_per_file,
-            )["groups"]
+    return tuple(
+        CompactionGroup(
+            files=tuple(
+                FileInfo(fi["path"], fi["size_bytes"], fi["num_rows"])
+                for fi in partitions[partition]
+            )
         )
-    return tuple(groups)
+        for partition in sorted(partitions)
+    )
 
 
 def _plan_partition_local_compaction_groups(
@@ -1513,13 +1506,17 @@ class PublicationOutcome:
         succeeded: True when all staged files were published.
         published_files: Absolute paths of files written into the live dataset.
         removed_source_files: Source files that were replaced during publication.
-        error: Human-readable failure description, or None on success.
-    """
+        error: Human-readable description of the failure, or None on success.
+        rollback_succeeded: Whether automatic rollback completed after failure.
+        rollback_error: Any rollback errors retained for manual recovery.
 
+    """
     succeeded: bool
     published_files: tuple[str, ...] = ()
     removed_source_files: tuple[str, ...] = ()
     error: str | None = None
+    rollback_succeeded: bool | None = None
+    rollback_error: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1711,7 +1708,7 @@ def _validate_staged_output(
             total_rows += meta.num_rows
             if expected_schema is not None:
                 schema = pq.read_schema(path)
-                if not schema.equals(expected_schema, check_metadata=False):
+                if not schema.equals(expected_schema, check_metadata=True):
                     return ValidationOutcome(
                         succeeded=False,
                         staged_row_count=total_rows,
@@ -1744,44 +1741,50 @@ def _validate_staged_output(
 def _check_source_drift(snapshot: SourceSnapshot) -> str | None:
     """Return an error string if any source file has drifted, or None.
 
-    Drift is detected by comparing each file's current on-disk size against
-    the size recorded in the snapshot.  Missing files are always a drift signal.
+    Local plans compare both size and the snapshot content token's mtime when
+    available.  Older/manual snapshots with a ``:None`` token retain their
+    size-only behavior for compatibility.
     """
     for file_info in snapshot.files:
         path = file_info.absolute_path
         try:
-            current_size = os.path.getsize(path)
+            stat = os.stat(path)
         except OSError:
             return f"Source file not accessible: {path}"
+        current_size = stat.st_size
         if current_size != file_info.size_bytes:
             return (
                 f"Source file size changed: {path} "
                 f"(expected {file_info.size_bytes}, got {current_size})"
             )
+        expected_token = file_info.content_token
+        if not expected_token.endswith(":None"):
+            current_token = _content_token(
+                {"mtime": stat.st_mtime}, current_size
+            )
+            if current_token != expected_token:
+                return (
+                    f"Source file content token changed: {path} "
+                    f"(expected {expected_token}, got {current_token})"
+                )
     return None
-
-
 def _rollback_publication(
     swaps: list[tuple[list[tuple[str, str]], list[str]]],
-) -> None:
-    """Restore every already-swapped subtree after a publication failure.
-
-    For each recorded swap, remove the published destination files and move the
-    backed-up source files back to their original locations. Errors are
-    suppressed so one failed rollback step cannot prevent the remaining
-    restores — a partial rollback is still better than abandoning the dataset.
-    """
+) -> tuple[bool, tuple[str, ...]]:
+    """Restore swapped subtrees and report any failed restore step."""
+    errors: list[str] = []
     for backed_up, published in swaps:
         for dest in published:
             try:
                 os.remove(dest)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"remove {dest}: {exc}")
         for original, backup in backed_up:
             try:
                 os.rename(backup, original)
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"restore {backup} -> {original}: {exc}")
+    return not errors, tuple(errors)
 
 
 def _publish_atomic_local(
@@ -1876,11 +1879,16 @@ def _publish_atomic_local(
 
     except Exception as exc:
         # Roll back the in-progress subtree, then every completed subtree.
-        _rollback_publication([(current_backed_up, current_published)])
-        _rollback_publication(completed)
+        current_ok, current_errors = _rollback_publication(
+            [(current_backed_up, current_published)]
+        )
+        completed_ok, completed_errors = _rollback_publication(completed)
+        rollback_errors = current_errors + completed_errors
         return PublicationOutcome(
             succeeded=False,
             error=f"Publication rename failed: {exc}",
+            rollback_succeeded=current_ok and completed_ok,
+            rollback_error="; ".join(rollback_errors) if rollback_errors else None,
         )
 
 
@@ -2124,10 +2132,18 @@ def _execute_atomic_local_compaction(
             recovery=RecoveryArtifacts(
                 workspace_path=workspace,
                 backup_paths=tuple(
-                    os.path.join(backup_dir, os.path.basename(f))
-                    for f in source_files_in_groups
+                    path
+                    for path in (
+                        os.path.join(
+                            backup_dir,
+                            _relative_file_path(f, dataset_root),
+                        )
+                        for f in source_files_in_groups
+                    )
+                    if os.path.exists(path)
                 ),
-                recovered=False,
+                recovered=publication.rollback_succeeded is True,
+                error=publication.rollback_error,
             ),
             error=f"Publication failed: {publication.error}",
         )
@@ -2147,6 +2163,18 @@ def _execute_atomic_local_compaction(
         phase_outcomes.append(
             PhaseOutcome(phase="cleanup", succeeded=False, error=cleanup_error)
         )
+    retained_backup_paths = tuple(
+        path
+        for path in (
+            os.path.join(
+                backup_dir,
+                _relative_file_path(f, dataset_root),
+            )
+            for f in source_files_in_groups
+        )
+        if os.path.exists(path)
+    ) if workspace is not None else ()
+
 
     total_bytes = sum(
         os.path.getsize(f) for f in publication.published_files if os.path.exists(f)
@@ -2159,7 +2187,11 @@ def _execute_atomic_local_compaction(
         phase_outcomes=tuple(phase_outcomes),
         validation=validation,
         publication=publication,
-        recovery=RecoveryArtifacts(workspace_path=workspace),
+        recovery=RecoveryArtifacts(
+            workspace_path=workspace,
+            backup_paths=retained_backup_paths,
+            error=cleanup_error,
+        ),
         actual_metrics=ActualMetrics(
             row_count=total_rows_written,
             file_count=len(publication.published_files),
@@ -2169,6 +2201,306 @@ def _execute_atomic_local_compaction(
 
 
 # --------------------------------------------------------------------------- #
+def _validate_staged_partition_placement(
+    staged_files: list[str],
+    staged_partition_dirs: list[str],
+    staged_root: str,
+) -> str | None:
+    """Validate that each staged file is beneath its planned partition tuple."""
+    if len(staged_files) != len(staged_partition_dirs):
+        return "Staged partition metadata does not match staged files"
+    for staged, partition in zip(staged_files, staged_partition_dirs):
+        relative = posixpath.relpath(staged, staged_root)
+        actual = posixpath.dirname(relative)
+        if actual != partition:
+            return (
+                f"Staged file {staged!r} has partition {actual!r}; "
+                f"expected {partition!r}"
+            )
+    return None
+
+
+def _validate_staged_duplicate_keys(
+    staged_files: list[str],
+    staged_partition_dirs: list[str],
+    key_columns: tuple[str, ...] | None,
+) -> str | None:
+    """Perform the opt-in full duplicate-key scan across each partition."""
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    tables_by_partition: dict[str, list[pa.Table]] = {}
+    try:
+        for staged, partition in zip(staged_files, staged_partition_dirs):
+            tables_by_partition.setdefault(partition, []).append(pq.read_table(staged))
+        for partition, tables in tables_by_partition.items():
+            table = pa.concat_tables(tables) if len(tables) > 1 else tables[0]
+            deduplicated = _deduplicate_partition_table(table, key_columns, None)
+            if deduplicated.num_rows != table.num_rows:
+                return f"Duplicate keys remain in staged partition {partition!r}"
+    except Exception as exc:
+        return f"Duplicate-key validation failed: {exc}"
+    return None
+
+
+def _execute_atomic_local_partition_local_deduplication(
+    plan: PartitionLocalDeduplicationPlan,
+    lock_timeout_s: float = 30.0,
+    lock_retry_interval_s: float = 0.05,
+) -> MaintenanceResult:
+    """Execute partition-local deduplication with atomic local publication.
+
+    Every physical partition is read as one logical input, regardless of the
+    planner's output grouping thresholds, so duplicate keys can never survive
+    merely because they were split across source files.  Staged outputs retain
+    their source partition directory and are published through the same
+    backup-then-rename transaction as local compaction.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+
+    dataset_root = plan.source_snapshot.dataset_path
+    phase_outcomes: list[PhaseOutcome] = []
+    workspace: str | None = None
+    staged_dir = ""
+    backup_dir = ""
+    validation: ValidationOutcome | None = None
+    publication: PublicationOutcome | None = None
+
+    if not plan.source_snapshot.files:
+        return MaintenanceResult(
+            plan=plan,
+            succeeded=True,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=(PhaseOutcome(phase="write", succeeded=True),),
+            actual_metrics=ActualMetrics(row_count=0, file_count=0, total_bytes=0),
+        )
+
+    try:
+        workspace, staged_dir, backup_dir = _make_workspace(dataset_root)
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=True))
+    except Exception as exc:
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=False, error=str(exc)))
+        return MaintenanceResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Stage phase failed: {exc}",
+        )
+
+    sources_by_partition: dict[str, list[SourceFileInfo]] = {}
+    for source in plan.source_snapshot.files:
+        partition = posixpath.dirname(source.relative_path)
+        sources_by_partition.setdefault(partition, []).append(source)
+
+    staged_files: list[str] = []
+    staged_partition_dirs: list[str] = []
+    source_files: list[str] = []
+    expected_rows = 0
+
+    try:
+        for partition in sorted(sources_by_partition):
+            partition_sources = sources_by_partition[partition]
+            source_files.extend(source.absolute_path for source in partition_sources)
+            tables: list[pa.Table] = []
+            for source in partition_sources:
+                with open(source.absolute_path, "rb") as fh:
+                    tables.append(pq.read_table(fh))
+            combined = pa.concat_tables(tables) if len(tables) > 1 else tables[0]
+            deduplicated = _deduplicate_partition_table(
+                combined, plan.dedup_key_columns, plan.dedup_order_by
+            )
+            if plan.schema is not None:
+                deduplicated = deduplicated.cast(plan.schema)
+            expected_rows += deduplicated.num_rows
+            output_dir = os.path.join(staged_dir, partition) if partition else staged_dir
+            os.makedirs(output_dir, exist_ok=True)
+            for chunk_index, chunk in enumerate(
+                _split_table_by_rows(deduplicated, plan.max_rows_per_file)
+            ):
+                if chunk.num_rows == 0:
+                    continue
+                output_path = os.path.join(
+                    output_dir, f"deduplicated_{uuid.uuid4().hex[:16]}_{chunk_index}.parquet"
+                )
+                pq.write_table(chunk, output_path, compression=plan.selected_codec)
+                staged_files.append(output_path)
+                staged_partition_dirs.append(partition)
+        phase_outcomes.append(PhaseOutcome(phase="write", succeeded=True))
+    except Exception as exc:
+        phase_outcomes.append(PhaseOutcome(phase="write", succeeded=False, error=str(exc)))
+        return MaintenanceResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Write phase failed: {exc}",
+        )
+
+    placement_error = _validate_staged_partition_placement(
+        staged_files, staged_partition_dirs, staged_dir
+    )
+    if placement_error is not None:
+        validation = ValidationOutcome(
+            succeeded=False, expected_row_count=expected_rows, error=placement_error
+        )
+    else:
+        validation = _validate_staged_output(
+            staged_files, plan.schema, expected_rows
+        )
+        if validation.succeeded and plan.validation_level == ValidationLevel.FULL_DISTINCT_KEY_SCAN:
+            duplicate_error = _validate_staged_duplicate_keys(
+                staged_files, staged_partition_dirs, plan.dedup_key_columns
+            )
+            if duplicate_error is not None:
+                validation = ValidationOutcome(
+                    succeeded=False,
+                    staged_row_count=validation.staged_row_count,
+                    expected_row_count=expected_rows,
+                    error=duplicate_error,
+                )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="validate", succeeded=validation.succeeded, error=validation.error
+        )
+    )
+    if not validation.succeeded:
+        return MaintenanceResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Validation failed: {validation.error}",
+        )
+
+    lock_path = os.path.join(dataset_root, ".fsspeckit_maintenance.lock")
+    lock = _BoundedAdvisoryLock(
+        lock_path,
+        exclusive=True,
+        timeout_s=lock_timeout_s,
+        retry_interval_s=lock_retry_interval_s,
+    )
+    if not lock.acquire():
+        error = (
+            f"Could not acquire exclusive lock on {lock_path!r} "
+            f"within {lock_timeout_s}s"
+        )
+        phase_outcomes.append(PhaseOutcome(phase="lock", succeeded=False, error=error))
+        return MaintenanceResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error="Lock acquisition timed out",
+        )
+    phase_outcomes.append(PhaseOutcome(phase="lock", succeeded=True))
+    try:
+        drift_error = _check_source_drift(plan.source_snapshot)
+        if drift_error is not None:
+            phase_outcomes.append(
+                PhaseOutcome(phase="drift_check", succeeded=False, error=drift_error)
+            )
+            return MaintenanceResult(
+                plan=plan,
+                succeeded=False,
+                guarantee_level=plan.guarantee_level,
+                phase_outcomes=tuple(phase_outcomes),
+                validation=validation,
+                recovery=RecoveryArtifacts(workspace_path=workspace),
+                error=f"Source drift detected: {drift_error}",
+            )
+        phase_outcomes.append(PhaseOutcome(phase="drift_check", succeeded=True))
+        publication = _publish_atomic_local(
+            source_files,
+            staged_files,
+            dataset_root,
+            backup_dir,
+            staged_partition_dirs,
+        )
+        phase_outcomes.append(
+            PhaseOutcome(
+                phase="publish",
+                succeeded=publication.succeeded,
+                error=publication.error,
+            )
+        )
+    finally:
+        lock.release()
+
+    if publication is None or not publication.succeeded:
+        error = publication.error if publication is not None else "Publication did not run"
+        return MaintenanceResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            publication=publication,
+            recovery=RecoveryArtifacts(
+                workspace_path=workspace,
+                backup_paths=tuple(
+                    path
+                    for path in (
+                        os.path.join(backup_dir, source.relative_path)
+                        for source in plan.source_snapshot.files
+                    )
+                    if os.path.exists(path)
+                ),
+                recovered=publication.rollback_succeeded is True,
+                error=publication.rollback_error,
+            ),
+            error=f"Publication failed: {error}",
+        )
+
+    cleanup_error: str | None = None
+    try:
+        shutil.rmtree(workspace)
+        workspace = None
+        phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=True))
+    except Exception as exc:
+        cleanup_error = str(exc)
+        phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=False, error=cleanup_error))
+    retained_backup_paths = tuple(
+        path
+        for path in (
+            os.path.join(backup_dir, source.relative_path)
+            for source in plan.source_snapshot.files
+        )
+        if os.path.exists(path)
+    ) if workspace is not None else ()
+
+
+    total_bytes = sum(
+        os.path.getsize(path)
+        for path in publication.published_files
+        if os.path.exists(path)
+    )
+    return MaintenanceResult(
+        plan=plan,
+        succeeded=True,
+        guarantee_level=plan.guarantee_level,
+        phase_outcomes=tuple(phase_outcomes),
+        validation=validation,
+        publication=publication,
+        recovery=RecoveryArtifacts(
+            workspace_path=workspace,
+            backup_paths=retained_backup_paths,
+            error=cleanup_error,
+        ),
+        actual_metrics=ActualMetrics(
+            row_count=expected_rows,
+            file_count=len(publication.published_files),
+            total_bytes=total_bytes,
+        ),
+    )
+
+
 # Best-effort object-store execution helpers (#39)
 # --------------------------------------------------------------------------- #
 
@@ -2215,6 +2547,16 @@ class BestEffortCompactionResult(MaintenanceResult):
     drift_detected: bool = False
     concurrency_disclaimer: str = BEST_EFFORT_CONCURRENCY_DISCLAIMER
 
+@dataclass(frozen=True)
+class BestEffortGlobalRepartitionDeduplicationResult(BestEffortCompactionResult):
+    """Typed result for global-repartitioning object-store deduplication.
+
+    This result keeps the common best-effort recovery fields while making the
+    destination partition contract explicit for callers inspecting a run.
+    """
+
+    destination_partition_columns: tuple[str, ...] = ()
+    destination_partition_keys: tuple[str, ...] = ()
 
 def _split_table_by_rows(table: pa.Table, max_rows: int | None) -> list[pa.Table]:
     """Split a PyArrow table into chunks with at most *max_rows* rows each.
@@ -2643,19 +2985,40 @@ def _execute_best_effort_compaction(
     )
 
 def _canonical_deduplication_value(value: Any) -> Any:
-    """Return a hashable stored-value representation for duplicate-key comparison."""
+    """Return a hashable exact-value representation for key comparison.
+
+    Maintenance key equality is deliberately stricter than Python's generic
+    equality: nulls compare equal to nulls, NaNs compare equal to NaNs, and
+    strings retain their exact stored values (no case folding, trimming, or
+    normalization).  Type tags keep values such as ``1`` and ``True`` from
+    collapsing merely because Python considers them equal.
+    """
+    if value is None:
+        return ("null",)
     if isinstance(value, float) and value != value:
-        return ("nan",)
-    if isinstance(value, list):
-        return tuple(_canonical_deduplication_value(item) for item in value)
-    if isinstance(value, dict):
-        return tuple(
-            sorted(
-                (key, _canonical_deduplication_value(item))
-                for key, item in value.items()
-            )
+        return ("nan", type(value).__qualname__)
+    if isinstance(value, (list, tuple)):
+        return (
+            type(value).__qualname__,
+            tuple(_canonical_deduplication_value(item) for item in value),
         )
-    return value
+    if isinstance(value, dict):
+        entries = [
+            (
+                _canonical_deduplication_value(key),
+                _canonical_deduplication_value(item),
+            )
+            for key, item in value.items()
+        ]
+        return (
+            type(value).__qualname__,
+            tuple(sorted(entries, key=repr)),
+        )
+    try:
+        hash(value)
+    except TypeError:
+        return (type(value).__qualname__, repr(value))
+    return (type(value).__qualname__, value)
 
 
 def _deduplicate_partition_table(
@@ -2663,20 +3026,47 @@ def _deduplicate_partition_table(
     key_columns: tuple[str, ...] | None,
     order_by: tuple[str, ...] | None,
 ) -> pa.Table:
-    """Retain one deterministic row for each key within one physical partition."""
+    """Retain one deterministic row for each key within one physical partition.
+
+    Physical row order is the default winner order.  When ``order_by`` is
+    explicit, Arrow's ordering is primary and original physical indices break
+    equal-order ties.
+    """
+    keys = key_columns or tuple(table.column_names)
+    physical_indices = list(range(table.num_rows))
     if order_by:
         import pyarrow.compute as pc  # noqa: PLC0415
 
-        indices = pc.sort_indices(
+        sorted_indices = pc.sort_indices(
             table,
             sort_keys=[(column, "ascending") for column in order_by],
-        )
-        table = table.take(indices)
-    keys = key_columns or tuple(table.column_names)
+        ).to_pylist()
+        ordered: list[int] = []
+        start = 0
+        while start < len(sorted_indices):
+            end = start + 1
+            first = sorted_indices[start]
+            first_values = tuple(
+                _canonical_deduplication_value(table[column][first].as_py())
+                for column in order_by
+            )
+            while end < len(sorted_indices):
+                candidate = sorted_indices[end]
+                candidate_values = tuple(
+                    _canonical_deduplication_value(table[column][candidate].as_py())
+                    for column in order_by
+                )
+                if candidate_values != first_values:
+                    break
+                end += 1
+            ordered.extend(sorted(sorted_indices[start:end]))
+            start = end
+        physical_indices = ordered
+
     seen: set[tuple[Any, ...]] = set()
     retained_indices: list[int] = []
     columns = [table[column].to_pylist() for column in keys]
-    for row_index in range(table.num_rows):
+    for row_index in physical_indices:
         key = tuple(
             _canonical_deduplication_value(column[row_index]) for column in columns
         )
@@ -2882,6 +3272,445 @@ def _execute_best_effort_partition_local_deduplication(
     )
 
 
+def _execute_best_effort_global_repartition_deduplication(
+    plan: GlobalRepartitionDeduplicationPlan,
+    filesystem: AbstractFileSystem,
+) -> BestEffortGlobalRepartitionDeduplicationResult:
+    """Execute global deduplication through best-effort staged publication.
+
+    Unlike partition-local deduplication, this operation reads every source
+    object into one snapshot-local table before selecting winners.  Retained
+    rows are then written under Hive-style paths for exactly the declared
+    destination partition columns.  No source object is removed until all
+    staged output has been validated, every planned live key has been copied
+    and validated, and every source object has been revalidated.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    run_id = uuid.uuid4().hex[:16]
+    dataset_root = plan.source_snapshot.dataset_path
+    staging_prefix = posixpath.join(dataset_root, "_maintenance_staging", run_id)
+    source_keys = tuple(source.absolute_path for source in plan.source_snapshot.files)
+    destination_keys: list[str] = []
+    phase_outcomes: list[PhaseOutcome] = []
+    staged_keys: list[str] = []
+    staged_to_live: dict[str, str] = {}
+    staged_rows: dict[str, int] = {}
+    staged_partition_values: dict[str, tuple[Any, ...]] = {}
+    retained_rows = 0
+
+    def result(
+        *,
+        succeeded: bool,
+        validation: ValidationOutcome | None = None,
+        publication: PublicationOutcome | None = None,
+        recovery: RecoveryArtifacts | None = None,
+        actual_metrics: ActualMetrics | None = None,
+        copied_live_keys: tuple[str, ...] = (),
+        failed_copies: tuple[str, ...] = (),
+        untouched_source_keys: tuple[str, ...] = source_keys,
+        drift_detected: bool = False,
+        error: str | None = None,
+    ) -> BestEffortGlobalRepartitionDeduplicationResult:
+        return BestEffortGlobalRepartitionDeduplicationResult(
+            plan=plan,
+            succeeded=succeeded,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            publication=publication,
+            recovery=recovery,
+            actual_metrics=actual_metrics,
+            error=error,
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            copied_live_keys=copied_live_keys,
+            failed_copies=failed_copies,
+            untouched_source_keys=untouched_source_keys,
+            drift_detected=drift_detected,
+            destination_partition_columns=plan.partition_columns,
+            destination_partition_keys=tuple(destination_keys),
+        )
+
+    from urllib.parse import quote  # noqa: PLC0415
+
+    reserved_partition_values = {
+        "nan",
+        "__HIVE_DEFAULT_PARTITION__",
+        "__HIVE_NAN_PARTITION__",
+    }
+    partition_escape_prefix = "__fsspeckit_value__"
+
+    def partition_component(value: Any) -> str:
+        if value is None:
+            return "__HIVE_DEFAULT_PARTITION__"
+        if isinstance(value, float) and value != value:
+            return "__HIVE_NAN_PARTITION__"
+        encoded = quote(str(value), safe="")
+        if (
+            encoded in reserved_partition_values
+            or encoded.startswith(partition_escape_prefix)
+        ):
+            # Keep ordinary Hive paths readable while making literal values
+            # unambiguous with null/NaN sentinels.  Values beginning with the
+            # escape prefix are escaped recursively by this marker.
+            encoded = partition_escape_prefix + encoded
+        return encoded
+    # ------------------------------------------------------------------ #
+    try:
+        tables: list[pa.Table] = []
+        # The physical fallback order is partition path, file path, row offset.
+        # SourceSnapshot preserves discovery metadata but fsspec listings are
+        # not required to return keys in a stable order.
+        source_files = sorted(
+            plan.source_snapshot.files,
+            key=lambda source: source.relative_path,
+        )
+        for source in source_files:
+            with filesystem.open(source.absolute_path, "rb") as fh:
+                tables.append(pq.read_table(fh))
+        if not tables:
+            raise ValueError("Global deduplication requires at least one source table")
+        combined = pa.concat_tables(tables)
+        deduplicated = _deduplicate_partition_table(
+            combined,
+            plan.dedup_key_columns,
+            plan.dedup_order_by,
+        )
+        if plan.schema is not None:
+            deduplicated = deduplicated.cast(plan.schema)
+        retained_rows = deduplicated.num_rows
+
+        partition_arrays = [
+            deduplicated[column].to_pylist()
+            for column in plan.partition_columns
+        ]
+        partition_groups: dict[
+            tuple[Any, ...], tuple[tuple[Any, ...], list[int]]
+        ] = {}
+        for row_index in range(retained_rows):
+            raw_values = tuple(
+                values[row_index] for values in partition_arrays
+            )
+            canonical_values = tuple(
+                _canonical_deduplication_value(value) for value in raw_values
+            )
+            entry = partition_groups.get(canonical_values)
+            if entry is None:
+                entry = (raw_values, [])
+                partition_groups[canonical_values] = entry
+            entry[1].append(row_index)
+
+        sorted_partitions = sorted(
+            partition_groups.values(),
+            key=lambda item: tuple(partition_component(value) for value in item[0]),
+        )
+        for partition_index, (raw_values, row_indices) in enumerate(
+            sorted_partitions
+        ):
+            partition_path = "/".join(
+                f"{quote(column, safe='')}={partition_component(value)}"
+                for column, value in zip(plan.partition_columns, raw_values)
+            )
+            destination_keys.append(partition_path)
+            partition_table = deduplicated.take(
+                pa.array(row_indices, type=pa.int64())
+            )
+            for chunk_index, chunk in enumerate(
+                _split_table_by_rows(partition_table, plan.max_rows_per_file)
+            ):
+                if chunk.num_rows == 0:
+                    continue
+                filename = (
+                    f"deduplicated-{run_id}-{partition_index:04d}-"
+                    f"{chunk_index:04d}.parquet"
+                )
+                staged_path = posixpath.join(
+                    staging_prefix, partition_path, filename
+                )
+                live_path = posixpath.join(dataset_root, partition_path, filename)
+                buffer = BytesIO()
+                pq.write_table(chunk, buffer, compression=plan.selected_codec)
+                filesystem.pipe(staged_path, buffer.getvalue())
+                staged_keys.append(staged_path)
+                staged_to_live[staged_path] = live_path
+                staged_rows[staged_path] = chunk.num_rows
+                staged_partition_values[staged_path] = raw_values
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=True))
+    except Exception as exc:
+        error = f"Stage phase failed: {exc}"
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=False, error=error))
+        return result(
+            succeeded=False,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            error=error,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: validate — every staged object must be readable, schema-compatible,
+    # and collectively contain exactly the globally retained rows.
+    # ------------------------------------------------------------------ #
+    total_staged_rows = 0
+    validation_error: str | None = None
+    try:
+        for staged_path in staged_keys:
+            with filesystem.open(staged_path, "rb") as fh:
+                parquet_file = pq.ParquetFile(fh)
+                rows = parquet_file.metadata.num_rows
+                total_staged_rows += rows
+                if rows != staged_rows[staged_path]:
+                    validation_error = (
+                        f"Row count mismatch in staged file {staged_path}: "
+                        f"got {rows}, expected {staged_rows[staged_path]}"
+                    )
+                    break
+                if plan.schema is not None and not parquet_file.schema_arrow.equals(
+                    plan.schema
+                ):
+                    validation_error = f"Schema mismatch in staged file {staged_path}"
+                    break
+                expected_partition_path = "/".join(
+                    f"{quote(column, safe='')}={partition_component(value)}"
+                    for column, value in zip(
+                        plan.partition_columns,
+                        staged_partition_values[staged_path],
+                    )
+                )
+                staged_relative = posixpath.relpath(
+                    staged_path, staging_prefix
+                )
+                actual_partition_path = posixpath.dirname(staged_relative)
+                if actual_partition_path != expected_partition_path:
+                    validation_error = (
+                        "Destination path mismatch in staged file "
+                        f"{staged_path}: expected {expected_partition_path!r}, "
+                        f"got {actual_partition_path!r}"
+                    )
+                    break
+                if validation_error is None:
+                    expected_partition = tuple(
+                        _canonical_deduplication_value(value)
+                        for value in staged_partition_values[staged_path]
+                    )
+                    with filesystem.open(staged_path, "rb") as partition_handle:
+                        staged_table = pq.read_table(partition_handle)
+                    for row_index in range(staged_table.num_rows):
+                        actual_partition = tuple(
+                            _canonical_deduplication_value(
+                                staged_table[column][row_index].as_py()
+                            )
+                            for column in plan.partition_columns
+                        )
+                        if actual_partition != expected_partition:
+                            validation_error = (
+                                "Destination partition mismatch in staged file "
+                                f"{staged_path}: expected {expected_partition}, "
+                                f"got {actual_partition}"
+                            )
+                            break
+        if validation_error is None and total_staged_rows != retained_rows:
+            validation_error = (
+                f"Staged row count mismatch: got {total_staged_rows}, "
+                f"expected {retained_rows}"
+            )
+    except Exception as exc:
+        validation_error = f"Staged validation error: {exc}"
+    validation = ValidationOutcome(
+        succeeded=validation_error is None,
+        staged_row_count=total_staged_rows,
+        expected_row_count=retained_rows,
+        error=validation_error,
+    )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="validate",
+            succeeded=validation_error is None,
+            error=validation_error,
+        )
+    )
+    if validation_error is not None:
+        return result(
+            succeeded=False,
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            error=f"Staged validation failed: {validation_error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: publish — copy and exactly validate each planned live key.
+    # ------------------------------------------------------------------ #
+    copied_live_keys: list[str] = []
+    failed_copies: list[str] = []
+    for staged_path, live_path in staged_to_live.items():
+        try:
+            content = filesystem.cat(staged_path)
+            filesystem.pipe(live_path, content)
+            if filesystem.cat(live_path) != content:
+                raise ValueError(f"Live key content mismatch for {live_path}")
+            with filesystem.open(live_path, "rb") as fh:
+                parquet_file = pq.ParquetFile(fh)
+                if parquet_file.metadata.num_rows != staged_rows[staged_path]:
+                    raise ValueError(f"Live key row-count mismatch for {live_path}")
+                if plan.schema is not None and not parquet_file.schema_arrow.equals(
+                    plan.schema
+                ):
+                    raise ValueError(f"Live key schema mismatch for {live_path}")
+            copied_live_keys.append(live_path)
+        except Exception as exc:
+            logger.warning(
+                "Failed to copy/validate staged key %s → %s: %s",
+                staged_path,
+                live_path,
+                exc,
+            )
+            failed_copies.append(live_path)
+    copy_error = (
+        f"Failed to copy or validate live keys: {failed_copies}"
+        if failed_copies
+        else None
+    )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="publish",
+            succeeded=not failed_copies,
+            error=copy_error,
+        )
+    )
+    if failed_copies:
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                error=copy_error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            failed_copies=tuple(failed_copies),
+            error=(
+                "Copy or live-key validation failed; staging and partial live "
+                "outputs retained as recovery artifacts."
+            ),
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: drift_check — revalidate every source before any deletion.
+    # ------------------------------------------------------------------ #
+    drift_error: str | None = None
+    for source in plan.source_snapshot.files:
+        drift_error = _revalidate_source_token(filesystem, source)
+        if drift_error is not None:
+            break
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="drift_check",
+            succeeded=drift_error is None,
+            error=drift_error,
+        )
+    )
+    if drift_error is not None:
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                error=f"Source drift detected; no sources deleted: {drift_error}",
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            drift_detected=True,
+            error=f"Source drift detected, no sources deleted: {drift_error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: cleanup — remove all sources only after the preceding gates pass.
+    # A delete failure stops immediately and leaves every remaining source
+    # untouched; no automatic rollback is claimed for an already successful
+    # delete on an object store.
+    # ------------------------------------------------------------------ #
+    deleted_sources: list[str] = []
+    delete_failures: list[str] = []
+    for source_path in source_keys:
+        try:
+            filesystem.rm(source_path)
+            deleted_sources.append(source_path)
+        except Exception as exc:
+            logger.warning("Failed to delete source %s: %s", source_path, exc)
+            delete_failures.append(source_path)
+            delete_failures.extend(
+                path
+                for path in source_keys
+                if path not in deleted_sources and path != source_path
+            )
+            break
+    if delete_failures:
+        error = f"Failed to delete sources: {delete_failures}"
+        phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=False, error=error))
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                removed_source_files=tuple(deleted_sources),
+                error=error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            untouched_source_keys=tuple(
+                path for path in source_keys if path not in deleted_sources
+            ),
+            error=error,
+        )
+
+    try:
+        if filesystem.exists(staging_prefix):
+            filesystem.rm(staging_prefix, recursive=True)
+    except Exception as exc:
+        error = f"Failed to remove staging prefix: {exc}"
+        phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=False, error=error))
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                removed_source_files=tuple(deleted_sources),
+                error=error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            untouched_source_keys=(),
+            error=error,
+        )
+
+    phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=True))
+    total_bytes = 0
+    for live_path in copied_live_keys:
+        try:
+            total_bytes += int(filesystem.info(live_path).get("size", 0))
+        except Exception:
+            pass
+    return result(
+        succeeded=True,
+        validation=validation,
+        publication=PublicationOutcome(
+            succeeded=True,
+            published_files=tuple(copied_live_keys),
+            removed_source_files=tuple(deleted_sources),
+        ),
+        actual_metrics=ActualMetrics(
+            row_count=retained_rows,
+            file_count=len(copied_live_keys),
+            total_bytes=total_bytes,
+        ),
+        copied_live_keys=tuple(copied_live_keys),
+        untouched_source_keys=(),
+    )
+
+
 class DatasetMaintenanceCoordinator:
     """Direct coordinator that creates immutable, backend-pinned maintenance plans.
 
@@ -2943,6 +3772,8 @@ class DatasetMaintenanceCoordinator:
         codec: str | None = None,
     ) -> CompactionPlan:
         """Create an immutable compaction plan without modifying files."""
+        if target_rows_per_file is not None and target_rows_per_file <= 0:
+            raise ValueError("target_rows_per_file must be > 0")
         (
             fs,
             file_stats,
@@ -3007,6 +3838,8 @@ class DatasetMaintenanceCoordinator:
         codec: str | None = None,
     ) -> PartitionLocalDeduplicationPlan:
         """Create an immutable partition-local deduplication plan."""
+        if target_rows_per_file is not None and target_rows_per_file <= 0:
+            raise ValueError("target_rows_per_file must be > 0")
         (
             fs,
             file_stats,
@@ -3030,12 +3863,7 @@ class DatasetMaintenanceCoordinator:
             validate_deduplication_inputs(key_columns, dedup_order_by)
         )
         groups = _plan_partition_local_deduplication_groups(
-            file_stats,
-            snapshot.dataset_path,
-            normalized_key_columns,
-            normalized_dedup_order_by,
-            target_mb_per_file,
-            target_rows_per_file,
+            file_stats, snapshot.dataset_path
         )
         return PartitionLocalDeduplicationPlan(
             source_snapshot=snapshot,
@@ -3072,6 +3900,13 @@ class DatasetMaintenanceCoordinator:
         """Create an immutable global-repartitioning deduplication plan."""
         if not partition_columns:
             raise ValueError("partition_columns must be a non-empty list")
+        if any(
+            not isinstance(column, str) or not column
+            for column in partition_columns
+        ):
+            raise ValueError("partition_columns must contain non-empty strings")
+        if len(set(partition_columns)) != len(partition_columns):
+            raise ValueError("partition_columns must not contain duplicates")
         (
             fs,
             file_stats,
@@ -3092,16 +3927,26 @@ class DatasetMaintenanceCoordinator:
             validation_level,
             codec,
         )
+        if schema is None or any(column not in schema.names for column in partition_columns):
+            raise ValueError(
+                "partition_columns must name columns present in the source schema"
+            )
         normalized_key_columns, normalized_dedup_order_by = (
             validate_deduplication_inputs(key_columns, dedup_order_by)
         )
-        groups = plan_deduplication_groups(
-            file_stats,
-            key_columns=normalized_key_columns,
-            dedup_order_by=normalized_dedup_order_by,
-            target_mb_per_file=target_mb_per_file,
-            target_rows_per_file=target_rows_per_file,
+        # Global deduplication always includes every source file.  Output
+        # chunking is applied after one complete-dataset winner selection.
+        global_group = CompactionGroup(
+            files=tuple(
+                FileInfo(
+                    path=file_stat["path"],
+                    size_bytes=file_stat["size_bytes"],
+                    num_rows=file_stat["num_rows"],
+                )
+                for file_stat in file_stats
+            )
         )
+        groups = (global_group,)
         return GlobalRepartitionDeduplicationPlan(
             source_snapshot=snapshot,
             selected_backend=self.backend,
@@ -3120,7 +3965,7 @@ class DatasetMaintenanceCoordinator:
             dedup_order_by=(
                 tuple(normalized_dedup_order_by) if normalized_dedup_order_by else None
             ),
-            dedup_groups=tuple(groups["groups"]),
+            dedup_groups=groups,
         )
 
     def plan_coordinated_optimization(
@@ -3141,6 +3986,8 @@ class DatasetMaintenanceCoordinator:
         by compaction. No z-ordering, sorting, or implicit repartitioning is
         planned.
         """
+        if target_rows_per_file is not None and target_rows_per_file <= 0:
+            raise ValueError("target_rows_per_file must be > 0")
         (
             fs,
             file_stats,
@@ -3165,12 +4012,7 @@ class DatasetMaintenanceCoordinator:
                 validate_deduplication_inputs(dedup_key_columns, dedup_order_by)
             )
             groups = _plan_partition_local_deduplication_groups(
-                file_stats,
-                snapshot.dataset_path,
-                normalized_key_columns,
-                normalized_dedup_order_by,
-                target_mb_per_file,
-                target_rows_per_file,
+                file_stats, snapshot.dataset_path
             )
         else:
             normalized_key_columns = None
@@ -3215,8 +4057,9 @@ class DatasetMaintenanceCoordinator:
         Implemented paths:
 
         - ``atomic_local`` :class:`CompactionPlan` — full staged-rename
-          lifecycle with advisory locking (flat, non-partitioned local
-          datasets).  *filesystem* is ignored for this path.
+          lifecycle with advisory locking and partition-subtree preservation.
+        - ``atomic_local`` :class:`PartitionLocalDeduplicationPlan` —
+          partition-local staged-rename deduplication with rollback.
         - ``best_effort_object_store`` :class:`CompactionPlan` — staged-copy
           lifecycle with per-key validation, source-drift revalidation, and
           recovery artifact reporting.  *filesystem* is **required** for this
@@ -3224,9 +4067,8 @@ class DatasetMaintenanceCoordinator:
 
         Deferred paths (leave clean seams):
 
-        - Partitioned atomic_local compaction: TODO(#38)
-        - Deduplication execution: TODO(#40)
-        - Coordinated optimization execution: TODO(#44)
+        - Global repartitioning deduplication: TODO(#42/#43)
+        - Coordinated optimization: TODO(#44)
 
         Args:
             plan: An accepted plan created by one of the ``plan_*`` methods.
@@ -3248,6 +4090,16 @@ class DatasetMaintenanceCoordinator:
             ValueError: When *filesystem* is not provided for a
                 ``best_effort_object_store`` plan.
         """
+        if (
+            plan.guarantee_level == GuaranteeLevel.ATOMIC_LOCAL
+            and isinstance(plan, PartitionLocalDeduplicationPlan)
+        ):
+            return _execute_atomic_local_partition_local_deduplication(
+                plan,
+                lock_timeout_s=lock_timeout_s,
+                lock_retry_interval_s=lock_retry_interval_s,
+            )
+
         if plan.guarantee_level == GuaranteeLevel.ATOMIC_LOCAL and isinstance(
             plan, CompactionPlan
         ):
@@ -3286,15 +4138,26 @@ class DatasetMaintenanceCoordinator:
                 )
             return _execute_best_effort_partition_local_deduplication(plan, filesystem)
 
+        if (
+            plan.guarantee_level == GuaranteeLevel.BEST_EFFORT_OBJECT_STORE
+            and isinstance(plan, GlobalRepartitionDeduplicationPlan)
+        ):
+            if filesystem is None:
+                raise ValueError(
+                    "best_effort_object_store deduplication requires the filesystem "
+                    "used to create the plan."
+                )
+            return _execute_best_effort_global_repartition_deduplication(
+                plan, filesystem
+            )
+
         # ---------------------------------------------------------- #
         # Seams for downstream issues — raise descriptive errors
         # ---------------------------------------------------------- #
-        if isinstance(
-            plan, (PartitionLocalDeduplicationPlan, GlobalRepartitionDeduplicationPlan)
-        ):
-            # TODO(#40): implement deduplication execution.
+        if isinstance(plan, GlobalRepartitionDeduplicationPlan):
+            # TODO(#42/#43): implement global-repartitioning deduplication.
             raise NotImplementedError(
-                "Deduplication execute() is deferred to issues #40-#43; "
+                "Global repartitioning deduplication is deferred to issue #43; "
                 "plan is available for inspection."
             )
 

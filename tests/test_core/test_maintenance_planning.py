@@ -105,8 +105,9 @@ class TestCoordinatorPlanning:
         assert isinstance(plan, PartitionLocalDeduplicationPlan)
         expected_key_columns = ("a",)
         assert plan.dedup_key_columns == expected_key_columns
-        expected_order_by = ("a",)
-        assert plan.dedup_order_by == expected_order_by
+        # Omitted business order intentionally falls back to snapshot-local
+        # physical order, not implicit key-column ordering.
+        assert plan.dedup_order_by is None
         assert plan.partition_scope.scope_type == PartitionScopeType.FULL
         assert len(plan.dedup_groups) >= 1
 

@@ -1045,3 +1045,366 @@ class TestPublishAtomicLocalPartitionSubtrees:
             assert not os.path.exists(os.path.join(str(dataset_dir), part, "out.parquet")), (
                 f"Output file leaked into {part!r}"
             )
+
+
+# --------------------------------------------------------------------------- #
+# Partition-local deduplication (#40)
+# --------------------------------------------------------------------------- #
+
+
+class TestAtomicLocalPartitionLocalDeduplication:
+    """Acceptance coverage for the native partition-local deduplication lane."""
+
+    def _execute(self, dataset, **kwargs):
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_partition_local_deduplication(
+            str(dataset), fs, key_columns=["id"], **kwargs
+        )
+        return coordinator.execute(plan), plan
+
+    def test_preserves_partition_tuples_and_deduplicates_all_source_files(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "country=US": [
+                    ("a.parquet", pa.table({"id": [1, 1], "value": ["first", "second"]})),
+                    ("b.parquet", pa.table({"id": [1, 2], "value": ["third", "unique"]})),
+                ],
+                "country=DE": [
+                    ("a.parquet", pa.table({"id": [1, 3], "value": ["de-one", "de-three"]})),
+                ],
+            },
+        )
+
+        result, plan = self._execute(dataset)
+
+        assert plan.guarantee_level == GuaranteeLevel.ATOMIC_LOCAL
+        assert result.succeeded, result.error
+        assert result.validation is not None and result.validation.succeeded
+        us_files = _partition_files(str(dataset), "country=US")
+        de_files = _partition_files(str(dataset), "country=DE")
+        assert len(us_files) == 1
+        assert len(de_files) == 1
+        assert pa.concat_tables([_read_parquet(path) for path in us_files]).to_pydict() == {
+            "country": ["US", "US"],
+            "id": [1, 2],
+            "value": ["first", "unique"],
+        }
+        assert pa.concat_tables([_read_parquet(path) for path in de_files]).to_pydict() == {
+            "country": ["DE", "DE"],
+            "id": [1, 3],
+            "value": ["de-one", "de-three"],
+        }
+        assert not _list_parquet(str(dataset))
+        assert result.recovery is not None and result.recovery.workspace_path is None
+
+    def test_null_nan_and_exact_string_keys_compare_equal(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "part=x": [
+                    (
+                        "a.parquet",
+                        pa.table(
+                            {
+                                "id": [None, None, "Value", "value"],
+                                "measure": [float("nan"), float("nan"), 1.0, 1.0],
+                                "payload": ["null-a", "nan-a", "upper", "lower"],
+                            }
+                        ),
+                    ),
+                    (
+                        "b.parquet",
+                        pa.table(
+                            {
+                                "id": [None, "Value"],
+                                "measure": [float("nan"), 1.0],
+                                "payload": ["nan-b", "upper-b"],
+                            }
+                        ),
+                    ),
+                ]
+            },
+        )
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_partition_local_deduplication(
+            str(dataset),
+            fs,
+            key_columns=["id", "measure"],
+            validation_level="full_distinct_key_scan",
+        )
+        result = coordinator.execute(plan)
+
+        assert result.succeeded, result.error
+        output = _read_parquet(_partition_files(str(dataset), "part=x")[0]).to_pydict()
+        assert output["payload"] == ["null-a", "upper", "lower"]
+        assert result.validation is not None
+        assert result.validation.succeeded
+
+    def test_explicit_order_wins_and_physical_order_breaks_ties(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "part=x": [
+                    (
+                        "a.parquet",
+                        pa.table(
+                            {
+                                "id": [1, 1, 2, 2],
+                                "priority": [3, 1, 5, 5],
+                                "payload": ["high", "low", "first", "second"],
+                            }
+                        ),
+                    )
+                ]
+            },
+        )
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_partition_local_deduplication(
+            str(dataset), fs, key_columns=["id"], dedup_order_by=["priority"]
+        )
+        result = coordinator.execute(plan)
+
+        assert result.succeeded, result.error
+        output = _read_parquet(_partition_files(str(dataset), "part=x")[0]).to_pydict()
+        assert output["payload"] == ["low", "first"]
+
+    def test_max_rows_per_file_is_hard_bound(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "part=x": [
+                    ("a.parquet", pa.table({"id": list(range(5)), "payload": list("abcde")})),
+                ]
+            },
+        )
+        result, _ = self._execute(dataset, target_rows_per_file=2)
+
+        assert result.succeeded, result.error
+        files = _partition_files(str(dataset), "part=x")
+        assert len(files) == 3
+        assert all(_read_parquet(path).num_rows <= 2 for path in files)
+        assert result.actual_metrics is not None
+        assert result.actual_metrics.row_count == 5
+
+    def test_rejects_nonpositive_output_bounds(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {"part=x": [("a.parquet", pa.table({"id": [1], "payload": ["a"]}))]},
+        )
+        with pytest.raises(ValueError, match="target_rows_per_file"):
+            self._execute(dataset, target_rows_per_file=0)
+        with pytest.raises(ValueError, match="target_mb_per_file"):
+            self._execute(dataset, target_mb_per_file=0)
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        with pytest.raises(ValueError, match="target_rows_per_file"):
+            coordinator.plan_coordinated_optimization(
+                str(dataset),
+                fs,
+                dedup_key_columns=["id"],
+                target_rows_per_file=0,
+            )
+
+    def test_cleanup_failure_reports_retained_backups(self, tmp_path, monkeypatch):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {"part=x": [("a.parquet", pa.table({"id": [1, 1], "payload": ["a", "b"]}))]},
+        )
+        import shutil
+
+        real_rmtree = shutil.rmtree
+
+        def fail_cleanup(_path):
+            raise OSError("injected cleanup failure")
+
+        monkeypatch.setattr(shutil, "rmtree", fail_cleanup)
+        result, _ = self._execute(dataset)
+
+        assert result.succeeded
+        assert result.recovery is not None
+        assert result.recovery.workspace_path is not None
+        assert result.recovery.backup_paths
+        assert all(os.path.exists(path) for path in result.recovery.backup_paths)
+        assert any(
+            phase.phase == "cleanup" and not phase.succeeded
+            for phase in result.phase_outcomes
+        )
+        monkeypatch.setattr(shutil, "rmtree", real_rmtree)
+        real_rmtree(result.recovery.workspace_path)
+
+    def test_metadata_conflict_invalidates_plan(self, tmp_path):
+        dataset = tmp_path / "ds"
+        part = dataset / "part=x"
+        part.mkdir(parents=True)
+        first = pa.table({"id": [1], "payload": ["a"]}).replace_schema_metadata(
+            {b"source": b"first"}
+        )
+        second = pa.table({"id": [2], "payload": ["b"]}).replace_schema_metadata(
+            {b"source": b"second"}
+        )
+        pq.write_table(first, part / "a.parquet")
+        pq.write_table(second, part / "b.parquet")
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+
+        with pytest.raises(ValueError, match="Schema reconciliation required"):
+            coordinator.plan_partition_local_deduplication(
+                str(dataset), fs, key_columns=["id"]
+            )
+
+    def test_publish_failure_rolls_back_every_partition(self, tmp_path, monkeypatch):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "part=a": [
+                    ("a.parquet", pa.table({"id": [1, 1], "payload": ["a", "a2"]})),
+                ],
+                "part=b": [
+                    ("b.parquet", pa.table({"id": [2, 2], "payload": ["b", "b2"]})),
+                ],
+            },
+        )
+        original = {
+            part: _partition_files(str(dataset), part)[0]
+            for part in ("part=a", "part=b")
+        }
+        import fsspeckit.core.maintenance as maintenance
+
+        real_rename = maintenance.os.rename
+        b_prefix = os.path.join(str(dataset), "part=b")
+        injected = {"done": False}
+
+        def fail_on_b(src, dst):
+            if not injected["done"] and str(dst).startswith(b_prefix):
+                injected["done"] = True
+                raise OSError("injected local dedup publish failure")
+            real_rename(src, dst)
+
+        monkeypatch.setattr(maintenance.os, "rename", fail_on_b)
+        result, _ = self._execute(dataset)
+
+        assert not result.succeeded
+        assert result.publication is not None and not result.publication.succeeded
+        assert _partition_files(str(dataset), "part=a") == [original["part=a"]]
+        assert _partition_files(str(dataset), "part=b") == [original["part=b"]]
+        assert all(
+            not os.path.basename(path).startswith("deduplicated_")
+            for part in ("part=a", "part=b")
+            for path in _partition_files(str(dataset), part)
+        )
+        assert result.recovery is not None and result.recovery.recovered
+
+    def test_rollback_failure_is_reported_as_unrecovered(self, tmp_path, monkeypatch):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "part=a": [
+                    ("a.parquet", pa.table({"id": [1, 1], "payload": ["a", "a2"]})),
+                ],
+                "part=b": [
+                    ("b.parquet", pa.table({"id": [2, 2], "payload": ["b", "b2"]})),
+                ],
+            },
+        )
+        import fsspeckit.core.maintenance as maintenance
+
+        real_rename = maintenance.os.rename
+        b_prefix = os.path.join(str(dataset), "part=b")
+        injected = {"publish": False, "rollback": False}
+
+        def fail_publish_and_rollback(src, dst):
+            src_text = str(src)
+            dst_text = str(dst)
+            if (
+                not injected["publish"]
+                and dst_text.startswith(b_prefix)
+                and "staged" in src_text
+            ):
+                injected["publish"] = True
+                raise OSError("injected publish failure")
+            if (
+                injected["publish"]
+                and not injected["rollback"]
+                and dst_text.startswith(b_prefix)
+                and "backup" in src_text
+            ):
+                injected["rollback"] = True
+                raise OSError("injected rollback failure")
+            real_rename(src, dst)
+
+        monkeypatch.setattr(maintenance.os, "rename", fail_publish_and_rollback)
+        result, _ = self._execute(dataset)
+
+        assert not result.succeeded
+        assert result.recovery is not None
+        assert not result.recovery.recovered
+        assert result.recovery.error is not None
+        assert "restore" in result.recovery.error
+        workspace = result.recovery.workspace_path
+        assert workspace is not None
+        backup_b = os.path.join(workspace, "backup", "part=b", "b.parquet")
+        backup_a = os.path.join(workspace, "backup", "part=a", "a.parquet")
+        assert result.recovery.backup_paths == (backup_b,)
+        assert os.path.exists(backup_b)
+        assert not os.path.exists(backup_a)
+
+    def test_source_drift_aborts_before_publication(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {"part=x": [("a.parquet", pa.table({"id": [1, 1], "payload": ["a", "b"]}))]},
+        )
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_partition_local_deduplication(
+            str(dataset), fs, key_columns=["id"]
+        )
+        source = plan.source_snapshot.files[0].absolute_path
+        pq.write_table(
+            pa.table({"id": [1, 1, 2], "payload": ["a", "b", "c"]}),
+            source,
+        )
+
+        result = coordinator.execute(plan)
+
+        assert not result.succeeded
+        assert any(
+            phase.phase == "drift_check" and not phase.succeeded
+            for phase in result.phase_outcomes
+        )
+        assert _partition_files(str(dataset), "part=x") == [source]
+
+    def test_validation_failure_keeps_live_sources(self, tmp_path, monkeypatch):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {"part=x": [("a.parquet", pa.table({"id": [1, 1], "payload": ["a", "b"]}))]},
+        )
+        import fsspeckit.core.maintenance as maintenance
+
+        monkeypatch.setattr(
+            maintenance,
+            "_validate_staged_output",
+            lambda *_args: ValidationOutcome(
+                succeeded=False, expected_row_count=1, error="injected validation failure"
+            ),
+        )
+        result, _ = self._execute(dataset)
+
+        assert not result.succeeded
+        assert result.validation is not None and not result.validation.succeeded
+        assert _partition_files(str(dataset), "part=x") == [
+            os.path.join(str(dataset), "part=x", "a.parquet")
+        ]
