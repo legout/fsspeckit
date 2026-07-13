@@ -10,13 +10,9 @@
       
       
       
-        <link rel="canonical" href="https://legout.github.io/fsspeckit/reference/legacy-imports/">
+        <link rel="canonical" href="https://legout.github.io/fsspeckit/adr/0006-coordinated-dataset-maintenance/">
       
       
-        <link rel="prev" href="../public-api-inventory/">
-      
-      
-        <link rel="next" href="../utils/">
       
       
         
@@ -27,7 +23,7 @@
     
     
       
-        <title>Overview - fsspeckit</title>
+        <title>Coordinated dataset maintenance guarantees - fsspeckit</title>
       
     
     
@@ -80,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#legacy-imports" class="md-skip">
+        <a href="#coordinated-dataset-maintenance-guarantees" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Overview
+              Coordinated dataset maintenance guarantees
             
           </span>
         </div>
@@ -284,13 +280,11 @@
   
   
   
-    
-  
   
     
     
-      <li class="md-tabs__item md-tabs__item--active">
-        <a href="../" class="md-tabs__link">
+      <li class="md-tabs__item">
+        <a href="../../reference/" class="md-tabs__link">
           
   
   
@@ -985,31 +979,26 @@
       
   
   
-    
   
   
-  
     
     
     
     
-      
-        
-        
       
       
         
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
         
           
-          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="0">
             
   
   
@@ -1027,7 +1016,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1045,7 +1034,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../" class="md-nav__link">
+      <a href="../../reference/" class="md-nav__link">
         
   
   
@@ -1101,7 +1090,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../api-guide/" class="md-nav__link">
+      <a href="../../reference/api-guide/" class="md-nav__link">
         
   
   
@@ -1157,7 +1146,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../storage-options/" class="md-nav__link">
+      <a href="../../reference/storage-options/" class="md-nav__link">
         
   
   
@@ -1185,7 +1174,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../adaptive-key-tracking/" class="md-nav__link">
+      <a href="../../reference/adaptive-key-tracking/" class="md-nav__link">
         
   
   
@@ -1213,7 +1202,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../multi-key-api/" class="md-nav__link">
+      <a href="../../reference/multi-key-api/" class="md-nav__link">
         
   
   
@@ -1241,7 +1230,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../public-api-inventory/" class="md-nav__link">
+      <a href="../../reference/public-api-inventory/" class="md-nav__link">
         
   
   
@@ -1266,31 +1255,26 @@
                 
   
   
-    
   
   
-  
     
     
     
     
       
       
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_9" >
         
           
-          
-        
-      
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_9" checked>
-        
-          
-          <label class="md-nav__link" for="__nav_4_9" id="__nav_4_9_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4_9" id="__nav_4_9_label" tabindex="0">
             
   
   
@@ -1308,7 +1292,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_9_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_9_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_4_9">
             <span class="md-nav__icon md-icon"></span>
             
@@ -1323,37 +1307,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Overview
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../reference/legacy-imports/" class="md-nav__link">
         
   
   
@@ -1369,81 +1326,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#fsspeckitutils-top-level-imports" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        fsspeckit.utils top-level imports
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#fsspeckitutils-submodule-paths" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        fsspeckit.utils submodule paths
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#renamed-dataset-symbols" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Renamed dataset symbols
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-was-never-part-of-utils" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What was never part of utils
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#migration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Migration
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1456,7 +1338,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../utils/" class="md-nav__link">
+      <a href="../../reference/utils/" class="md-nav__link">
         
   
   
@@ -1498,20 +1380,17 @@
       
       
         
-          
-          
-        
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
         <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_10" >
         
           
-          <label class="md-nav__link" for="__nav_4_10" id="__nav_4_10_label" tabindex="">
+          <label class="md-nav__link" for="__nav_4_10" id="__nav_4_10_label" tabindex="0">
             
   
   
@@ -2441,154 +2320,77 @@
   
 
 
-<h1 id="legacy-imports">Legacy Imports<a class="headerlink" href="#legacy-imports" title="Permanent link">&para;</a></h1>
-<p>This page maps old import paths and renamed symbols to their current canonical
-imports. Use canonical imports in all new code. Legacy paths still work for the
-symbols listed below but emit no long-term support promise.</p>
-<p>For the full list of supported public symbols and their status, see the
-<a href="../public-api-inventory/">Public API Inventory</a>.</p>
-<h2 id="fsspeckitutils-top-level-imports"><code>fsspeckit.utils</code> top-level imports<a class="headerlink" href="#fsspeckitutils-top-level-imports" title="Permanent link">&para;</a></h2>
-<p><code>fsspeckit.utils</code> is a backwards-compatible facade. The following top-level
-imports work and resolve to canonical domain objects:</p>
-<table>
-<thead>
-<tr>
-<th>Legacy import</th>
-<th>Canonical import</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>from fsspeckit.utils import setup_logging</code></td>
-<td><code>from fsspeckit.common.logging import setup_logging</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import run_parallel</code></td>
-<td><code>from fsspeckit.common.parallel import run_parallel</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import get_partitions_from_path</code></td>
-<td><code>from fsspeckit.common.partitions import get_partitions_from_path</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import sync_dir</code></td>
-<td><code>from fsspeckit.common.sync import sync_dir</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import sync_files</code></td>
-<td><code>from fsspeckit.common.sync import sync_files</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import dict_to_dataframe</code></td>
-<td><code>from fsspeckit.datasets.types import dict_to_dataframe</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import to_pyarrow_table</code></td>
-<td><code>from fsspeckit.datasets.types import to_pyarrow_table</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import convert_large_types_to_normal</code></td>
-<td><code>from fsspeckit.datasets.schema import convert_large_types_to_normal</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import opt_dtype_pl</code></td>
-<td><code>from fsspeckit.datasets.polars import opt_dtype as opt_dtype_pl</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import opt_dtype_pa</code></td>
-<td><code>from fsspeckit.datasets.schema import opt_dtype as opt_dtype_pa</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import cast_schema</code></td>
-<td><code>from fsspeckit.datasets.schema import cast_schema</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import DuckDBParquetHandler</code></td>
-<td><code>from fsspeckit.datasets.duckdb import DuckDBDatasetIO</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import Progress</code></td>
-<td><code>from rich.progress import Progress</code></td>
-</tr>
-<tr>
-<td><code>from fsspeckit.utils import pl</code></td>
-<td><code>import polars as pl</code></td>
-</tr>
-</tbody>
-</table>
-<h2 id="fsspeckitutils-submodule-paths"><code>fsspeckit.utils</code> submodule paths<a class="headerlink" href="#fsspeckitutils-submodule-paths" title="Permanent link">&para;</a></h2>
-<p>Some submodule paths still work as facades:</p>
-<table>
-<thead>
-<tr>
-<th>Legacy submodule</th>
-<th>Canonical import</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>fsspeckit.utils.misc.run_parallel</code></td>
-<td><code>from fsspeckit.common.parallel import run_parallel</code></td>
-</tr>
-<tr>
-<td><code>fsspeckit.utils.misc.sync_dir</code> / <code>sync_files</code></td>
-<td><code>from fsspeckit.common.sync import sync_dir, sync_files</code></td>
-</tr>
-<tr>
-<td><code>fsspeckit.utils.misc.get_partitions_from_path</code></td>
-<td><code>from fsspeckit.common.partitions import get_partitions_from_path</code></td>
-</tr>
-<tr>
-<td><code>fsspeckit.utils.misc.Progress</code></td>
-<td><code>from rich.progress import Progress</code></td>
-</tr>
-<tr>
-<td><code>fsspeckit.utils.polars.opt_dtype_pl</code></td>
-<td><code>from fsspeckit.datasets.polars import opt_dtype as opt_dtype_pl</code></td>
-</tr>
-<tr>
-<td><code>fsspeckit.utils.sql.get_table_names</code></td>
-<td><code>from fsspeckit.sql import get_table_names</code></td>
-</tr>
-</tbody>
-</table>
-<p><code>fsspeckit.utils.pyarrow</code> is not maintained and may fail to import. Import
-schema and type utilities directly from <code>fsspeckit.datasets.schema</code> or
-<code>fsspeckit.datasets.pyarrow</code> instead.</p>
-<h2 id="renamed-dataset-symbols">Renamed dataset symbols<a class="headerlink" href="#renamed-dataset-symbols" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Old name</th>
-<th>Canonical import</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>DuckDBParquetHandler</code></td>
-<td><code>from fsspeckit.datasets.duckdb import DuckDBDatasetIO</code></td>
-</tr>
-<tr>
-<td><code>PyarrowDatasetHandler</code></td>
-<td><code>from fsspeckit.datasets.pyarrow import PyarrowDatasetIO</code></td>
-</tr>
-<tr>
-<td><code>pyarrow_dataset</code> (handler alias)</td>
-<td><code>from fsspeckit.datasets.pyarrow import PyarrowDatasetIO</code></td>
-</tr>
-</tbody>
-</table>
-<h2 id="what-was-never-part-of-utils">What was never part of <code>utils</code><a class="headerlink" href="#what-was-never-part-of-utils" title="Permanent link">&para;</a></h2>
-<p>The following were never re-exported from <code>fsspeckit.utils</code> and should be
-imported from their domain packages in all versions:</p>
+<h1 id="coordinated-dataset-maintenance-guarantees">Coordinated dataset maintenance guarantees<a class="headerlink" href="#coordinated-dataset-maintenance-guarantees" title="Permanent link">&para;</a></h1>
+<p><strong>Status:</strong> Accepted</p>
+<p>Physical dataset maintenance is a coordinated rewrite protocol rather than a
+thin compaction callback loop. Every compaction, partition-local
+deduplication, explicitly requested global-repartitioning deduplication, and
+compatibility optimization creates an immutable, backend-pinned
+<code>MaintenancePlan</code>. A configured <code>DatasetMaintenanceCoordinator</code> executes it
+through one coordinator, performs lossless schema reconciliation, validates
+the staged output, and returns a typed <code>MaintenanceResult</code>. Planning is
+explicit and lock-free; direct coordinators require an explicit backend, while
+retained filesystem façades may select one automatically and delegate to the
+coordinator.</p>
+<h2 id="guarantee-profiles">Guarantee profiles<a class="headerlink" href="#guarantee-profiles" title="Permanent link">&para;</a></h2>
+<p>The coordinator selects a publication guarantee automatically and records it
+in the plan and result.</p>
 <ul>
-<li>SQL filter functions: <code>from fsspeckit.sql import sql2pyarrow_filter, sql2polars_filter</code></li>
-<li>Storage options classes: <code>from fsspeckit.storage_options import AwsStorageOptions, GcsStorageOptions, AzureStorageOptions</code></li>
+<li><strong><code>atomic_local</code></strong> applies only to a strict native-local/POSIX allowlist. It
+  uses bounded advisory locks for cooperating fsspeckit readers and writers, a
+  sibling maintenance workspace, partition-subtree staging, local rename
+  publication, validation, rollback before publication, and immediate cleanup
+  of successful-operation backups.</li>
+<li><strong><code>best_effort_object_store</code></strong> applies to every other fsspec filesystem,
+  including S3-style object stores. It has no generic distributed lock and
+  makes no atomic reader-visibility or automatic rollback promise. It writes a
+  complete staged rewrite, validates it, copies every output to its live key,
+  validates every exact planned live key, then revalidates every planned source
+  object before any source deletion. If a source has drifted, it deletes no
+  inputs and retains staging plus partial live outputs as recovery artifacts in
+  <code>MaintenanceResult</code>.</li>
 </ul>
-<h2 id="migration">Migration<a class="headerlink" href="#migration" title="Permanent link">&para;</a></h2>
-<p>For the step-by-step package-layout migration, see
-<a href="../../migration/dataset-module-refactor/">Upgrade from the Pre-refactor Layout</a>.</p>
-<p>For the broader API selection guide, see the <a href="../api-guide/">API Guide</a>.</p>
+<h2 id="considered-options">Considered options<a class="headerlink" href="#considered-options" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Restrict all maintenance to local/POSIX filesystems. Rejected because the
+  existing fsspec-oriented capability is required for S3 and other object
+  stores.</li>
+<li>Add a versioned manifest/pointer protocol for strong object-store atomicity.
+  Deferred: callers need broad best-effort object-store support now and accept
+  its concurrency and visibility limits.</li>
+<li>Infer local atomicity from generic <code>mv</code> support. Rejected because fsspec
+  <code>mv</code> can be copy-plus-delete.</li>
+<li>Require explicit best-effort opt-in. Rejected: non-local files automatically
+  receive best-effort mode, but the weaker guarantee is always visible in
+  plan/result data.</li>
+<li>Keep commit behavior backend-local. Rejected because publication, validation,
+  partition placement, and recovery rules must remain consistent across all
+  physical rewrites.</li>
+</ul>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Partition-local deduplication is the default; global deduplication is an
+  explicit full-repartition operation.</li>
+<li>Null and <code>NaN</code> key components compare equal; strings use exact stored-value
+  equality. Snapshot-local physical order <code>(partition path, file path, row
+  offset)</code> is the default winner order and ties break with that same tuple.</li>
+<li><code>max_rows_per_file</code> is a hard output bound. Byte-size targets are advisory.
+  Rewrites without an explicit codec target use Snappy and report actual output
+  bytes. Ordinary output row order is unspecified.</li>
+<li>Schema reconciliation permits only defined lossless promotions with identical
+  schema and field metadata; ambiguity invalidates the plan. Dtype
+  inference/downcasting repair is separate and is prohibited from maintenance
+  reconciliation.</li>
+<li>The major release replaces dictionary results with public
+  <code>MaintenancePlan</code>/<code>MaintenanceResult</code> types and replaces the overloaded
+  <code>dry_run</code> execution flag with explicit planning plus generic <code>execute(plan)</code>.</li>
+<li>Deduplication validates readable staged files, schema, partitions, and count
+  invariants by default. A full distinct-key scan is an explicit stronger
+  verification level.</li>
+<li>Local publication is gated by a local-filesystem fault-injection matrix.
+  Generic object-store support is covered with a memory filesystem only; it
+  does not claim to verify real S3 behavior.</li>
+</ul>
 
 
 

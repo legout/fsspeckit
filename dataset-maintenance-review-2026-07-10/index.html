@@ -10,10 +10,8 @@
       
       
       
-        <link rel="canonical" href="https://legout.github.io/fsspeckit/contributing/">
+        <link rel="canonical" href="https://legout.github.io/fsspeckit/dataset-maintenance-review-2026-07-10/">
       
-      
-        <link rel="prev" href="../migration/migrate-package-layout/">
       
       
       
@@ -25,7 +23,7 @@
     
     
       
-        <title>Contributing - fsspeckit</title>
+        <title>Dataset maintenance and dtype-optimization review - fsspeckit</title>
       
     
     
@@ -78,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#contributing-to-fsspeckit" class="md-skip">
+        <a href="#dataset-maintenance-and-dtype-optimization-review" class="md-skip">
           Skip to content
         </a>
       
@@ -112,7 +110,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Contributing
+              Dataset maintenance and dtype-optimization review
             
           </span>
         </div>
@@ -322,11 +320,9 @@
   
   
   
-    
   
-  
-    <li class="md-tabs__item md-tabs__item--active">
-      <a href="./" class="md-tabs__link">
+    <li class="md-tabs__item">
+      <a href="../contributing/" class="md-tabs__link">
         
   
   
@@ -2281,37 +2277,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Contributing
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
         
   
   
@@ -2327,148 +2296,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#how-to-contribute" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        How to Contribute
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="How to Contribute">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#reporting-issues" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Reporting Issues
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#submitting-pull-requests" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Submitting Pull Requests
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#development-setup" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Development Setup
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#best-practices-for-contributions" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Best Practices for Contributions
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#coding-guidelines" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Coding Guidelines
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Coding Guidelines">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#avoid-mutable-default-arguments" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Avoid Mutable Default Arguments
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#avoid-unreachable-code" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Avoid Unreachable Code
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#type-annotations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Type Annotations
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#testing-expectations" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Testing Expectations
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -2493,236 +2320,319 @@
   
 
 
-<h1 id="contributing-to-fsspeckit">Contributing to fsspeckit<a class="headerlink" href="#contributing-to-fsspeckit" title="Permanent link">&para;</a></h1>
-<p>We welcome contributions to <code>fsspeckit</code>! Your help makes this project better. This guide outlines how you can contribute, from reporting issues to submitting pull requests.</p>
-<h2 id="how-to-contribute">How to Contribute<a class="headerlink" href="#how-to-contribute" title="Permanent link">&para;</a></h2>
-<h3 id="reporting-issues">Reporting Issues<a class="headerlink" href="#reporting-issues" title="Permanent link">&para;</a></h3>
-<p>If you encounter any bugs, unexpected behavior, or have suggestions for new features, please open an issue on our <a href="https://github.com/legout/fsspeckit/issues">GitHub Issues page</a>.</p>
-<p>When reporting an issue, please include:
-- A clear and concise description of the problem.
-- Steps to reproduce the behavior.
-- Expected behavior.
-- Screenshots or error messages if applicable.
-- Your <code>fsspeckit</code> version and Python environment details.</p>
-<h3 id="submitting-pull-requests">Submitting Pull Requests<a class="headerlink" href="#submitting-pull-requests" title="Permanent link">&para;</a></h3>
-<p>We gladly accept pull requests for bug fixes, new features, and improvements. To submit a pull request:</p>
+<h1 id="dataset-maintenance-and-dtype-optimization-review">Dataset maintenance and dtype-optimization review<a class="headerlink" href="#dataset-maintenance-and-dtype-optimization-review" title="Permanent link">&para;</a></h1>
+<p><strong>Reviewed:</strong> 2026-07-10
+<strong>Scope interpretation:</strong> the request refers to this repository's <code>fsspeckit.datasets</code> layer (there is no <code>fsspec.dataset</code> module here). The review covers public and backend-level Parquet compaction, persisted-dataset deduplication, and <code>optimize_*</code> operations, plus the public PyArrow/Polars dtype and schema-optimization helpers. <code>merge_parquet_dataset_pyarrow</code> is explicitly excluded.</p>
+<h2 id="executive-assessment">Executive assessment<a class="headerlink" href="#executive-assessment" title="Permanent link">&para;</a></h2>
+<p>The maintenance layer has a sensible direction: shared file discovery, greedy planning, canonical result data, backend adapters, dry-run support for compaction/deduplication, and an attempt to avoid whole-dataset materialization. However, it is <strong>not safe for partitioned datasets or failure-prone production use</strong> in its current form.</p>
+<p>The most important issues are confirmed data-integrity defects:</p>
 <ol>
-<li><strong>Fork the Repository</strong>: Start by forking the <code>fsspeckit</code> repository on GitHub.</li>
-<li><strong>Clone Your Fork</strong>: Clone your forked repository to your local machine.
-    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
-<span class="normal"><a href="#__codelineno-0-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/your-username/fsspeckit.git
-<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="nb">cd</span><span class="w"> </span>fsspeckit
-</code></pre></div></td></tr></table></div></li>
-<li><strong>Create a New Branch</strong>: Create a new branch for your changes.
-    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
-<span class="normal"><a href="#__codelineno-1-2">2</a></span>
-<span class="normal"><a href="#__codelineno-1-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a>git<span class="w"> </span>checkout<span class="w"> </span>-b<span class="w"> </span>feature/your-feature-name
-<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="c1"># or</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3"></a>git<span class="w"> </span>checkout<span class="w"> </span>-b<span class="w"> </span>bugfix/issue-description
-</code></pre></div></td></tr></table></div></li>
-<li><strong>Make Your Changes</strong>: Implement your bug fix or feature.</li>
-<li><strong>Write Tests</strong>: Ensure your changes are covered by appropriate unit tests.</li>
-<li><strong>Run Tests</strong>: Verify all tests pass before submitting.
-    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest
-</code></pre></div></td></tr></table></div></li>
-<li><strong>Format Code</strong>: Ensure your code adheres to the project's style guidelines. The project uses <code>ruff</code> for linting and formatting.
-    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
-<span class="normal"><a href="#__codelineno-3-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>.<span class="w"> </span>--fix
-<a id="__codelineno-3-2" name="__codelineno-3-2"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>format<span class="w"> </span>.
-</code></pre></div></td></tr></table></div></li>
-<li><strong>Commit Your Changes</strong>: Write clear and concise commit messages.
-    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a>git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </span><span class="s2">&quot;feat: Add new awesome feature&quot;</span>
-</code></pre></div></td></tr></table></div></li>
-<li><strong>Push to Your Fork</strong>: Push your branch to your forked repository.
-    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a>git<span class="w"> </span>push<span class="w"> </span>origin<span class="w"> </span>feature/your-feature-name
-</code></pre></div></td></tr></table></div></li>
-<li><strong>Open a Pull Request</strong>: Go to the original <code>fsspeckit</code> repository on GitHub and open a pull request from your new branch. Provide a detailed description of your changes.</li>
+<li><strong>PyArrow dtype optimization drops nulls, changing row count and potentially fabricating row pairings.</strong></li>
+<li><strong>Compaction writes all replacements into the dataset root, destroying Hive partition layout.</strong></li>
+<li><strong>Deduplication can mix rows from different Hive partitions and write them under a single partition path.</strong></li>
+<li><strong>Compaction and deduplication have no atomic commit/rollback protocol.</strong> Interrupted operations can expose duplicate, partial, or missing data.</li>
+<li><strong>Chunked PyArrow deduplication with two or more ordering columns can remove every row for a key.</strong></li>
 </ol>
-<h2 id="development-setup">Development Setup<a class="headerlink" href="#development-setup" title="Permanent link">&para;</a></h2>
-<p>To set up your development environment, follow these steps:</p>
+<p>The current implementation should be treated as suitable only for <strong>flat, single-writer, recoverable datasets</strong>, after the dtype optimizer is fixed or disabled. For partitioned datasets, do not run compaction or persisted-dataset deduplication until partition-aware rewrite and commit semantics are implemented.</p>
+<hr />
+<h2 id="1-inventory-scope-and-intended-interactions">1. Inventory, scope, and intended interactions<a class="headerlink" href="#1-inventory-scope-and-intended-interactions" title="Permanent link">&para;</a></h2>
+<h3 id="public-maintenance-surface">Public maintenance surface<a class="headerlink" href="#public-maintenance-surface" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Module/function</th>
+<th>Handler method</th>
+<th>Intended behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Statistics</td>
+<td><code>datasets.pyarrow.dataset.collect_dataset_stats_pyarrow</code></td>
+<td>backend internal wrapper</td>
+<td>Recursive Parquet-file discovery, bytes/row counts, optional path-prefix partition filter.</td>
+</tr>
+<tr>
+<td>Compaction</td>
+<td><code>datasets.pyarrow.dataset.compact_parquet_dataset_pyarrow</code></td>
+<td><code>PyarrowDatasetIO.compact_parquet_dataset</code></td>
+<td>Greedily combine small files by size and/or row-count target.</td>
+</tr>
+<tr>
+<td>Compaction</td>
+<td><code>datasets.duckdb.dataset.compact_parquet_dataset_duckdb</code></td>
+<td><code>DuckDBDatasetIO.compact_parquet_dataset</code></td>
+<td>Same contract, nominally DuckDB-backed.</td>
+</tr>
+<tr>
+<td>Deduplication</td>
+<td><code>datasets.pyarrow.dataset.deduplicate_parquet_dataset_pyarrow</code></td>
+<td>no equivalent PyArrow handler method</td>
+<td>Remove exact duplicates or keep one row per key; optional ordering chooses a winner.</td>
+</tr>
+<tr>
+<td>Deduplication</td>
+<td><code>DuckDBDatasetIO.deduplicate_parquet_dataset</code></td>
+<td><code>DuckDBDatasetIO.deduplicate_parquet_dataset</code></td>
+<td>Equivalent persisted-dataset operation using DuckDB temporary tables.</td>
+</tr>
+<tr>
+<td>Optimization</td>
+<td><code>optimize_parquet_dataset_pyarrow</code> / <code>DuckDBDatasetIO.optimize_parquet_dataset</code></td>
+<td>both backends</td>
+<td>Optional deduplication followed by compaction; <strong>not</strong> sort, z-order, or repartitioning.</td>
+</tr>
+<tr>
+<td>Unified fsspec extension</td>
+<td><code>core.ext.dataset.deduplicate_parquet_dataset</code></td>
+<td><code>fs.deduplicate_parquet_dataset</code></td>
+<td>Chooses DuckDB when importable, otherwise PyArrow.</td>
+</tr>
+<tr>
+<td>Dtype/schema optimization</td>
+<td><code>datasets.schema.opt_dtype</code>, <code>datasets.polars.opt_dtype</code>, schema helper exports</td>
+<td>n/a</td>
+<td>Downcast/infer types and normalize or unify schemas.</td>
+</tr>
+</tbody>
+</table>
+<p>The declared handler protocol includes compaction and optimization (<code>src/fsspeckit/datasets/interfaces.py:118-176</code>) but <strong>omits deduplication</strong>, even though the DuckDB handler implements it. The root <code>fsspeckit.datasets</code> package exports PyArrow compaction and optimization but not persisted PyArrow deduplication (<code>src/fsspeckit/datasets/__init__.py:27-39, 74-99</code>); the narrower <code>fsspeckit.datasets.pyarrow</code> package does export it (<code>src/fsspeckit/datasets/pyarrow/__init__.py:17-49</code>).</p>
+<h3 id="actual-execution-model">Actual execution model<a class="headerlink" href="#actual-execution-model" title="Permanent link">&para;</a></h3>
 <ol>
-<li><strong>Clone the repository</strong>:
-    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1">1</a></span>
-<span class="normal"><a href="#__codelineno-6-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a>git<span class="w"> </span>clone<span class="w"> </span>https://github.com/legout/fsspeckit.git
-<a id="__codelineno-6-2" name="__codelineno-6-2"></a><span class="nb">cd</span><span class="w"> </span>fsspeckit
-</code></pre></div></td></tr></table></div></li>
-<li><strong>Install <code>uv</code></strong>:
-    <code>fsspeckit</code> uses <code>uv</code> for dependency management and running commands. If you don't have <code>uv</code> installed, you can install it via <code>pip</code>:
-    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a>pip<span class="w"> </span>install<span class="w"> </span>uv
-</code></pre></div></td></tr></table></div></li>
-<li><strong>Install Development Dependencies</strong>:
-    The project uses <code>uv</code> to manage dependencies. Install the <code>dev</code> dependency group which includes tools for testing, linting, and documentation generation.
-    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
-</code></pre></div></td></tr></table></div>
-    This command installs the project in editable mode (<code>-e</code>) and includes all development-related dependencies specified in <code>pyproject.toml</code> under the <code>[project.optional-dependencies] dev</code> section.</li>
+<li><code>collect_dataset_stats</code> manually recursively lists <code>*.parquet</code>, reads file metadata, and applies <code>partition_filter</code> as a relative-path string-prefix filter (<code>src/fsspeckit/core/maintenance.py:195-312</code>).</li>
+<li><code>plan_compaction_groups</code> and <code>plan_deduplication_groups</code> sort files by compressed byte size and greedily pack them until target bytes or rows would be exceeded (<code>:315-451</code>, <code>:612-758</code>). Compaction discards singleton groups; deduplication processes them.</li>
+<li>The shared compaction executor makes a UUID root-level output for every group, invokes a backend callback for <strong>all</strong> groups, then deletes <strong>all</strong> originals in a later loop (<code>:887-927</code>).</li>
+<li>PyArrow compaction reads every file in a group into <code>pa.Table</code> objects and concatenates them before writing one Parquet file (<code>src/fsspeckit/datasets/pyarrow/dataset.py:484-504</code>). It is group-bounded, but not streaming.</li>
+<li>PyArrow persisted deduplication uses an in-memory path or a chunked path. The latter retains a growing table of all distinct keys or best values in memory (<code>:719-962</code>).</li>
+<li>DuckDB’s free compaction function uses <code>parquet_scan</code> and <code>COPY</code> (<code>src/fsspeckit/datasets/duckdb/dataset.py:100-239</code>), but the handler method instead reads and concatenates all group files in PyArrow then writes through DuckDB (<code>:1116-1202</code>).</li>
+<li>Both <code>optimize</code> implementations optionally deduplicate, ignore that result, then compact (<code>PyArrow :560-586</code>; DuckDB <code>:1230-1258</code>). <code>plan_optimize_groups</code> is dead code: it is defined in <code>core/maintenance.py:454-609</code> but has no caller under <code>src/</code>.</li>
 </ol>
-<h2 id="best-practices-for-contributions">Best Practices for Contributions<a class="headerlink" href="#best-practices-for-contributions" title="Permanent link">&para;</a></h2>
+<hr />
+<h2 id="2-confirmed-critical-findings">2. Confirmed critical findings<a class="headerlink" href="#2-confirmed-critical-findings" title="Permanent link">&para;</a></h2>
+<h3 id="c1-opt_dtype-corrupts-null-containing-pyarrow-tables">C1 — <code>opt_dtype</code> corrupts null-containing PyArrow tables<a class="headerlink" href="#c1-opt_dtype-corrupts-null-containing-pyarrow-tables" title="Permanent link">&para;</a></h3>
+<p><strong>Evidence:</strong> <code>_process_column</code> drops nulls (<code>array.drop_null()</code>) and returns the shortened array for strings, numeric columns, and all unsupported column types (<code>src/fsspeckit/datasets/schema.py:1160-1175</code>). <code>opt_dtype</code> then constructs a new table from those shortened arrays (<code>:1231-1249</code>).</p>
+<p><strong>Reproduced in the current environment:</strong></p>
 <ul>
-<li><strong>Code Style</strong>: Adhere to the existing code style. We use <code>ruff</code> for linting and formatting.</li>
-<li><strong>Testing</strong>: All new features and bug fixes should be accompanied by relevant unit tests.</li>
-<li><strong>Documentation</strong>: If your changes introduce new features or modify existing behavior, please update the documentation accordingly.</li>
-<li><strong>Commit Messages</strong>: Write descriptive commit messages that explain the purpose of your changes.</li>
-<li><strong>Atomic Commits</strong>: Try to keep your commits focused on a single logical change.</li>
-<li><strong>Branch Naming</strong>: Use clear and concise branch names (e.g., <code>feature/new-feature</code>, <code>bugfix/fix-issue-123</code>).</li>
+<li>Input <code>a=[1, None, 3]</code>, <code>b=['1', None, '3']</code> (3 rows) produced a 2-row output.</li>
+<li>Input <code>a=[1, None, 3]</code>, <code>b=['1', '2', None]</code> also produced a 2-row output. The independent null removal changes the original pairings to <code>(1, 1), (3, 2)</code>.</li>
 </ul>
-<h2 id="coding-guidelines">Coding Guidelines<a class="headerlink" href="#coding-guidelines" title="Permanent link">&para;</a></h2>
-<h3 id="avoid-mutable-default-arguments">Avoid Mutable Default Arguments<a class="headerlink" href="#avoid-mutable-default-arguments" title="Permanent link">&para;</a></h3>
-<p>Core helper functions SHALL avoid mutable default arguments (e.g., <code>def func(param=[]):</code> or <code>def func(param={}):</code>). Instead use <code>None</code> and initialize inside the function:</p>
-<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-9-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-9-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-9-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-9-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-9-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-9-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-9-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-9-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-9-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-9-10">10</a></span>
-<span class="normal"><a href="#__codelineno-9-11">11</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-9-1" name="__codelineno-9-1"></a><span class="c1"># Bad</span>
-<a id="__codelineno-9-2" name="__codelineno-9-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">process_items</span><span class="p">(</span><span class="n">items</span><span class="o">=</span><span class="p">[]):</span>
-<a id="__codelineno-9-3" name="__codelineno-9-3"></a>    <span class="n">items</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;processed&quot;</span><span class="p">)</span>
-<a id="__codelineno-9-4" name="__codelineno-9-4"></a>    <span class="k">return</span> <span class="n">items</span>
-<a id="__codelineno-9-5" name="__codelineno-9-5"></a>
-<a id="__codelineno-9-6" name="__codelineno-9-6"></a><span class="c1"># Good  </span>
-<a id="__codelineno-9-7" name="__codelineno-9-7"></a><span class="k">def</span><span class="w"> </span><span class="nf">process_items</span><span class="p">(</span><span class="n">items</span><span class="o">=</span><span class="kc">None</span><span class="p">):</span>
-<a id="__codelineno-9-8" name="__codelineno-9-8"></a>    <span class="k">if</span> <span class="n">items</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-9-9" name="__codelineno-9-9"></a>        <span class="n">items</span> <span class="o">=</span> <span class="p">[]</span>
-<a id="__codelineno-9-10" name="__codelineno-9-10"></a>    <span class="n">items</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">&quot;processed&quot;</span><span class="p">)</span>
-<a id="__codelineno-9-11" name="__codelineno-9-11"></a>    <span class="k">return</span> <span class="n">items</span>
+<p><strong>Impact:</strong> Silent row loss and relational corruption. The defect affects every null-containing type passed to <code>opt_dtype</code>, including unsupported timestamp, boolean, binary, decimal, list, and struct columns because the fallback returns <code>non_null</code>.</p>
+<p><strong>Recommendation:</strong> Block <code>opt_dtype_pa</code> in read/write paths until fixed. Preserve the full <code>ChunkedArray</code>; perform detection on non-null values only, but apply a safe cast to the full original array so null positions remain unchanged. Add an invariant test: input and output have identical row counts and null masks for every column.</p>
+<hr />
+<h3 id="c2-shared-compaction-breaks-hive-partition-layout">C2 — Shared compaction breaks Hive partition layout<a class="headerlink" href="#c2-shared-compaction-breaks-hive-partition-layout" title="Permanent link">&para;</a></h3>
+<p><strong>Evidence:</strong> <code>execute_compaction_template</code> always generates <code>dataset_path/compacted-&lt;uuid&gt;.parquet</code> (<code>src/fsspeckit/core/maintenance.py:917-921</code>) and only then removes original files (<code>:923-925</code>). It carries no partition identity in <code>CompactionGroup</code>.</p>
+<p><strong>Reproduced in the current environment:</strong> compacting two files under <code>part=A/</code> with <code>partition_filter=['part=A']</code> produced:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1">1</a></span>
+<span class="normal"><a href="#__codelineno-0-2">2</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a>compacted-&lt;uuid&gt;.parquet
+<a id="__codelineno-0-2" name="__codelineno-0-2"></a>part=B/one.parquet
 </code></pre></div></td></tr></table></div>
-<h3 id="avoid-unreachable-code">Avoid Unreachable Code<a class="headerlink" href="#avoid-unreachable-code" title="Permanent link">&para;</a></h3>
-<p>Ensure all code branches can be exercised. Avoid patterns like:</p>
-<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-10-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-10-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-10-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-10-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-10-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-10-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-10-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-10-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-10-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-10-10">10</a></span>
-<span class="normal"><a href="#__codelineno-10-11">11</a></span>
-<span class="normal"><a href="#__codelineno-10-12">12</a></span>
-<span class="normal"><a href="#__codelineno-10-13">13</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-10-1" name="__codelineno-10-1"></a><span class="c1"># Bad - unreachable code after return</span>
-<a id="__codelineno-10-2" name="__codelineno-10-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">some_function</span><span class="p">():</span>
-<a id="__codelineno-10-3" name="__codelineno-10-3"></a>    <span class="k">if</span> <span class="n">condition</span><span class="p">:</span>
-<a id="__codelineno-10-4" name="__codelineno-10-4"></a>        <span class="k">return</span> <span class="n">result</span>
-<a id="__codelineno-10-5" name="__codelineno-10-5"></a>    <span class="k">else</span><span class="p">:</span>
-<a id="__codelineno-10-6" name="__codelineno-10-6"></a>        <span class="k">return</span> <span class="n">other_result</span>
-<a id="__codelineno-10-7" name="__codelineno-10-7"></a>    <span class="n">unreachable_code</span><span class="p">()</span>  <span class="c1"># This will never execute</span>
-<a id="__codelineno-10-8" name="__codelineno-10-8"></a>
-<a id="__codelineno-10-9" name="__codelineno-10-9"></a><span class="c1"># Good - all paths reachable</span>
-<a id="__codelineno-10-10" name="__codelineno-10-10"></a><span class="k">def</span><span class="w"> </span><span class="nf">some_function</span><span class="p">():</span>
-<a id="__codelineno-10-11" name="__codelineno-10-11"></a>    <span class="k">if</span> <span class="n">condition</span><span class="p">:</span>
-<a id="__codelineno-10-12" name="__codelineno-10-12"></a>        <span class="k">return</span> <span class="n">result</span>
-<a id="__codelineno-10-13" name="__codelineno-10-13"></a>    <span class="k">return</span> <span class="n">other_result</span>
-</code></pre></div></td></tr></table></div>
-<h3 id="type-annotations">Type Annotations<a class="headerlink" href="#type-annotations" title="Permanent link">&para;</a></h3>
-<p>The project uses <code>mypy</code> for static type checking. Type annotations help catch bugs early and improve code documentation.</p>
-<p><strong>Requirements:</strong>
-- All new public functions and methods SHOULD have type hints for parameters and return values
-- Type hints are REQUIRED for changes to core modules (<code>core.*</code>, <code>datasets.*</code>)
-- Use precise types instead of overly broad ones (e.g., prefer <code>list[str]</code> over <code>list[Any]</code>)</p>
-<p><strong>Running Type Checks:</strong>
-<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-11-1">1</a></span>
-<span class="normal"><a href="#__codelineno-11-2">2</a></span>
-<span class="normal"><a href="#__codelineno-11-3">3</a></span>
-<span class="normal"><a href="#__codelineno-11-4">4</a></span>
-<span class="normal"><a href="#__codelineno-11-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-11-1" name="__codelineno-11-1"></a><span class="c1"># Check types</span>
-<a id="__codelineno-11-2" name="__codelineno-11-2"></a>uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/fsspeckit
-<a id="__codelineno-11-3" name="__codelineno-11-3"></a>
-<a id="__codelineno-11-4" name="__codelineno-11-4"></a><span class="c1"># Check specific modules</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5"></a>uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/fsspeckit/datasets/pyarrow_dataset.py
-</code></pre></div></td></tr></table></div></p>
-<p><strong>Common Type Patterns:</strong>
-<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-12-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-12-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-12-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-12-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-12-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-12-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-12-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-12-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-12-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-12-10">10</a></span>
-<span class="normal"><a href="#__codelineno-12-11">11</a></span>
-<span class="normal"><a href="#__codelineno-12-12">12</a></span>
-<span class="normal"><a href="#__codelineno-12-13">13</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-12-1" name="__codelineno-12-1"></a><span class="c1"># Good - precise types</span>
-<a id="__codelineno-12-2" name="__codelineno-12-2"></a><span class="k">def</span><span class="w"> </span><span class="nf">process_dataset</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">filesystem</span><span class="p">:</span> <span class="n">AbstractFileSystem</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
-<a id="__codelineno-12-3" name="__codelineno-12-3"></a>    <span class="o">...</span>
-<a id="__codelineno-12-4" name="__codelineno-12-4"></a>
-<a id="__codelineno-12-5" name="__codelineno-12-5"></a><span class="c1"># Good - using Literal for specific string values</span>
-<a id="__codelineno-12-6" name="__codelineno-12-6"></a><span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Literal</span>
-<a id="__codelineno-12-7" name="__codelineno-12-7"></a>
-<a id="__codelineno-12-8" name="__codelineno-12-8"></a><span class="k">def</span><span class="w"> </span><span class="nf">merge_strategy</span><span class="p">(</span><span class="n">strategy</span><span class="p">:</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">&quot;upsert&quot;</span><span class="p">,</span> <span class="s2">&quot;insert&quot;</span><span class="p">,</span> <span class="s2">&quot;update&quot;</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-12-9" name="__codelineno-12-9"></a>    <span class="o">...</span>
-<a id="__codelineno-12-10" name="__codelineno-12-10"></a>
-<a id="__codelineno-12-11" name="__codelineno-12-11"></a><span class="c1"># Good - proper optional handling</span>
-<a id="__codelineno-12-12" name="__codelineno-12-12"></a><span class="k">def</span><span class="w"> </span><span class="nf">get_config</span><span class="p">(</span><span class="n">key</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">default</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
-<a id="__codelineno-12-13" name="__codelineno-12-13"></a>    <span class="o">...</span>
-</code></pre></div></td></tr></table></div></p>
-<h3 id="testing-expectations">Testing Expectations<a class="headerlink" href="#testing-expectations" title="Permanent link">&para;</a></h3>
-<p>All contributions MUST include appropriate tests. The project maintains a minimum of 80% code coverage.</p>
-<p><strong>Testing Requirements:</strong>
-1. <strong>New Features</strong>: Add unit tests for all public APIs
-2. <strong>Bug Fixes</strong>: Add regression tests to ensure the bug doesn't reoccur
-3. <strong>Refactors</strong>: Ensure existing tests continue to pass; add new tests for new behavior</p>
-<p><strong>Running Tests:</strong>
-<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-13-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-13-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-13-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-13-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-13-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-13-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-13-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-13-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-13-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-13-10">10</a></span>
-<span class="normal"><a href="#__codelineno-13-11">11</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-13-1" name="__codelineno-13-1"></a><span class="c1"># Run all tests</span>
-<a id="__codelineno-13-2" name="__codelineno-13-2"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest
-<a id="__codelineno-13-3" name="__codelineno-13-3"></a>
-<a id="__codelineno-13-4" name="__codelineno-13-4"></a><span class="c1"># Run tests with coverage report</span>
-<a id="__codelineno-13-5" name="__codelineno-13-5"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>--cov<span class="o">=</span>fsspeckit<span class="w"> </span>--cov-report<span class="o">=</span>term-missing
-<a id="__codelineno-13-6" name="__codelineno-13-6"></a>
-<a id="__codelineno-13-7" name="__codelineno-13-7"></a><span class="c1"># Run specific test file</span>
-<a id="__codelineno-13-8" name="__codelineno-13-8"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/test_utils/test_pyarrow_dataset_merge.py
-<a id="__codelineno-13-9" name="__codelineno-13-9"></a>
-<a id="__codelineno-13-10" name="__codelineno-13-10"></a><span class="c1"># Run tests matching pattern</span>
-<a id="__codelineno-13-11" name="__codelineno-13-11"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-k<span class="w"> </span><span class="s2">&quot;test_merge&quot;</span>
-</code></pre></div></td></tr></table></div></p>
-<p><strong>Testing for Refactors:</strong></p>
-<p>When refactoring code (especially large module decomposition):
-- <strong>Preserve Behavior</strong>: Ensure all existing functionality is maintained
-- <strong>Add Unit Tests</strong>: For new submodules, add focused unit tests
-- <strong>Keep Integration Tests</strong>: Maintain existing integration tests to verify end-to-end behavior
-- <strong>Coverage</strong>: Refactors should not decrease test coverage below 80%</p>
-<p>Example: If splitting <code>large_module.py</code> into <code>submodule_a.py</code> and <code>submodule_b.py</code>:
-<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-14-1">1</a></span>
-<span class="normal"><a href="#__codelineno-14-2">2</a></span>
-<span class="normal"><a href="#__codelineno-14-3">3</a></span>
-<span class="normal"><a href="#__codelineno-14-4">4</a></span>
-<span class="normal"><a href="#__codelineno-14-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-14-1" name="__codelineno-14-1"></a><span class="c1"># Before refactor: tests/test_large_module.py</span>
-<a id="__codelineno-14-2" name="__codelineno-14-2"></a><span class="c1"># After refactor:</span>
-<a id="__codelineno-14-3" name="__codelineno-14-3"></a><span class="c1"># - tests/test_submodule_a.py (unit tests for submodule_a)</span>
-<a id="__codelineno-14-4" name="__codelineno-14-4"></a><span class="c1"># - tests/test_submodule_b.py (unit tests for submodule_b)</span>
-<a id="__codelineno-14-5" name="__codelineno-14-5"></a><span class="c1"># - tests/test_integration.py (integration tests verifying end-to-end behavior)</span>
-</code></pre></div></td></tr></table></div></p>
-<p><strong>High-Risk Changes:</strong></p>
-<p>Changes to the following modules REQUIRE both type checking AND comprehensive tests:
-- <code>core/filesystem.py</code> and core submodules
-- <code>core/ext*.py</code> and core submodules
-- <code>datasets/pyarrow*.py</code> and dataset submodules
-- <code>datasets/duckdb*.py</code> and dataset submodules</p>
-<p>For these changes:
-<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-15-1">1</a></span>
-<span class="normal"><a href="#__codelineno-15-2">2</a></span>
-<span class="normal"><a href="#__codelineno-15-3">3</a></span>
-<span class="normal"><a href="#__codelineno-15-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-15-1" name="__codelineno-15-1"></a><span class="c1"># Run all checks</span>
-<a id="__codelineno-15-2" name="__codelineno-15-2"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest
-<a id="__codelineno-15-3" name="__codelineno-15-3"></a>uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/fsspeckit/core/<span class="w"> </span>src/fsspeckit/datasets/
-<a id="__codelineno-15-4" name="__codelineno-15-4"></a>uv<span class="w"> </span>run<span class="w"> </span>ruff<span class="w"> </span>check<span class="w"> </span>.<span class="w"> </span>--fix
-</code></pre></div></td></tr></table></div></p>
+<p>A subsequent <code>collect_dataset_stats(..., partition_filter=['part=A'])</code> raised <code>FileNotFoundError</code> because no output remained below <code>part=A/</code>.</p>
+<p><strong>Impact:</strong> Partition pruning, maintenance filtering, and path-derived partition semantics break. The same executor is used by PyArrow compaction and the module-level DuckDB compaction, and the DuckDB handler duplicates the same root-write behavior.</p>
+<p><strong>Recommendation:</strong> Make partition identity first-class in discovery/planning. Group only files with the same partition tuple, stage/write output back into that partition directory, and include a test that a filtered maintenance pass leaves a queryable filtered partition afterward. Do not try to repair this by merely retaining partition columns inside the file; physical partition layout is part of the API contract.</p>
+<hr />
+<h3 id="c3-persisted-deduplication-is-unsafe-across-partitions">C3 — Persisted deduplication is unsafe across partitions<a class="headerlink" href="#c3-persisted-deduplication-is-unsafe-across-partitions" title="Permanent link">&para;</a></h3>
+<p><strong>Evidence:</strong> The deduplication planner is global by default (<code>target_*</code> is omitted at <code>src/fsspeckit/datasets/pyarrow/dataset.py:672-677</code>); with no threshold, all files are one group (<code>core/maintenance.py:660-710</code>). PyArrow overwrites <code>group.files[0].path</code> and removes the other group members (<code>pyarrow/dataset.py:764-775</code>). DuckDB does the same via <code>COPY</code> to <code>group_files[0]</code> then removal (<code>duckdb/dataset.py:1426-1439</code>).</p>
+<p><strong>Impact:</strong> Rows from partition B can be written into partition A’s physical directory. If partition fields exist both in files and as Hive directories, PyArrow can fail with an incompatible dictionary/string partition-field type; the existing partitioned correctness test currently fails this way.</p>
+<p><strong>Recommendation:</strong> Require one of three explicit semantics:</p>
+<ol>
+<li><strong>Partition-local deduplication</strong>: include the physical partition tuple in grouping and deduplicate only inside it.</li>
+<li><strong>Global deduplication with repartition</strong>: read all relevant rows, select winners, then write a fresh staged dataset partitioned by specified partition columns.</li>
+<li><strong>Flat datasets only</strong>: reject paths with Hive-style partitions until either option is implemented.</li>
+</ol>
+<p>Never let a global group overwrite a file selected simply by its position in the group.</p>
+<hr />
+<h3 id="c4-no-atomicity-rollback-or-concurrency-safety-for-maintenance-writes">C4 — No atomicity, rollback, or concurrency safety for maintenance writes<a class="headerlink" href="#c4-no-atomicity-rollback-or-concurrency-safety-for-maintenance-writes" title="Permanent link">&para;</a></h3>
+<p><strong>Evidence:</strong> The shared executor writes every group before removing originals, with no exception handling or cleanup (<code>core/maintenance.py:917-925</code>). The PyArrow in-memory dedup path overwrites the first input file before deleting the others (<code>pyarrow/dataset.py:764-775</code>); its chunked path deletes all originals before moving its temporary output (<code>:958-962</code>). DuckDB dedup follows a similar overwrite-then-delete sequence (<code>duckdb/dataset.py:1426-1439</code>).</p>
+<p><strong>Failure modes:</strong></p>
+<ul>
+<li>Write failure after an earlier group succeeds: staged-like new files exist alongside all originals for successful groups, duplicating rows.</li>
+<li>Deletion failure: some originals remain alongside new output, duplicating rows.</li>
+<li>Chunked dedup process loss between deleting originals and moving the temp file: a group disappears.</li>
+<li>Two maintenance jobs on the same dataset can race on discovery, output/delete operations, and no lock or commit version prevents it.</li>
+</ul>
+<p><strong>Recommendation:</strong> Replace direct in-place replacement with a versioned commit protocol:</p>
+<ul>
+<li>Write immutable outputs under a job-specific staging prefix/directory.</li>
+<li>Validate row counts, schema, partition paths, and output files before commit.</li>
+<li>For POSIX: atomically swap a manifest/pointer or directory only within one filesystem.</li>
+<li>For object stores: publish a new manifest/version atomically, retain old files until readers have moved, and garbage-collect later.</li>
+<li>On any error, remove only the job staging prefix; leave the committed dataset untouched.</li>
+<li>Document and enforce a dataset-level single-writer lock or optimistic version check.</li>
+</ul>
+<p>DuckDB’s <code>COPY</code> documents <code>USE_TMP_FILE</code> for a safer individual file overwrite, but this still does not provide an atomic multi-file dataset commit.
+Source: <a href="https://duckdb.org/docs/current/sql/statements/copy.html">https://duckdb.org/docs/current/sql/statements/copy.html</a></p>
+<hr />
+<h3 id="c5-chunked-pyarrow-custom-ordering-can-drop-every-winning-row">C5 — Chunked PyArrow custom ordering can drop every winning row<a class="headerlink" href="#c5-chunked-pyarrow-custom-ordering-can-drop-every-winning-row" title="Permanent link">&para;</a></h3>
+<p><strong>Evidence:</strong> For custom ordering, the chunked branch aggregates each ordering field independently with <code>min</code>/<code>max</code> (<code>src/fsspeckit/datasets/pyarrow/dataset.py:859-897</code>) and then inner-joins rows on the <strong>combined</strong> key and aggregate values (<code>:902-954</code>). Independent maxima need not coexist in one source row.</p>
+<p><strong>Reproduced:</strong> For one key with rows:</p>
+<table>
+<thead>
+<tr>
+<th style="text-align: right;">id</th>
+<th style="text-align: right;">priority</th>
+<th style="text-align: right;">tie</th>
+<th>payload</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">10</td>
+<td style="text-align: right;">1</td>
+<td>priority-winner</td>
+</tr>
+<tr>
+<td style="text-align: right;">1</td>
+<td style="text-align: right;">9</td>
+<td style="text-align: right;">100</td>
+<td>tie-winner</td>
+</tr>
+</tbody>
+</table>
+<p>With <code>dedup_order_by=['-priority', '-tie']</code> and <code>chunk_size_rows=1</code>, the operation reported <code>total_rows_after=0</code> and wrote an empty table. Correct lexicographic ordering should retain the first row.</p>
+<p><strong>Recommendation:</strong> Do not aggregate independent order fields. Implement lexicographic ranking with a stable tie-breaker (for example source-file ordinal plus row ordinal), then retain <code>row_number() == 1</code> per key. For data larger than memory, use external sorting or a database engine with disk spill; a per-key max/min aggregate is not a substitute for a composite ordering.</p>
+<hr />
+<h2 id="3-high-priority-correctness-contract-and-scalability-findings">3. High-priority correctness, contract, and scalability findings<a class="headerlink" href="#3-high-priority-correctness-contract-and-scalability-findings" title="Permanent link">&para;</a></h2>
+<h3 id="h1-dedup_order_by-semantics-differ-or-fail-by-backend">H1 — <code>dedup_order_by</code> semantics differ or fail by backend<a class="headerlink" href="#h1-dedup_order_by-semantics-differ-or-fail-by-backend" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>PyArrow default/Polars fallback:</strong> <code>_table_drop_duplicates</code> falls back to <code>pl.DataFrame.unique</code> without an order-preservation flag (<code>src/fsspeckit/datasets/pyarrow/dataset.py:156-182</code>). Existing test <code>test_consistent_ordering_across_runs</code> fails: different runs retain the same key winners but emit different row order.</li>
+<li><strong>PyArrow exact dedup + custom ordering:</strong> <code>dedup_order_by</code> without <code>key_columns</code> enters a code path that calls <code>group_by(None)</code>. Current reproduction raises <code>TypeError: object of type 'NoneType' has no len()</code> instead of rejecting the unsupported combination (<code>pyarrow/dataset.py:859-893</code>).</li>
+<li><strong>DuckDB static review (DuckDB extra is unavailable in this environment):</strong> documented <code>['-timestamp']</code> is quoted as the literal identifier <code>"-timestamp"</code> (<code>src/fsspeckit/datasets/duckdb/dataset.py:1398-1404</code>). Direction is not parsed. When no explicit ordering is supplied, <code>SELECT DISTINCT ON</code> lacks <code>ORDER BY</code> (<code>:1393-1409</code>), so the retained row is not deterministic.</li>
+</ul>
+<p><strong>Recommendation:</strong> Define one cross-backend contract: either require an explicit complete order for key deduplication or specify stable first-seen order with a deterministic file/row ordinal. Parse <code>+column</code>/<code>-column</code> exactly once in common code and pass a typed direction structure to both backends. Reject <code>dedup_order_by</code> without keys unless exact-dedup ordering semantics are deliberately designed.</p>
+<h3 id="h2-the-claimed-streaming-compaction-path-materializes-complete-groups">H2 — The claimed "streaming" compaction path materializes complete groups<a class="headerlink" href="#h2-the-claimed-streaming-compaction-path-materializes-complete-groups" title="Permanent link">&para;</a></h3>
+<p><code>compact_parquet_dataset_pyarrow</code> calls <code>pq.read_table</code> for every file and <code>pa.concat_tables</code> for the complete group (<code>src/fsspeckit/datasets/pyarrow/dataset.py:484-504</code>). The DuckDB handler method repeats this materialization (<code>duckdb/dataset.py:1175-1195</code>) even though the module-level DuckDB function can scan/copy with DuckDB.</p>
+<p>The grouping limit uses compressed source-file bytes and row counts, neither of which bounds decoded Arrow memory, dictionary expansion, sort memory, or temporary output memory. Thus a group under the configured size threshold can still exhaust RAM.</p>
+<p><strong>Recommendation:</strong> Rename this as group-bounded rather than streaming, or implement actual batch/record-batch streaming. Unify the DuckDB handler with <code>compact_parquet_dataset_duckdb</code> so one backend does not silently switch to PyArrow materialization. Expose a memory budget and derive a conservative decoded-size/group limit from Parquet metadata.</p>
+<h3 id="h3-pyarrow-chunked-deduplication-is-not-memory-bounded">H3 — PyArrow chunked deduplication is not memory-bounded<a class="headerlink" href="#h3-pyarrow-chunked-deduplication-is-not-memory-bounded" title="Permanent link">&para;</a></h3>
+<p>The one-pass path retains <code>seen_keys</code> for every distinct key and repeatedly concatenates it (<code>pyarrow/dataset.py:810-851</code>). The custom-order path accumulates <code>best_values_table</code> globally (<code>:859-897</code>). Both are O(number of unique keys), and repeated <code>pa.concat_tables</code> can cause repeated copying. Memory checks happen after a scanner batch is created (<code>:1085-1112</code>) and <code>max_memory_mb</code> tracks Arrow allocations, not a hard process cap (<code>pyarrow/memory.py:78-160</code>).</p>
+<p><strong>Recommendation:</strong> For guaranteed memory bounds, hash-partition data by deduplication key into spillable shards; every duplicate key must map to one shard. Deduplicate each shard independently, then write staged output. Alternatives are a disk-backed key store or DuckDB configured with a memory limit and temporary directory, provided commit semantics are still fixed.</p>
+<h3 id="h4-optimize-is-an-incomplete-and-misleading-result-contract">H4 — "Optimize" is an incomplete and misleading result contract<a class="headerlink" href="#h4-optimize-is-an-incomplete-and-misleading-result-contract" title="Permanent link">&para;</a></h3>
+<p>Both backends implement optimize as optional deduplication plus compaction, without sort, z-order, clustering, repartitioning, or a dry-run option (<code>pyarrow/dataset.py:516-586</code>, <code>duckdb/dataset.py:1204-1258</code>). Deduplication statistics are discarded. Meanwhile <code>plan_optimize_groups</code> advertises z-order validation but is unused (<code>core/maintenance.py:454-609</code>; no call under <code>src/</code>).</p>
+<p><strong>Recommendation:</strong> Choose one contract:</p>
+<ul>
+<li>rename it to <code>maintain_parquet_dataset</code> / <code>deduplicate_and_compact</code>, or</li>
+<li>implement genuine clustering with explicit sort/z-order columns, a dry-run plan, partition-aware output, and combined dedup+compaction metrics.</li>
+</ul>
+<p>Return nested <code>deduplication</code>, <code>compaction</code>, and <code>commit</code> statistics rather than discarding the first phase.</p>
+<h3 id="h5-planningreporting-estimates-are-returned-as-execution-facts">H5 — Planning/reporting estimates are returned as execution facts<a class="headerlink" href="#h5-planningreporting-estimates-are-returned-as-execution-facts" title="Permanent link">&para;</a></h3>
+<p><code>plan_compaction_groups</code> computes <code>after_total_bytes</code> by reusing input bytes (<code>core/maintenance.py:424-443</code>) and execution returns that same <code>planned_stats</code> unchanged (<code>:927</code>). Compression can substantially alter output bytes; failures can alter file counts. <code>MaintenanceStats.to_dict</code> also omits defined deduplication fields (<code>key_columns</code>, <code>dedup_order_by</code>, and <code>deduplicated_rows</code>; <code>:106-154</code>).</p>
+<p><strong>Recommendation:</strong> Mark plans explicitly as estimates. After a successful staged write, compute actual output file count, bytes, schema, partition counts, and deduplicated row count; return those separately from the original plan. Serialize all fields or use operation-specific result dataclasses.</p>
+<h3 id="h6-api-parity-and-dispatch-are-incomplete">H6 — API parity and dispatch are incomplete<a class="headerlink" href="#h6-api-parity-and-dispatch-are-incomplete" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>DatasetHandler</code> lacks the deduplication method (<code>interfaces.py:118-176</code>).</li>
+<li><code>PyarrowDatasetIO</code> lacks a <code>deduplicate_parquet_dataset</code> wrapper while DuckDB exposes one.</li>
+<li>The root datasets package omits PyArrow persisted deduplication; this was confirmed by import: <code>from fsspeckit.datasets import deduplicate_parquet_dataset_pyarrow</code> raises <code>ImportError</code>, while the <code>datasets.pyarrow</code> import succeeds.</li>
+<li>The <code>fsspec</code> extension accepts <code>**kwargs</code> but forwards none of the PyArrow memory/chunk/progress controls (<code>core/ext/dataset.py:159-245</code>). It creates DuckDB with no <code>filesystem=self</code> (<code>:211-228</code>), so non-local fsspec dispatch can use the wrong filesystem when DuckDB is installed.</li>
+</ul>
+<p><strong>Recommendation:</strong> Decide whether persisted deduplication is a core handler capability; if yes, add it to the protocol, both handler classes, root exports, and parity tests. Forward typed backend options and supply the caller filesystem to DuckDB connection creation. Use a backend-selection policy that fails predictably instead of silently changing filesystem semantics.</p>
+<hr />
+<h2 id="4-dtype-and-schema-optimization-review">4. Dtype and schema-optimization review<a class="headerlink" href="#4-dtype-and-schema-optimization-review" title="Permanent link">&para;</a></h2>
+<h3 id="d1-pyarrow-schema-unification-crashes-for-valid-time-conflicts">D1 — PyArrow schema unification crashes for valid time conflicts<a class="headerlink" href="#d1-pyarrow-schema-unification-crashes-for-valid-time-conflicts" title="Permanent link">&para;</a></h3>
+<p><code>_handle_temporal_conflicts</code> calls <code>pa.time64()</code> without a required unit (<code>src/fsspeckit/datasets/schema.py:555-594</code>). <code>unify_schemas</code> does not catch <code>TypeError</code>. Reproduction with <code>time32('s')</code> plus <code>time64('us')</code> raises <code>TypeError: time64() takes exactly 1 positional argument (0 given)</code>.</p>
+<p><strong>Fix:</strong> pick a valid precision explicitly, normally the finest compatible unit, and add time32/time64 combinations to schema-unification tests. Prefer Arrow’s permissive unification where it already specifies behavior.</p>
+<h3 id="d2-polars-changes-signed-integers-to-unsigned-by-default">D2 — Polars changes signed integers to unsigned by default<a class="headerlink" href="#d2-polars-changes-signed-integers-to-unsigned-by-default" title="Permanent link">&para;</a></h3>
+<p><code>opt_dtype</code> defaults to <code>shrink_numerics=False</code> and <code>allow_unsigned=True</code> (<code>src/fsspeckit/datasets/polars.py:483-493</code>), but non-negative integer columns are converted to <code>UInt64</code> independent of the shrink flag (<code>:74-112</code>). Reproduction: <code>Int64([1,2,3])</code> becomes <code>UInt64</code> with default options.</p>
+<p><strong>Impact:</strong> This is a semantic type change, not merely a conservative optimization; it can break joins and arithmetic expecting signed values.</p>
+<p><strong>Fix:</strong> require <code>shrink_numerics=True</code> for unsigned conversion, or make <code>allow_unsigned=False</code> the safe default.</p>
+<h3 id="d3-dtype-inference-is-expensive-and-unsafe-on-representative-sample-assumptions">D3 — Dtype inference is expensive and unsafe on representative-sample assumptions<a class="headerlink" href="#d3-dtype-inference-is-expensive-and-unsafe-on-representative-sample-assumptions" title="Permanent link">&para;</a></h3>
+<ul>
+<li>PyArrow string inference converts each whole column to Python values and uses a Python regex loop (<code>schema.py:1086-1105</code>), defeating Arrow vectorization and potentially materializing large columns in host memory.</li>
+<li>The Polars path can infer a target type from only a sample then cast the whole column (<code>polars.py:483-576</code>); unrepresentative values can become null in non-strict mode.</li>
+<li>Random Polars sampling has no seed, so inferred schemas can vary across runs.</li>
+<li>Boolean strings are cast using Arrow’s direct string-to-bool cast (<code>schema.py:1134-1140</code>), which fails in current Arrow and silently leaves the strings unchanged.</li>
+</ul>
+<p><strong>Fix:</strong> use vectorized regex kernels (<code>pyarrow.compute.match_substring_regex</code> / Polars string expressions), validate the full column before a lossy conversion, make sampling deterministic, and make any coercive mode explicitly opt-in.</p>
+<h3 id="d4-schema-conversionunification-loses-metadata-or-precision-in-fallbacks">D4 — Schema conversion/unification loses metadata or precision in fallbacks<a class="headerlink" href="#d4-schema-conversionunification-loses-metadata-or-precision-in-fallbacks" title="Permanent link">&para;</a></h3>
+<p><code>convert_large_types_to_normal</code> is not recursive and does not preserve schema metadata (<code>schema.py:89-150</code>). Numeric signed/unsigned conflicts can be promoted to floats, which loses integer precision for large values; timestamp conflicts return the first encountered unit rather than the highest precision (<code>:461-594</code>). Some fallback schema-unification paths treat default <code>timezone=None</code> differently and strip timezones.</p>
+<p><strong>Fix:</strong> implement a recursive Arrow type visitor that preserves field/schema metadata and make promotion rules range- and precision-aware. Use one normalized timezone policy on every fallback path.</p>
+<hr />
+<h2 id="5-tests-observed-status-and-critical-gaps">5. Tests: observed status and critical gaps<a class="headerlink" href="#5-tests-observed-status-and-critical-gaps" title="Permanent link">&para;</a></h2>
+<h3 id="executed-verification">Executed verification<a class="headerlink" href="#executed-verification" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Focused core template + PyArrow correctness selection</td>
+<td><strong>2 failed, 5 passed</strong>. The partitioned deduplication test fails with Arrow type conflict; the deterministic-order test fails because result order varies.</td>
+</tr>
+<tr>
+<td>Filtered Hive-partition compaction repro</td>
+<td><strong>Fails contract</strong>: output moved to dataset root; reselecting the filtered partition raises <code>FileNotFoundError</code>.</td>
+</tr>
+<tr>
+<td>Two-column custom-order chunked dedup repro</td>
+<td><strong>Data loss</strong>: 2 input rows became 0 output rows.</td>
+</tr>
+<tr>
+<td>PyArrow <code>opt_dtype</code> null repro</td>
+<td><strong>Data loss</strong>: 3 rows became 2; misaligned nulls silently changed row pairing.</td>
+</tr>
+<tr>
+<td><code>unify_schemas(time32, time64)</code> repro</td>
+<td><strong>Crash</strong>: <code>TypeError</code>.</td>
+</tr>
+<tr>
+<td>Polars default signedness repro</td>
+<td><strong>Type drift</strong>: <code>Int64</code> became <code>UInt64</code>.</td>
+</tr>
+<tr>
+<td>DuckDB runtime repro</td>
+<td>Not executed: this environment does not install the DuckDB optional extra. DuckDB findings above are static, source-backed findings and should be verified in the <code>sql</code> extra CI job.</td>
+</tr>
+</tbody>
+</table>
+<h3 id="missing-coverage">Missing coverage<a class="headerlink" href="#missing-coverage" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Partition-preservation tests for both compaction and deduplication, including a follow-up filtered read.</li>
+<li>Failure injection: callback/write failure, <code>rm</code> failure, interrupted temp-file move, stale output, and concurrent maintenance jobs.</li>
+<li>Cross-backend parity tests that compare the free DuckDB compaction function with <code>DuckDBDatasetIO.compact_parquet_dataset</code> on data, schema, partitions, stats, and output layout.</li>
+<li>A full ordering matrix: default, <code>+col</code>, <code>-col</code>, multi-column lexicographic ordering, ties, exact dedup, and in-memory versus chunked path.</li>
+<li>A genuine memory-bound test with high cardinality keys and wide rows; current benchmark-style tests do not prove bounded retained key state.</li>
+<li>Dtype properties: row count/null-mask preservation, safe values preserved after cast, all inference modes, temporal conflicts, nested large types, metadata preservation, and deterministic sampling.</li>
+<li>Remote fsspec filesystem tests for discovery, output, moves, and commit behavior.</li>
+</ol>
+<hr />
+<h2 id="6-recommended-remediation-plan">6. Recommended remediation plan<a class="headerlink" href="#6-recommended-remediation-plan" title="Permanent link">&para;</a></h2>
+<h3 id="phase-0-stop-data-corruption-before-expanding-usage">Phase 0 — stop data corruption (before expanding usage)<a class="headerlink" href="#phase-0-stop-data-corruption-before-expanding-usage" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Disable/fix PyArrow <code>opt_dtype</code> on null-containing data; preserve full arrays and null masks.</li>
+<li>Reject partitioned datasets in compaction/deduplication until a partition-safe implementation is present.</li>
+<li>Fix chunked custom-order deduplication; add the two-column counterexample as a regression test.</li>
+<li>Reject unsupported <code>dedup_order_by</code> combinations and normalize/order directions in common code.</li>
+<li>Mark maintenance operations as single-writer/non-atomic in documentation until the commit protocol lands.</li>
+</ol>
+<h3 id="phase-1-make-physical-maintenance-correct">Phase 1 — make physical maintenance correct<a class="headerlink" href="#phase-1-make-physical-maintenance-correct" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Introduce a <code>DatasetMaintenancePlan</code> that records source snapshot/version, partition tuple, source files, output schema, expected rows, and destination partition paths.</li>
+<li>Build plans partition-by-partition for compaction. For global dedup, explicitly choose partition-local vs full-repartition semantics.</li>
+<li>Write all output to a job-specific staging location. Validate it, publish a manifest/version, then garbage-collect old files asynchronously.</li>
+<li>Unify <code>DuckDBDatasetIO.compact_parquet_dataset</code> with the module-level DuckDB implementation, eliminating the PyArrow-materializing duplicate path.</li>
+<li>Return real post-commit statistics and preserve operation metadata in result objects.</li>
+</ol>
+<h3 id="phase-2-improve-scalability-and-actual-optimization">Phase 2 — improve scalability and actual optimization<a class="headerlink" href="#phase-2-improve-scalability-and-actual-optimization" title="Permanent link">&para;</a></h3>
+<ol>
+<li>Use batch streaming only where the algorithm is genuinely streaming; avoid claiming group concat is streaming.</li>
+<li>For large deduplication, use hash sharding by key plus external/disk-backed processing, or a spill-capable engine. Maintain deterministic lexicographic ranking with a stable tie-breaker.</li>
+<li>Implement real clustering only if required: explicit sort/z-order columns, per-partition rewrite, measured query benefits, and a dry-run plan. Otherwise rename the operation to accurately describe deduplication plus compaction.</li>
+<li>Replace Python-regex dtype scans and Python timezone UDFs with vectorized Arrow/Polars expressions; make dtype coercion safe by default and configurable.</li>
+</ol>
+<h3 id="implementation-alternatives-with-primary-references">Implementation alternatives, with primary references<a class="headerlink" href="#implementation-alternatives-with-primary-references" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>PyArrow output writer:</strong> <code>pyarrow.dataset.write_dataset</code> supports explicit partitioning, deterministic basename templates, <code>max_rows_per_file</code>, row-group controls, and <code>existing_data_behavior</code>. Use it to write staged partitioned output; it does <strong>not</strong> by itself make a multi-file dataset commit atomic.
+  <a href="https://arrow.apache.org/docs/python/generated/pyarrow.dataset.write_dataset.html">https://arrow.apache.org/docs/python/generated/pyarrow.dataset.write_dataset.html</a></li>
+<li><strong>DuckDB partitioned output:</strong> DuckDB <code>COPY</code> supports <code>PARTITION_BY</code>, UUID filename patterns, and <code>USE_TMP_FILE</code> for safer file replacement. Use it inside the staging/commit protocol, not as a substitute for one.
+  <a href="https://duckdb.org/docs/current/sql/statements/copy.html">https://duckdb.org/docs/current/sql/statements/copy.html</a></li>
+<li><strong>Stable dedup:</strong> for a spill-capable SQL plan, calculate <code>row_number() over (partition by keys order by order_columns, stable_tiebreaker)</code> and retain rank 1. For PyArrow-only operation, hash-shard first, then stably sort each shard by the same composite order.</li>
+</ul>
+<h2 id="bottom-line">Bottom line<a class="headerlink" href="#bottom-line" title="Permanent link">&para;</a></h2>
+<p>The abstractions and planning work are useful foundations, but production readiness requires fixing the critical data-corruption paths before performance tuning. Prioritize null-safe dtype optimization, partition-aware planning/output, a durable multi-file commit protocol, and deterministic deduplication semantics. Only then should the project invest in true clustering or more aggressive dtype inference.</p>
 
 
 

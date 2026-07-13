@@ -244,7 +244,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../tutorials/local-dataset-lifecycle/" class="md-tabs__link">
+        <a href="../../tutorials/" class="md-tabs__link">
           
   
   
@@ -264,7 +264,7 @@
     
     
       <li class="md-tabs__item">
-        <a href="../../how-to/read-and-write-datasets/" class="md-tabs__link">
+        <a href="../../how-to/" class="md-tabs__link">
           
   
   
@@ -468,6 +468,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../tutorials/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../tutorials/local-dataset-lifecycle/" class="md-nav__link">
         
   
@@ -547,6 +575,34 @@
 
           </label>
           <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
             
               
                 
@@ -759,6 +815,34 @@
     
   
     Memory-Constrained Environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/optimize-memory-monitoring-performance/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Retired Memory Monitoring Guidance
   
 
     
@@ -1173,9 +1257,25 @@
   
   
   
-    <li class="md-nav__item">
-      <a href="../../reference/legacy-imports/" class="md-nav__link">
+    
+    
+    
+    
+      
+      
         
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_9" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_9" id="__nav_4_9_label" tabindex="0">
+            
   
   
   <span class="md-ellipsis">
@@ -1189,7 +1289,79 @@
   
   
 
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_9_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_9">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Deprecation and Legacy Imports
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/legacy-imports/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Overview
+  
+
+    
+  </span>
+  
+  
+
       </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../reference/utils/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Utils Compatibility Facade
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
     </li>
   
 
@@ -2155,6 +2327,11 @@ extracting the shared compaction execution template into <code>core.maintenance<
 The work is complete in 0.22.x. It is retained as engineering history, not
 current guidance. For the current maintenance API, see
 <a href="../../api/fsspeckit.core.maintenance/">Maintenance</a>.</p>
+<p><strong>Successor design.</strong> The historical extraction described below is superseded
+as forward-looking maintenance architecture guidance by
+<a href="../../adr/0006-coordinated-dataset-maintenance/">ADR-0006: Coordinated dataset maintenance guarantees</a>.
+ADR-0006 records a proposed major-version redesign; it does not describe the
+already-completed 0.22.x implementation.</p>
 </blockquote>
 <h2 id="summary">Summary<a class="headerlink" href="#summary" title="Permanent link">&para;</a></h2>
 <p>Extract the duplicated compaction execution orchestration from both backend
