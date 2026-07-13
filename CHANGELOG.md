@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-07-13
+
+### Added
+- Coordinated maintenance execution for local and object-store datasets, including atomic-local compaction and best-effort object-store compaction.
+- Partition-preserving local compaction and partition-local deduplication with typed plans, results, validation, rollback, and recovery reporting.
+- Object-store partition-local and global-repartitioning deduplication through generic fsspec filesystems, with explicit destination partitioning and source-drift protection.
+
 ## [0.23.0] - 2026-07-13
 
 ### Added
