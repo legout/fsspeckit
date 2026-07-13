@@ -250,7 +250,7 @@ class TestCoordinatorPlanning:
         assert plan.source_snapshot.total_rows == 3
 
     def test_execute_seam_blocked(self, sample_table):
-        """The execution lifecycle is intentionally deferred to issue #37."""
+        """best_effort_object_store execute() is deferred to issue #39."""
         root = _memory_root()
         fs = MemoryFileSystem()
         fs.pipe(f"{root}/a.parquet", _parquet_bytes(sample_table))
@@ -258,12 +258,12 @@ class TestCoordinatorPlanning:
         coordinator = DatasetMaintenanceCoordinator("pyarrow")
         plan = coordinator.plan_compaction(root, fs, target_rows_per_file=10)
 
-        # nosec B608 - coordinator.execute is a typed maintenance seam, not SQL.
+        # Memory filesystem receives best_effort_object_store; its execution
+        # path is deferred to issue #39.  nosec B608 — not SQL.
         with pytest.raises(NotImplementedError) as exc_info:
             coordinator.execute(plan)  # nosec B608
 
-        assert "#37" in str(exc_info.value)
-        assert "publish/stage/validate/rollback" in str(exc_info.value)
+        assert "#39" in str(exc_info.value)
 
 
 class TestSchemaReconciliation:

@@ -1413,6 +1413,627 @@ def _plan_partition_local_deduplication_groups(
     return tuple(groups)
 
 
+# --------------------------------------------------------------------------- #
+# Typed execution result types (#37)
+# --------------------------------------------------------------------------- #
+
+
+class LockAcquisitionError(Exception):
+    """Raised when a bounded advisory lock acquisition times out."""
+
+
+@dataclass(frozen=True)
+class PhaseOutcome:
+    """Outcome of a single execution phase.
+
+    Attributes:
+        phase: Name of the lifecycle phase (stage, write, validate, lock,
+            drift_check, publish, cleanup).
+        succeeded: True when the phase completed successfully.
+        error: Human-readable description of the failure, or None on success.
+    """
+
+    phase: str
+    succeeded: bool
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class ValidationOutcome:
+    """Outcome of staged-output validation before publication.
+
+    Attributes:
+        succeeded: True when all validation checks passed.
+        staged_row_count: Total rows counted across all staged files.
+        expected_row_count: Row count expected from the source snapshot.
+        error: Human-readable failure description, or None on success.
+    """
+
+    succeeded: bool
+    staged_row_count: int | None = None
+    expected_row_count: int | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class PublicationOutcome:
+    """Outcome of the atomic-rename publication step.
+
+    Attributes:
+        succeeded: True when all staged files were published.
+        published_files: Absolute paths of files written into the live dataset.
+        removed_source_files: Source files that were replaced during publication.
+        error: Human-readable failure description, or None on success.
+    """
+
+    succeeded: bool
+    published_files: tuple[str, ...] = ()
+    removed_source_files: tuple[str, ...] = ()
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class RecoveryArtifacts:
+    """Recovery information left after a failed or partial execution.
+
+    Attributes:
+        workspace_path: Path of the sibling maintenance workspace, if it still
+            exists (None after successful cleanup).
+        backup_paths: Paths of source-file backups in the workspace (present
+            only when rollback preserved them for manual recovery).
+        recovered: True when an automatic rollback restored the dataset.
+        error: Human-readable description of a cleanup/recovery failure.
+    """
+
+    workspace_path: str | None = None
+    backup_paths: tuple[str, ...] = ()
+    recovered: bool = False
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class ActualMetrics:
+    """Actual output metrics recorded after a successful execution.
+
+    Attributes:
+        row_count: Total rows written across all output files.
+        file_count: Number of output files published.
+        total_bytes: Sum of output file sizes in bytes.
+    """
+
+    row_count: int
+    file_count: int
+    total_bytes: int
+
+
+@dataclass(frozen=True)
+class MaintenanceResult:
+    """Typed result returned by DatasetMaintenanceCoordinator.execute().
+
+    Attributes:
+        plan: The plan that was executed.
+        succeeded: True when the operation completed successfully end-to-end.
+        guarantee_level: Guarantee level that governed this execution.
+        phase_outcomes: Ordered per-phase outcomes (stage, write, validate,
+            lock, drift_check, publish, cleanup).
+        validation: Staged-output validation outcome, populated after the
+            write phase.
+        publication: Atomic-rename publication outcome.
+        recovery: Recovery artifact details; workspace_path is None after a
+            successful cleanup.
+        actual_metrics: Row/file/byte counts of the published output.  Only
+            populated on success.
+        error: Top-level error summary, or None on success.
+    """
+
+    plan: MaintenancePlan
+    succeeded: bool
+    guarantee_level: GuaranteeLevel
+    phase_outcomes: tuple[PhaseOutcome, ...]
+    validation: ValidationOutcome | None = None
+    publication: PublicationOutcome | None = None
+    recovery: RecoveryArtifacts | None = None
+    actual_metrics: ActualMetrics | None = None
+    error: str | None = None
+
+
+# --------------------------------------------------------------------------- #
+# Atomic-local execution helpers (#37)
+# --------------------------------------------------------------------------- #
+
+
+class _BoundedAdvisoryLock:
+    """POSIX advisory lock (fcntl.flock) with bounded acquisition.
+
+    Callers poll with ``LOCK_NB`` until the timeout expires so the operation
+    never hangs forever.  Only available on POSIX; a ``RuntimeError`` is raised
+    on construction if the platform does not provide ``fcntl``.
+
+    Args:
+        lock_path: Path to the lock file (created if absent).
+        exclusive: Acquire an exclusive (write) lock when True; shared
+            (read) lock otherwise.
+        timeout_s: Maximum seconds to wait before returning ``False``.
+        retry_interval_s: Sleep duration between acquisition attempts.
+    """
+
+    def __init__(
+        self,
+        lock_path: str,
+        exclusive: bool = True,
+        timeout_s: float = 30.0,
+        retry_interval_s: float = 0.05,
+    ) -> None:
+        try:
+            import fcntl as _fcntl  # noqa: PLC0415
+
+            self._fcntl = _fcntl
+        except ImportError as exc:
+            raise RuntimeError(
+                "atomic_local locking requires a POSIX platform with fcntl"
+            ) from exc
+        self._path = lock_path
+        self._exclusive = exclusive
+        self._timeout_s = timeout_s
+        self._retry_interval_s = retry_interval_s
+        self._fh: Any = None
+
+    def acquire(self) -> bool:
+        """Attempt to acquire the lock within the timeout.
+
+        Returns:
+            True on success, False on timeout.
+        """
+        import time  # noqa: PLC0415
+
+        op = self._fcntl.LOCK_EX if self._exclusive else self._fcntl.LOCK_SH
+        op |= self._fcntl.LOCK_NB
+        deadline = time.monotonic() + self._timeout_s
+        self._fh = open(self._path, "a+")  # noqa: SIM115
+        while True:
+            try:
+                self._fcntl.flock(self._fh, op)
+                return True
+            except OSError:
+                if time.monotonic() >= deadline:
+                    self._fh.close()
+                    self._fh = None
+                    return False
+                time.sleep(self._retry_interval_s)
+
+    def release(self) -> None:
+        """Release the lock unconditionally."""
+        if self._fh is not None:
+            try:
+                self._fcntl.flock(self._fh, self._fcntl.LOCK_UN)
+            finally:
+                self._fh.close()
+                self._fh = None
+
+    def __enter__(self) -> "_BoundedAdvisoryLock":
+        if not self.acquire():
+            raise LockAcquisitionError(
+                f"Could not acquire {'exclusive' if self._exclusive else 'shared'} "
+                f"lock on {self._path!r} within {self._timeout_s}s"
+            )
+        return self
+
+    def __exit__(self, *_: Any) -> None:
+        self.release()
+
+
+def _make_workspace(dataset_root: str) -> tuple[str, str, str]:
+    """Create a sibling maintenance workspace with staged/ and backup/ subdirs.
+
+    The workspace is placed in the same parent directory as the dataset so that
+    ``os.rename`` moves stay on the same filesystem.
+
+    Returns:
+        (workspace_path, staged_dir, backup_dir)
+    """
+    parent = os.path.dirname(dataset_root)
+    name = os.path.basename(dataset_root)
+    workspace = os.path.join(parent, f".maintenance_{name}_{uuid.uuid4().hex[:16]}")
+    staged_dir = os.path.join(workspace, "staged")
+    backup_dir = os.path.join(workspace, "backup")
+    os.makedirs(staged_dir, exist_ok=False)
+    os.makedirs(backup_dir, exist_ok=True)
+    return workspace, staged_dir, backup_dir
+
+
+def _validate_staged_output(
+    staged_files: list[str],
+    expected_schema: pa.Schema | None,
+    expected_rows: int,
+) -> ValidationOutcome:
+    """Validate staged Parquet files before publication.
+
+    Checks that the total row count across all staged files equals
+    *expected_rows* and that every file's schema matches *expected_schema*
+    (when provided).
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    try:
+        total_rows = 0
+        for path in staged_files:
+            meta = pq.read_metadata(path)
+            total_rows += meta.num_rows
+            if expected_schema is not None:
+                schema = pq.read_schema(path)
+                if not schema.equals(expected_schema):
+                    return ValidationOutcome(
+                        succeeded=False,
+                        staged_row_count=total_rows,
+                        expected_row_count=expected_rows,
+                        error=f"Schema mismatch in staged file {path}",
+                    )
+        if total_rows != expected_rows:
+            return ValidationOutcome(
+                succeeded=False,
+                staged_row_count=total_rows,
+                expected_row_count=expected_rows,
+                error=(
+                    f"Row count mismatch: staged={total_rows}, "
+                    f"expected={expected_rows}"
+                ),
+            )
+        return ValidationOutcome(
+            succeeded=True,
+            staged_row_count=total_rows,
+            expected_row_count=expected_rows,
+        )
+    except Exception as exc:
+        return ValidationOutcome(
+            succeeded=False,
+            staged_row_count=None,
+            expected_row_count=expected_rows,
+            error=f"Validation error: {exc}",
+        )
+
+
+def _check_source_drift(snapshot: SourceSnapshot) -> str | None:
+    """Return an error string if any source file has drifted, or None.
+
+    Drift is detected by comparing each file's current on-disk size against
+    the size recorded in the snapshot.  Missing files are always a drift signal.
+    """
+    for file_info in snapshot.files:
+        path = file_info.absolute_path
+        try:
+            current_size = os.path.getsize(path)
+        except OSError:
+            return f"Source file not accessible: {path}"
+        if current_size != file_info.size_bytes:
+            return (
+                f"Source file size changed: {path} "
+                f"(expected {file_info.size_bytes}, got {current_size})"
+            )
+    return None
+
+
+def _publish_atomic_local(
+    source_files: list[str],
+    staged_files: list[str],
+    dataset_root: str,
+    backup_dir: str,
+) -> PublicationOutcome:
+    """Publish staged files via the backup-then-rename protocol.
+
+    Steps:
+    1. Move every source file into *backup_dir* (atomic rename within the same
+       filesystem).
+    2. Move every staged file into *dataset_root* (atomic rename).
+
+    On any failure after step 1 has begun:
+    - Every published staged file is removed from the dataset root.
+    - Every backed-up source file is restored to its original location.
+
+    A ``PublicationOutcome`` with ``succeeded=False`` is returned (not raised)
+    so callers can attach it to the ``MaintenanceResult`` without losing
+    per-phase context.
+    """
+    backed_up: list[tuple[str, str]] = []
+    published: list[str] = []
+
+    try:
+        # Step 1 — move source files to backup (makes them invisible to readers)
+        for src in source_files:
+            bak = os.path.join(backup_dir, os.path.basename(src))
+            os.rename(src, bak)
+            backed_up.append((src, bak))
+
+        # Step 2 — move staged files into the live dataset root
+        for staged in staged_files:
+            dest = os.path.join(dataset_root, os.path.basename(staged))
+            os.rename(staged, dest)
+            published.append(dest)
+
+        return PublicationOutcome(
+            succeeded=True,
+            published_files=tuple(published),
+            removed_source_files=tuple(src for src, _ in backed_up),
+        )
+
+    except Exception as exc:
+        # Rollback: remove staged files already placed in dataset root, then
+        # restore backed-up source files to their original paths.
+        for dest in published:
+            try:
+                os.remove(dest)
+            except Exception:  # noqa: BLE001
+                pass
+        for original, bak in backed_up:
+            try:
+                os.rename(bak, original)
+            except Exception:  # noqa: BLE001
+                pass
+        return PublicationOutcome(
+            succeeded=False,
+            error=f"Publication rename failed: {exc}",
+        )
+
+
+def _execute_atomic_local_compaction(
+    plan: CompactionPlan,
+    lock_timeout_s: float = 30.0,
+    lock_retry_interval_s: float = 0.05,
+) -> MaintenanceResult:
+    """Execute the atomic_local lifecycle for a flat local compaction plan.
+
+    Lifecycle phases: stage, write, validate, lock, drift_check, publish,
+    cleanup, report.
+
+    Staged files are written to a sibling maintenance workspace.  An exclusive
+    advisory lock gates the publish phase.  On any failure after backup has
+    begun the protocol rolls back before returning so the live dataset is never
+    left in a partial state.
+
+    Args:
+        plan: An accepted :class:`CompactionPlan` with
+            ``guarantee_level == GuaranteeLevel.ATOMIC_LOCAL``.
+        lock_timeout_s: Maximum seconds to wait for the exclusive lock.
+        lock_retry_interval_s: Sleep interval between lock-acquisition retries.
+
+    Returns:
+        A :class:`MaintenanceResult` describing every phase and the actual
+        output metrics.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    dataset_root = plan.source_snapshot.dataset_path
+    phase_outcomes: list[PhaseOutcome] = []
+    workspace: str | None = None
+    validation: ValidationOutcome | None = None
+    publication: PublicationOutcome | None = None
+    backup_dir = ""
+    staged_dir = ""
+
+    # ------------------------------------------------------------------ #
+    # Phase: stage
+    # ------------------------------------------------------------------ #
+    try:
+        workspace, staged_dir, backup_dir = _make_workspace(dataset_root)
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=True))
+    except Exception as exc:
+        phase_outcomes.append(
+            PhaseOutcome(phase="stage", succeeded=False, error=str(exc))
+        )
+        return MaintenanceResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Stage phase failed: {exc}",
+        )
+
+    staged_files: list[str] = []
+    total_rows_written = 0
+    source_files_in_groups: list[str] = []
+    expected_rows = sum(
+        sum(fi.num_rows for fi in group.files) for group in plan.compaction_groups
+    )
+
+    # ------------------------------------------------------------------ #
+    # Phase: write
+    # ------------------------------------------------------------------ #
+    try:
+        for group in plan.compaction_groups:
+            source_files_in_groups.extend(fi.absolute_path for fi in group.files)
+            tables = []
+            for fi in group.files:
+                with open(fi.absolute_path, "rb") as fh:
+                    tables.append(pq.read_table(fh))
+
+            combined = pa.concat_tables(tables)
+            if plan.schema is not None:
+                combined = combined.cast(plan.schema)
+
+            num_rows = combined.num_rows
+            # max_rows_per_file is a HARD output bound; None means no splitting.
+            chunk_size = plan.max_rows_per_file if plan.max_rows_per_file else num_rows
+            if chunk_size <= 0:
+                chunk_size = num_rows if num_rows > 0 else 1
+
+            offset = 0
+            while offset < max(num_rows, 1):
+                chunk = combined.slice(offset, chunk_size)
+                if chunk.num_rows == 0:
+                    break
+                out_name = f"compacted_{uuid.uuid4().hex[:16]}.parquet"
+                out_path = os.path.join(staged_dir, out_name)
+                pq.write_table(chunk, out_path, compression=plan.selected_codec)
+                staged_files.append(out_path)
+                total_rows_written += chunk.num_rows
+                offset += chunk_size
+
+        phase_outcomes.append(PhaseOutcome(phase="write", succeeded=True))
+    except Exception as exc:
+        phase_outcomes.append(
+            PhaseOutcome(phase="write", succeeded=False, error=str(exc))
+        )
+        return MaintenanceResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Write phase failed: {exc}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: validate
+    # ------------------------------------------------------------------ #
+    validation = _validate_staged_output(staged_files, plan.schema, expected_rows)
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="validate",
+            succeeded=validation.succeeded,
+            error=validation.error,
+        )
+    )
+    if not validation.succeeded:
+        return MaintenanceResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Validation failed: {validation.error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: lock  (bounded exclusive advisory lock)
+    # ------------------------------------------------------------------ #
+    lock_path = os.path.join(dataset_root, ".fsspeckit_maintenance.lock")
+    lock = _BoundedAdvisoryLock(
+        lock_path,
+        exclusive=True,
+        timeout_s=lock_timeout_s,
+        retry_interval_s=lock_retry_interval_s,
+    )
+    if not lock.acquire():
+        phase_outcomes.append(
+            PhaseOutcome(
+                phase="lock",
+                succeeded=False,
+                error=(
+                    f"Could not acquire exclusive lock on {lock_path!r} "
+                    f"within {lock_timeout_s}s"
+                ),
+            )
+        )
+        return MaintenanceResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error="Lock acquisition timed out",
+        )
+
+    phase_outcomes.append(PhaseOutcome(phase="lock", succeeded=True))
+
+    try:
+        # -------------------------------------------------------------- #
+        # Phase: drift_check
+        # -------------------------------------------------------------- #
+        drift_error = _check_source_drift(plan.source_snapshot)
+        if drift_error is not None:
+            phase_outcomes.append(
+                PhaseOutcome(phase="drift_check", succeeded=False, error=drift_error)
+            )
+            return MaintenanceResult(
+                plan=plan,
+                succeeded=False,
+                guarantee_level=plan.guarantee_level,
+                phase_outcomes=tuple(phase_outcomes),
+                validation=validation,
+                recovery=RecoveryArtifacts(workspace_path=workspace),
+                error=f"Source drift detected: {drift_error}",
+            )
+        phase_outcomes.append(PhaseOutcome(phase="drift_check", succeeded=True))
+
+        # -------------------------------------------------------------- #
+        # Phase: publish  (backup-then-rename)
+        # -------------------------------------------------------------- #
+        publication = _publish_atomic_local(
+            source_files=source_files_in_groups,
+            staged_files=staged_files,
+            dataset_root=dataset_root,
+            backup_dir=backup_dir,
+        )
+        phase_outcomes.append(
+            PhaseOutcome(
+                phase="publish",
+                succeeded=publication.succeeded,
+                error=publication.error,
+            )
+        )
+    finally:
+        lock.release()
+
+    if not publication.succeeded:
+        # Backups may or may not have been restored; surface workspace info.
+        return MaintenanceResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            publication=publication,
+            recovery=RecoveryArtifacts(
+                workspace_path=workspace,
+                backup_paths=tuple(
+                    os.path.join(backup_dir, os.path.basename(f))
+                    for f in source_files_in_groups
+                ),
+                recovered=False,
+            ),
+            error=f"Publication failed: {publication.error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: cleanup  (non-fatal; success not contingent on it)
+    # ------------------------------------------------------------------ #
+    import shutil  # noqa: PLC0415
+
+    cleanup_error: str | None = None
+    try:
+        shutil.rmtree(workspace)
+        workspace = None
+        phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=True))
+    except Exception as exc:
+        cleanup_error = str(exc)
+        phase_outcomes.append(
+            PhaseOutcome(phase="cleanup", succeeded=False, error=cleanup_error)
+        )
+
+    total_bytes = sum(
+        os.path.getsize(f)
+        for f in publication.published_files
+        if os.path.exists(f)
+    )
+
+    return MaintenanceResult(
+        plan=plan,
+        succeeded=True,
+        guarantee_level=plan.guarantee_level,
+        phase_outcomes=tuple(phase_outcomes),
+        validation=validation,
+        publication=publication,
+        recovery=RecoveryArtifacts(workspace_path=workspace),
+        actual_metrics=ActualMetrics(
+            row_count=total_rows_written,
+            file_count=len(publication.published_files),
+            total_bytes=total_bytes,
+        ),
+    )
+
+
 class DatasetMaintenanceCoordinator:
     """Direct coordinator that creates immutable, backend-pinned maintenance plans.
 
@@ -1712,18 +2333,75 @@ class DatasetMaintenanceCoordinator:
         )
 
     # ------------------------------------------------------------------ #
-    # Execution seam (downstream)
+    # Execution seam (#37)
     # ------------------------------------------------------------------ #
 
-    def execute(self, plan: MaintenancePlan) -> Any:
-        """Execute an accepted maintenance plan.
+    def execute(
+        self,
+        plan: MaintenancePlan,
+        lock_timeout_s: float = 30.0,
+        lock_retry_interval_s: float = 0.05,
+    ) -> MaintenanceResult:
+        """Execute an accepted maintenance plan and return a typed result.
 
-        .. todo::
-            Issue #37: implement the full plan-driven execution lifecycle
-            (stage, reconcile schema, write, validate, publish, recover).
+        Currently implements the ``atomic_local`` lifecycle for
+        :class:`CompactionPlan` (flat, non-partitioned local datasets).
+
+        Deferred paths (leave clean seams):
+        - Partitioned atomic_local compaction: TODO(#38)
+        - best_effort_object_store execution: TODO(#39)
+        - Deduplication execution: TODO(#40)
+        - Coordinated optimization execution: TODO(#44)
+
+        Args:
+            plan: An accepted plan created by one of the ``plan_*`` methods.
+            lock_timeout_s: Maximum seconds to wait for the publication lock.
+            lock_retry_interval_s: Sleep between lock-acquisition retries.
+
+        Returns:
+            A :class:`MaintenanceResult` carrying per-phase outcomes,
+            validation, publication, recovery artifacts, and actual metrics.
+
+        Raises:
+            NotImplementedError: For plan types or guarantee levels not yet
+                implemented in this release.
         """
-        # TODO(#37): implement execute(plan) publish/stage/validate/rollback lifecycle.
+        if (
+            plan.guarantee_level == GuaranteeLevel.ATOMIC_LOCAL
+            and isinstance(plan, CompactionPlan)
+        ):
+            return _execute_atomic_local_compaction(
+                plan,
+                lock_timeout_s=lock_timeout_s,
+                lock_retry_interval_s=lock_retry_interval_s,
+            )
+
+        # ---------------------------------------------------------- #
+        # Seams for downstream issues — raise descriptive errors
+        # ---------------------------------------------------------- #
+        if plan.guarantee_level == GuaranteeLevel.BEST_EFFORT_OBJECT_STORE:
+            # TODO(#39): implement best_effort_object_store execution path.
+            raise NotImplementedError(
+                "best_effort_object_store execute() is deferred to issue #39; "
+                "plan is available for inspection."
+            )
+
+        if isinstance(plan, (PartitionLocalDeduplicationPlan, GlobalRepartitionDeduplicationPlan)):
+            # TODO(#40): implement deduplication execution.
+            raise NotImplementedError(
+                "Deduplication execute() is deferred to issues #40-#43; "
+                "plan is available for inspection."
+            )
+
+        if isinstance(plan, CoordinatedOptimizationPlan):
+            # TODO(#44): implement coordinated optimization execution.
+            raise NotImplementedError(
+                "CoordinatedOptimization execute() is deferred to issues #44-#45; "
+                "plan is available for inspection."
+            )
+
         raise NotImplementedError(
-            "execute() is intentionally not implemented in #36; "
-            "see downstream issue #37 for the publish/stage/validate/rollback lifecycle."
+            f"execute() is not implemented for plan type {type(plan).__name__!r} "
+            f"with guarantee_level={plan.guarantee_level!r}."
         )
+
