@@ -127,8 +127,10 @@ For the full import hierarchy and deprecation mappings, see the
 ## Examples
 
 The [examples directory](examples/README.md) contains runnable demonstrations of
-datasets, SQL filters, common utilities, caching, and more. Every example works
-offline. They support the tutorial rather than replace it.
+datasets, SQL filters, common utilities, caching, and more. Most examples use
+local or generated data. Cloud operations require the applicable extra,
+credentials, and a real provider resource. They support the tutorial rather
+than replace it.
 
 ## Migration
 

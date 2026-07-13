@@ -9,3 +9,4 @@
         - DuckDBDatasetIO
         - collect_dataset_stats_duckdb
         - compact_parquet_dataset_duckdb
+        - MergeStrategy

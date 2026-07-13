@@ -1,9 +1,9 @@
 # fsspeckit Examples Requirements
-# Minimal dependencies to run fsspeckit examples offline
+# Minimal dependencies to run local fsspeckit examples
 # Install with: pip install -r requirements.txt
 
-# Core fsspeckit packages (required)
-fsspeckit[datasets,sql,common,storage_options]
+# Core fsspeckit extras used by local examples
+fsspeckit[datasets,sql]
 
 # Core data processing libraries (required for examples)
 pyarrow>=10.0.0
@@ -13,8 +13,9 @@ duckdb>=1.4.0
 pandas>=1.5.0
 polars>=0.16.0
 
-# Cloud storage providers (optional - examples work without credentials)
-# Uncomment if you need cloud storage functionality
+# Cloud storage providers are optional. Install the matching fsspeckit extra to
+# run provider demonstrations, then configure credentials and a real resource
+# before performing cloud operations. For S3: pip install "fsspeckit[aws]"
 # boto3>=1.26.0              # AWS S3
 # azure-storage-blob>=12.14.0  # Azure Blob Storage
 # google-cloud-storage>=2.7.0  # Google Cloud Storage

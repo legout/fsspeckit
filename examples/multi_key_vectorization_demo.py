@@ -108,7 +108,7 @@ def demo_composite_key_merge():
             key_columns=["tenant_id", "customer_id", "order_id"],
         )
 
-        print(f"\nMerge Statistics:")
+        print("\nMerge Statistics:")
         print(f"  Source rows: {result.source_count}")
         print(f"  Target rows before: {result.target_count_before}")
         print(f"  Target rows after: {result.target_count_after}")

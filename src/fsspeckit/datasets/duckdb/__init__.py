@@ -8,10 +8,8 @@ This package contains focused submodules for DuckDB functionality:
 All public APIs are re-exported here for convenient access.
 """
 
-from typing import Any, Literal
+from fsspeckit.core.merge import MergeStrategy
 
-from fsspec import AbstractFileSystem
-from fsspeckit.storage_options.base import BaseStorageOptions
 
 # Re-export connection management
 from .connection import (
@@ -40,4 +38,5 @@ __all__ = [
     # Dataset operations
     "collect_dataset_stats_duckdb",
     "compact_parquet_dataset_duckdb",
+    "MergeStrategy",
 ]

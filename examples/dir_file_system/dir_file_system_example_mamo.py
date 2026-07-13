@@ -1,3 +1,5 @@
+import importlib.util
+
 from fsspeckit import filesystem
 
 
@@ -31,9 +33,7 @@ def main():
     print("--- Local DirFileSystem ---")
     demo_local()
 
-    try:
-        import s3fs  # noqa: F401
-    except ImportError:
+    if importlib.util.find_spec("s3fs") is None:
         print("\ns3fs is not installed. Skipping S3 DirFileSystem demo.")
         print("Install with: pip install 'fsspeckit[aws]'")
         return

@@ -1,7 +1,8 @@
 # fsspeckit Examples
 
 This collection demonstrates fsspeckit's capabilities through practical, runnable
-examples. Every example works offline without cloud credentials.
+examples. Most use local or generated data. Configure provider credentials and
+a real resource before performing cloud operations.
 
 ## Start here first
 
@@ -14,7 +15,10 @@ clean up. The examples below build on that foundation; they do not replace it.
 ## Install
 
 ```bash
-pip install "fsspeckit[datasets]"
+pip install "fsspeckit[datasets,sql]"
+
+# Or install the local example environment from this directory.
+pip install -r requirements.txt
 ```
 
 For the full extras matrix, see
@@ -70,26 +74,40 @@ Location: `common/`
 
 - `batch_processing/` - large-scale batch data processing patterns
 - `caching/` - data caching strategies
-- `dir_file_system/` - directory and filesystem operations
+- `dir_file_system/` - local directory operations and an optional S3 demonstration
 - `read_folder/` - folder reading and data ingestion
-- `storage_options/` - storage configuration (graceful offline operation)
+- `storage_options/` - storage configuration; cloud operations need provider extras and credentials
 - `maintenance/` - dataset deduplication and maintenance
 
 ## Running examples
 
+Run commands from this directory:
+
 ```bash
-# Run a specific example
+cd examples
+
+# Run a specific local example
 python datasets/getting_started/01_duckdb_basics.py
 
-# Run all examples
+# Run the catalog runner. Cloud examples may require credentials.
 python run_examples.py
 
-# Run the example test suite
-python -m pytest test_examples.py -v
+# Validate catalog paths and module imports without running example main functions.
+python run_examples.py --validate
+
+# Run syntax, import, and style checks.
+python test_examples.py
+
+# Include subprocess runtime checks with a 30-second timeout.
+python test_examples.py --include-runtime --timeout 30
+
+# Run runtime checks with the five-second smoke timeout.
+python test_examples.py --include-runtime --smoke-run
 ```
 
-Examples include built-in sample data generation and work offline with local
-test files.
+Most examples include local sample data. The S3 directory demonstration runs
+when `s3fs` is installed, which `fsspeckit[aws]` provides. Configure usable AWS
+credentials and a real bucket before performing S3 operations.
 
 ## Contributing
 

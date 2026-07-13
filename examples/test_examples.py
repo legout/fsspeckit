@@ -15,9 +15,8 @@ import ast
 import argparse
 import importlib.util
 import sys
-import time
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Tuple
 import subprocess
 
 
@@ -66,6 +65,8 @@ class ExampleTester:
     def test_runtime(self, file_path: Path, timeout: int = 30) -> Tuple[bool, str]:
         """Test if example runs without errors (quick execution)."""
         try:
+            file_path = file_path.resolve()
+
             # Run the script with timeout
             result = subprocess.run(
                 [sys.executable, str(file_path)],
@@ -125,7 +126,7 @@ class ExampleTester:
             return False, f"Style test failed: {e}"
 
     def test_file(
-        self, file_path: Path, test_types: List[str] = None
+        self, file_path: Path, test_types: list[str] | None = None, timeout: int = 30
     ) -> Dict[str, Any]:
         """Run all tests on a single file."""
         if test_types is None:
@@ -161,7 +162,7 @@ class ExampleTester:
                 results["tests"]["import"] = {"passed": passed, "message": message}
 
             elif test_type == "runtime":
-                passed, message = self.test_runtime(file_path, timeout=smoke_timeout)
+                passed, message = self.test_runtime(file_path, timeout=timeout)
                 self.results["runtime_tests"]["details"].append(
                     {"file": str(file_path), "passed": passed, "message": message}
                 )
@@ -185,7 +186,10 @@ class ExampleTester:
         return results
 
     def test_category(
-        self, category_path: Path, test_types: List[str] = None
+        self,
+        category_path: Path,
+        test_types: list[str] | None = None,
+        timeout: int = 30,
     ) -> Dict[str, Any]:
         """Test all examples in a category."""
         if not category_path.exists():
@@ -202,7 +206,7 @@ class ExampleTester:
         }
 
         for file_path in python_files:
-            file_result = self.test_file(file_path, test_types)
+            file_result = self.test_file(file_path, test_types, timeout)
             results["file_results"].append(file_result)
 
         return results
@@ -236,20 +240,17 @@ class ExampleTester:
 
 def get_all_example_files() -> List[Path]:
     """Get all Python example files."""
-    examples_dir = Path(".")
-    python_files = []
+    examples_dir = Path(__file__).parent
+    python_files = list(examples_dir.rglob("*.py"))
 
-    # Recursively find all Python files in example directories
-    for pattern in ["*.py", "**/*.py"]:
-        python_files.extend(examples_dir.glob(pattern))
-
-    # Filter out non-example files
+    # Filter out non-example files and virtual-environment directories
     exclude_patterns = ["test_", "run_examples.py", "__pycache__"]
+    skip_dirs = {".venv", "venv", "env", ".tox", "build", "dist"}
     python_files = [
         f
         for f in python_files
         if not any(pattern in f.name for pattern in exclude_patterns)
-        and f.parent != Path(".")  # Exclude root directory
+        and not any(part in skip_dirs for part in f.parts)
     ]
 
     return sorted(python_files)
@@ -314,7 +315,7 @@ def main():
                 print(f"❌ File not found: {file_path}")
                 sys.exit(1)
 
-            result = tester.test_file(file_path, test_types)
+            result = tester.test_file(file_path, test_types, smoke_timeout)
             print(f"\n📋 Results for {file_path.name}")
             for test_type, test_result in result["tests"].items():
                 status = "✅" if test_result["passed"] else "❌"
@@ -323,7 +324,7 @@ def main():
         elif args.category:
             # Test specific category
             category_path = Path(args.category)
-            result = tester.test_category(category_path, test_types)
+            result = tester.test_category(category_path, test_types, smoke_timeout)
 
             if "error" in result:
                 print(f"❌ {result['error']}")
@@ -346,18 +347,18 @@ def main():
 
             for file_path in all_files:
                 print(f"   Testing: {file_path}")
-                tester.test_file(file_path, test_types)
+                tester.test_file(file_path, test_types, smoke_timeout)
 
         # Print summary
         summary = tester.get_summary()
-        print(f"\n📊 Test Summary")
+        print("\n📊 Test Summary")
         print("=" * 60)
         print(f"   Total tests: {summary['total_tests']}")
         print(f"   Passed: {summary['total_passed']}")
         print(f"   Failed: {summary['total_failed']}")
         print(f"   Success rate: {summary['success_rate']:.1f}%")
 
-        print(f"\n📈 Test Breakdown:")
+        print("\n📈 Test Breakdown:")
         for test_type, breakdown in summary["test_breakdown"].items():
             status = "✅" if breakdown["failed"] == 0 else "❌"
             print(f"   {status} {test_type.replace('_', ' ').title()}:")
@@ -370,7 +371,7 @@ def main():
             print(f"\n❌ {summary['total_failed']} test(s) failed")
             sys.exit(1)
         else:
-            print(f"\n✅ All tests passed!")
+            print("\n✅ All tests passed!")
 
     except KeyboardInterrupt:
         print("\n\n🛑 Testing interrupted by user")

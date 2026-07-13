@@ -19,7 +19,7 @@ import importlib.util
 import sys
 import time
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import Dict, Any
 import traceback
 
 # Get the examples directory (where this script is located)
@@ -147,7 +147,7 @@ def list_examples():
             else:
                 print(f"   ❌ {example} (missing)")
 
-    print(f"\n🎯 Learning Path Order:")
+    print("\n🎯 Learning Path Order:")
     for i, category in enumerate(LEARNING_PATH_ORDER, 1):
         print(f"   {i}. {category}")
 
@@ -361,7 +361,7 @@ def run_learning_path(interactive: bool = False) -> Dict[str, Any]:
         # Ask user if they want to continue (only in interactive mode)
         if i < len(LEARNING_PATH_ORDER) and interactive:
             try:
-                response = input(f"\nContinue to next stage? (Y/n): ").strip().lower()
+                response = input("\nContinue to next stage? (Y/n): ").strip().lower()
                 if response and response != "y":
                     print("Learning path interrupted by user")
                     break
@@ -369,10 +369,10 @@ def run_learning_path(interactive: bool = False) -> Dict[str, Any]:
                 print("\nLearning path interrupted")
                 break
         elif i < len(LEARNING_PATH_ORDER) and not interactive:
-            print(f"\n⏭️  Continuing to next stage automatically...")
+            print("\n⏭️  Continuing to next stage automatically...")
 
     # Print final summary
-    print(f"\n🎓 Learning Path Summary")
+    print("\n🎓 Learning Path Summary")
     print("=" * 60)
     print(
         f"   Categories completed: {len(results['category_results'])}/{results['total_categories']}"
@@ -413,7 +413,7 @@ def validate_examples() -> Dict[str, Any]:
         print(f"\n📂 Validating category: {category_name}")
 
         for example_file in category_info["examples"]:
-            example_path = Path(category_info["path"]) / example_file
+            example_path = EXAMPLES_DIR / category_info["path"] / example_file
             results["total_examples"] += 1
 
             example_result = {
@@ -433,6 +433,7 @@ def validate_examples() -> Dict[str, Any]:
                     )
                     if spec and spec.loader:
                         module = importlib.util.module_from_spec(spec)
+                        spec.loader.exec_module(module)
                         example_result["importable"] = True
                         print(f"   ✅ {example_file}")
                         results["valid_examples"] += 1
@@ -451,7 +452,7 @@ def validate_examples() -> Dict[str, Any]:
             results["details"].append(example_result)
 
     # Print summary
-    print(f"\n📊 Validation Summary")
+    print("\n📊 Validation Summary")
     print("=" * 60)
     print(f"   Total examples: {results['total_examples']}")
     print(f"   Valid examples: {results['valid_examples']}")

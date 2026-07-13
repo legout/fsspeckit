@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-07-13
+
+### Added
+- `MergeStrategy` is now re-exported from `fsspeckit.datasets.duckdb` for DuckDB-oriented callers.
+
+### Changed
+- Example validation now resolves paths from the examples directory and imports discovered modules during `run_examples.py --validate`.
+- The standalone `examples/test_examples.py` CLI now supports opt-in runtime checks with configurable and smoke-test timeouts.
+- Directory filesystem examples detect whether `s3fs` is installed without importing it, so their local demonstrations remain available when the AWS extra is absent.
+
 ## [0.22.0] - 2026-07-10
 
 ### Fixed

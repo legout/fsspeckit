@@ -99,6 +99,7 @@ or be removed without notice.
 | `from fsspeckit.datasets.duckdb import DuckDBDatasetIO` | [api/fsspeckit.datasets.duckdb.md](../api/fsspeckit.datasets.duckdb.md) | datasets | Stable |
 | `from fsspeckit.datasets.duckdb import collect_dataset_stats_duckdb` | [api/fsspeckit.datasets.duckdb.md](../api/fsspeckit.datasets.duckdb.md) | datasets | Stable |
 | `from fsspeckit.datasets.duckdb import compact_parquet_dataset_duckdb` | [api/fsspeckit.datasets.duckdb.md](../api/fsspeckit.datasets.duckdb.md) | datasets | Stable |
+| `from fsspeckit.datasets.duckdb import MergeStrategy` | [api/fsspeckit.datasets.duckdb.md](../api/fsspeckit.datasets.duckdb.md) | datasets | Stable |
 | `from fsspeckit.datasets.pyarrow import PyarrowDatasetIO` | [api/fsspeckit.datasets.pyarrow.md](../api/fsspeckit.datasets.pyarrow.md) | datasets | Stable |
 | `from fsspeckit.datasets.pyarrow import collect_dataset_stats_pyarrow` | [api/fsspeckit.datasets.pyarrow.md](../api/fsspeckit.datasets.pyarrow.md) | datasets | Stable |
 | `from fsspeckit.datasets.pyarrow import compact_parquet_dataset_pyarrow` | [api/fsspeckit.datasets.pyarrow.md](../api/fsspeckit.datasets.pyarrow.md) | datasets | Stable |
