@@ -411,10 +411,18 @@ def plan_compaction_groups(
         current_rows += num_rows
     flush_group()
 
-    # Only compact groups that contain more than one file; singleton groups
-    # would just rewrite an existing file.
+    # Compact multi-file groups, and also singleton groups whose single file
+    # exceeds the hard row-count bound — the writer must split those so no
+    # published file exceeds max_rows_per_file. Byte-size targets are advisory
+    # (CONTEXT.md: "Hard row-count compaction bound") and do not force a split.
     finalized_groups: list[CompactionGroup] = [
-        CompactionGroup(files=tuple(group)) for group in groups if len(group) > 1
+        CompactionGroup(files=tuple(group))
+        for group in groups
+        if len(group) > 1
+        or (
+            target_rows_per_file is not None
+            and group[0].num_rows > target_rows_per_file
+        )
     ]
 
     # Calculate statistics
