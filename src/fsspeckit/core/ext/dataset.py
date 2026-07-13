@@ -10,11 +10,10 @@ This module contains functions for creating PyArrow datasets with support for:
 from __future__ import annotations
 
 import posixpath
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    import pyarrow as pa
-    import pyarrow.dataset as pds
+import pyarrow as pa
+import pyarrow.dataset as pds
 
 
 from fsspec import AbstractFileSystem
@@ -153,7 +152,6 @@ def pyarrow_parquet_dataset(
         schema=schema,
         **kwargs,
     )
-
 
 
 def deduplicate_parquet_dataset(

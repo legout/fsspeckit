@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.1] - 2026-07-13
+
+### Fixed
+- Import PyArrow and `pyarrow.dataset` at runtime for the filesystem dataset helpers, preventing `NameError: name 'pds' is not defined`.
+
 ## [0.24.0] - 2026-07-13
 
 ### Added
