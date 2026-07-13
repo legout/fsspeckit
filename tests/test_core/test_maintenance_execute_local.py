@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 import os
+import posixpath
 from typing import Any
 
 import pyarrow as pa
@@ -19,20 +20,20 @@ import pyarrow.parquet as pq
 import pytest
 
 from fsspeckit.core.maintenance import (
-    ActualMetrics,
     DatasetMaintenanceCoordinator,
     GuaranteeLevel,
     LockAcquisitionError,
     MaintenanceBackend,
     MaintenanceResult,
-    PhaseOutcome,
+    PartitionScopeType,
     PublicationOutcome,
-    RecoveryArtifacts,
     ValidationOutcome,
     _BoundedAdvisoryLock,
     _check_source_drift,
     _execute_atomic_local_compaction,
+    _group_partition_dir,
     _make_workspace,
+    _plan_partition_local_compaction_groups,
     _publish_atomic_local,
     _validate_staged_output,
 )
@@ -732,3 +733,315 @@ class TestCheckSourceDrift:
         error = _check_source_drift(snapshot)
         assert error is not None
         assert "size changed" in error
+
+
+
+# --------------------------------------------------------------------------- #
+# Partition-subtree compaction (#38)
+# --------------------------------------------------------------------------- #
+
+
+def _write_partitioned(root, layout):
+    """Write a partitioned dataset from a ``{rel_dir: [(name, table)]}`` map.
+
+    Returns the absolute dataset root.
+    """
+    for rel_dir, files in layout.items():
+        part_dir = os.path.join(root, rel_dir) if rel_dir else root
+        os.makedirs(part_dir, exist_ok=True)
+        for name, table in files:
+            _write_parquet(os.path.join(part_dir, name), table)
+    return root
+
+
+def _partition_files(root, rel_dir):
+    target = os.path.join(root, rel_dir) if rel_dir else root
+    return _list_parquet(target)
+
+
+class TestPartitionSubtreeCompaction:
+    """Targeted local compaction preserves partition subtrees (#38).
+
+    Covers the three #38 acceptance criteria:
+    - filtered compaction publishes beneath original partition tuples,
+    - unrelated partition files remain unchanged,
+    - a failed multi-subtree publication restores every already-swapped subtree.
+    """
+
+    def test_filtered_compaction_publishes_beneath_partition_tuples(self, tmp_path):
+        """Outputs land in their source partition directories, not the root."""
+        dataset = tmp_path / "ds"
+        table = pa.table({"a": list(range(10)), "b": list("abcdefghij")})
+        _write_partitioned(
+            str(dataset),
+            {
+                "country=US/state=CA": [("p0.parquet", table.slice(0, 5)),
+                                         ("p1.parquet", table.slice(5, 5))],
+                "country=US/state=NY": [("p0.parquet", table.slice(0, 5)),
+                                         ("p1.parquet", table.slice(5, 5))],
+                "country=DE/state=BY": [("p0.parquet", table.slice(0, 5)),
+                                         ("p1.parquet", table.slice(5, 5))],
+            },
+        )
+
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_compaction(
+            str(dataset), fs, partition_filter=["country=US/"], target_rows_per_file=100
+        )
+        assert plan.partition_scope.scope_type == PartitionScopeType.FILTERED
+
+        result = coordinator.execute(plan)
+
+        assert result.succeeded, result.error
+        # Outputs appear under each US partition tuple, never flattened to root.
+        ca_outputs = _partition_files(str(dataset), "country=US/state=CA")
+        ny_outputs = _partition_files(str(dataset), "country=US/state=NY")
+        assert len(ca_outputs) == 1, f"expected 1 CA output, got {ca_outputs}"
+        assert len(ny_outputs) == 1, f"expected 1 NY output, got {ny_outputs}"
+        assert not _list_parquet(str(dataset)), "no files should land in the root"
+        # Rows are preserved per partition.
+        ca_rows = pa.concat_tables([_read_parquet(f) for f in ca_outputs]).num_rows
+        ny_rows = pa.concat_tables([_read_parquet(f) for f in ny_outputs]).num_rows
+        assert ca_rows == 10
+        assert ny_rows == 10
+        assert result.actual_metrics.row_count == 20
+
+    def test_unrelated_partition_files_remain_unchanged(self, tmp_path):
+        """Files outside the partition filter are not read, moved, or rewritten."""
+        dataset = tmp_path / "ds"
+        table = pa.table({"a": list(range(10)), "b": list("abcdefghij")})
+        _write_partitioned(
+            str(dataset),
+            {
+                "country=US/state=CA": [("p0.parquet", table.slice(0, 5)),
+                                         ("p1.parquet", table.slice(5, 5))],
+                "country=DE/state=BY": [("p0.parquet", table.slice(0, 5)),
+                                         ("p1.parquet", table.slice(5, 5))],
+            },
+        )
+
+        # Snapshot the unrelated DE partition before compaction.
+        de_before = _partition_files(str(dataset), "country=DE/state=BY")
+        de_hashes = {f: _read_parquet(f).to_pydict() for f in de_before}
+
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_compaction(
+            str(dataset), fs, partition_filter=["country=US/"], target_rows_per_file=100
+        )
+        result = coordinator.execute(plan)
+        assert result.succeeded, result.error
+
+        # DE partition untouched: same files, identical contents.
+        de_after = _partition_files(str(dataset), "country=DE/state=BY")
+        assert sorted(de_after) == sorted(de_before)
+        for f in de_after:
+            assert _read_parquet(f).to_pydict() == de_hashes[f], (
+                f"Unrelated partition file {f} was modified"
+            )
+        # The DE files were never part of the publication.
+        assert result.publication is not None
+        de_root = os.path.join(str(dataset), "country=DE")
+        assert not any(p.startswith(de_root) for p in result.publication.published_files)
+        assert not any(
+            p.startswith(de_root) for p in result.publication.removed_source_files
+        )
+
+    def test_failed_multisubtree_publication_restores_all_subtrees(self, tmp_path):
+        """A mid-publication failure rolls back every already-swapped subtree."""
+        dataset = tmp_path / "ds"
+        table = pa.table({"v": list(range(4))})
+        _write_partitioned(
+            str(dataset),
+            {
+                "p=a": [("f0.parquet", table), ("f1.parquet", table)],
+                "p=b": [("f0.parquet", table), ("f1.parquet", table)],
+                "p=c": [("f0.parquet", table), ("f1.parquet", table)],
+            },
+        )
+
+        original_paths = {
+            part: _partition_files(str(dataset), part)
+            for part in ("p=a", "p=b", "p=c")
+        }
+
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_compaction(
+            str(dataset), fs, target_rows_per_file=100
+        )
+        # Three partition-local groups -> three subtrees to swap.
+        assert len(plan.compaction_groups) == 3
+
+        # Inject a failure on the FIRST publish rename whose destination is
+        # under p=c (the last subtree in sorted order). Subtrees p=a and p=b
+        # are already fully swapped by then, so both must be rolled back.
+        original_rename = os.rename
+        fired = {"done": False}
+        c_prefix = os.path.join(str(dataset), "p=c")
+
+        def _fail_on_c_publish(src, dst):
+            if not fired["done"] and str(dst).startswith(c_prefix):
+                fired["done"] = True
+                raise OSError("injected publish failure for partition c")
+            original_rename(src, dst)
+
+        import fsspeckit.core.maintenance as _m
+
+        _m.os.rename = _fail_on_c_publish  # type: ignore[attr-defined]
+        try:
+            result = coordinator.execute(plan)
+        finally:
+            _m.os.rename = original_rename  # type: ignore[attr-defined]
+
+        assert not result.succeeded
+        assert result.publication is not None
+        assert not result.publication.succeeded
+        # Every original source file is back in place across all subtrees.
+        for part, paths in original_paths.items():
+            restored = _partition_files(str(dataset), part)
+            assert sorted(restored) == sorted(paths), (
+                f"Subtree {part!r} was not fully restored: {restored} != {paths}"
+            )
+        # No compacted output leaked into any partition.
+        for part in ("p=a", "p=b", "p=c"):
+            files = _partition_files(str(dataset), part)
+            for f in files:
+                assert not os.path.basename(f).startswith("compacted_"), (
+                    f"Leaked output file {f} in subtree {part!r}"
+                )
+
+
+class TestPlanPartitionLocalCompactionGroups:
+    """Partition-local planning never crosses a partition boundary (#38)."""
+
+    def test_groups_never_mix_partitions(self, tmp_path):
+        """Files from different partitions never share a compaction group."""
+        root = str(tmp_path)
+        file_stats = [
+            {"path": os.path.join(root, "p=a", "f0.parquet"), "size_bytes": 10, "num_rows": 5},
+            {"path": os.path.join(root, "p=a", "f1.parquet"), "size_bytes": 10, "num_rows": 5},
+            {"path": os.path.join(root, "p=b", "f0.parquet"), "size_bytes": 10, "num_rows": 5},
+            {"path": os.path.join(root, "p=b", "f1.parquet"), "size_bytes": 10, "num_rows": 5},
+        ]
+
+        groups = _plan_partition_local_compaction_groups(file_stats, root, None, 100)
+
+        assert len(groups) == 2
+        for group in groups:
+            # Re-derive each file's partition dir to prove the group is single-partition.
+            part_dirs = {
+                posixpath.dirname(posixpath.relpath(fi.path, root))
+                for fi in group.files
+            }
+            assert len(part_dirs) == 1, (
+                f"Group mixes partitions: {part_dirs}"
+            )
+
+    def test_flat_dataset_behaves_like_flat_planning(self, tmp_path):
+        """Flat datasets collapse to a single partition and plan identically."""
+        root = str(tmp_path)
+        file_stats = [
+            {"path": os.path.join(root, "f0.parquet"), "size_bytes": 10, "num_rows": 5},
+            {"path": os.path.join(root, "f1.parquet"), "size_bytes": 10, "num_rows": 5},
+        ]
+
+        groups = _plan_partition_local_compaction_groups(file_stats, root, None, 100)
+
+        assert len(groups) == 1
+        assert _group_partition_dir(groups[0], root) == ""
+
+
+class TestPublishAtomicLocalPartitionSubtrees:
+    """_publish_atomic_local swaps partition subtrees with full rollback (#38)."""
+
+    def test_partition_aware_publish_places_outputs_in_tuples(self, tmp_path):
+        """Staged outputs are published beneath their partition directories."""
+        staged_dir = tmp_path / "staged"
+        backup_dir = tmp_path / "backup"
+        dataset_dir = tmp_path / "dataset"
+        staged_dir.mkdir()
+        backup_dir.mkdir()
+        for part in ("p=a", "p=b"):
+            os.makedirs(os.path.join(str(dataset_dir), part), exist_ok=True)
+
+        src_a = os.path.join(str(dataset_dir), "p=a", "src.parquet")
+        src_b = os.path.join(str(dataset_dir), "p=b", "src.parquet")
+        _write_parquet(src_a, pa.table({"v": [1]}))
+        _write_parquet(src_b, pa.table({"v": [2]}))
+
+        stg_a = os.path.join(str(staged_dir), "out_a.parquet")
+        stg_b = os.path.join(str(staged_dir), "out_b.parquet")
+        _write_parquet(stg_a, pa.table({"v": [1]}))
+        _write_parquet(stg_b, pa.table({"v": [2]}))
+
+        outcome = _publish_atomic_local(
+            source_files=[src_a, src_b],
+            staged_files=[stg_a, stg_b],
+            dataset_root=str(dataset_dir),
+            backup_dir=str(backup_dir),
+            staged_partition_dirs=["p=a", "p=b"],
+        )
+
+        assert outcome.succeeded
+        assert not os.path.exists(src_a) and not os.path.exists(src_b)
+        # Backups preserved partition structure.
+        assert os.path.exists(os.path.join(str(backup_dir), "p=a", "src.parquet"))
+        assert os.path.exists(os.path.join(str(backup_dir), "p=b", "src.parquet"))
+        # Outputs published beneath their partition tuples.
+        assert os.path.exists(os.path.join(str(dataset_dir), "p=a", "out_a.parquet"))
+        assert os.path.exists(os.path.join(str(dataset_dir), "p=b", "out_b.parquet"))
+
+    def test_multisubtree_failure_restores_every_swapped_subtree(self, tmp_path, monkeypatch):
+        """A failure in subtree 3 rolls back subtrees 1 and 2 as well."""
+        staged_dir = tmp_path / "staged"
+        backup_dir = tmp_path / "backup"
+        dataset_dir = tmp_path / "dataset"
+        staged_dir.mkdir()
+        backup_dir.mkdir()
+        for part in ("p=a", "p=b", "p=c"):
+            os.makedirs(os.path.join(str(dataset_dir), part), exist_ok=True)
+
+        srcs = {}
+        stgs = {}
+        for part in ("p=a", "p=b", "p=c"):
+            src = os.path.join(str(dataset_dir), part, "src.parquet")
+            _write_parquet(src, pa.table({"v": [1]}))
+            srcs[part] = src
+            stg = os.path.join(str(staged_dir), "out.parquet")
+            _write_parquet(stg, pa.table({"v": [1]}))
+            stgs[part] = stg
+
+        # Fail the first rename whose destination is under p=c (sorted last).
+        original_rename = os.rename
+        fired = {"done": False}
+        c_prefix = os.path.join(str(dataset_dir), "p=c")
+
+        def _fail_on_c_publish(src, dst):
+            if not fired["done"] and str(dst).startswith(c_prefix):
+                fired["done"] = True
+                raise OSError("injected publish failure for partition c")
+            original_rename(src, dst)
+
+        monkeypatch.setattr(os, "rename", _fail_on_c_publish)
+
+        outcome = _publish_atomic_local(
+            source_files=[srcs["p=a"], srcs["p=b"], srcs["p=c"]],
+            staged_files=[stgs["p=a"], stgs["p=b"], stgs["p=c"]],
+            dataset_root=str(dataset_dir),
+            backup_dir=str(backup_dir),
+            staged_partition_dirs=["p=a", "p=b", "p=c"],
+        )
+
+        assert not outcome.succeeded
+        # Every source file restored across all three subtrees.
+        for part in ("p=a", "p=b", "p=c"):
+            assert os.path.exists(srcs[part]), (
+                f"Source file for {part!r} was not restored"
+            )
+        # No output file leaked into any partition.
+        for part in ("p=a", "p=b", "p=c"):
+            assert not os.path.exists(os.path.join(str(dataset_dir), part, "out.parquet")), (
+                f"Output file leaked into {part!r}"
+            )

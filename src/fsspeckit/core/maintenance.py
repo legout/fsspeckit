@@ -1386,6 +1386,24 @@ def _prepare_plan_inputs(
         validation,
     )
 
+def _group_file_stats_by_partition(
+    file_stats: list[dict[str, Any]],
+    dataset_root: str,
+) -> dict[str, list[dict[str, Any]]]:
+    """Bucket file stats by their partition directory relative to *dataset_root*.
+
+    The partition directory is ``posixpath.dirname`` of each file's path
+    relative to the root; files living directly in the root share the empty
+    string. Returned dict iteration order is insertion order; callers sort the
+    keys when deterministic ordering is required.
+    """
+    partitions: dict[str, list[dict[str, Any]]] = {}
+    for file_stat in file_stats:
+        rel = _relative_file_path(file_stat["path"], dataset_root)
+        partition_dir = posixpath.dirname(rel)
+        partitions.setdefault(partition_dir, []).append(file_stat)
+    return partitions
+
 
 def _plan_partition_local_deduplication_groups(
     file_stats: list[dict[str, Any]],
@@ -1401,11 +1419,7 @@ def _plan_partition_local_deduplication_groups(
     file relative to the dataset root). Each partition is planned independently
     so retained rows are never written into another physical partition.
     """
-    partitions: dict[str, list[dict[str, Any]]] = {}
-    for file_stat in file_stats:
-        rel = _relative_file_path(file_stat["path"], dataset_root)
-        partition_dir = posixpath.dirname(rel)
-        partitions.setdefault(partition_dir, []).append(file_stat)
+    partitions = _group_file_stats_by_partition(file_stats, dataset_root)
 
     groups: list[CompactionGroup] = []
     for partition_dir in sorted(partitions):
@@ -1419,6 +1433,33 @@ def _plan_partition_local_deduplication_groups(
                 target_rows_per_file=target_rows_per_file,
             )["groups"]
         )
+    return tuple(groups)
+
+
+def _plan_partition_local_compaction_groups(
+    file_stats: list[dict[str, Any]],
+    dataset_root: str,
+    target_mb_per_file: int | None,
+    target_rows_per_file: int | None,
+) -> tuple[CompactionGroup, ...]:
+    """Plan compaction groups that never cross a partition boundary.
+
+    Files are grouped by their partition directory (the directory containing
+    the file relative to the dataset root); each partition is planned
+    independently so a compacted output never mixes rows from two physical
+    partitions. A flat dataset (every file directly under the root) collapses
+    to a single partition and is therefore planned identically to
+    :func:`plan_compaction_groups`.
+    """
+    partitions = _group_file_stats_by_partition(file_stats, dataset_root)
+
+    groups: list[CompactionGroup] = []
+    for partition_dir in sorted(partitions):
+        partition_files = partitions[partition_dir]
+        result = plan_compaction_groups(
+            partition_files, target_mb_per_file, target_rows_per_file
+        )
+        groups.extend(result["groups"])
     return tuple(groups)
 
 
@@ -1683,8 +1724,7 @@ def _validate_staged_output(
                 staged_row_count=total_rows,
                 expected_row_count=expected_rows,
                 error=(
-                    f"Row count mismatch: staged={total_rows}, "
-                    f"expected={expected_rows}"
+                    f"Row count mismatch: staged={total_rows}, expected={expected_rows}"
                 ),
             )
         return ValidationOutcome(
@@ -1721,66 +1761,139 @@ def _check_source_drift(snapshot: SourceSnapshot) -> str | None:
     return None
 
 
-def _publish_atomic_local(
-    source_files: list[str],
-    staged_files: list[str],
-    dataset_root: str,
-    backup_dir: str,
-) -> PublicationOutcome:
-    """Publish staged files via the backup-then-rename protocol.
+def _rollback_publication(
+    swaps: list[tuple[list[tuple[str, str]], list[str]]],
+) -> None:
+    """Restore every already-swapped subtree after a publication failure.
 
-    Steps:
-    1. Move every source file into *backup_dir* (atomic rename within the same
-       filesystem).
-    2. Move every staged file into *dataset_root* (atomic rename).
-
-    On any failure after step 1 has begun:
-    - Every published staged file is removed from the dataset root.
-    - Every backed-up source file is restored to its original location.
-
-    A ``PublicationOutcome`` with ``succeeded=False`` is returned (not raised)
-    so callers can attach it to the ``MaintenanceResult`` without losing
-    per-phase context.
+    For each recorded swap, remove the published destination files and move the
+    backed-up source files back to their original locations. Errors are
+    suppressed so one failed rollback step cannot prevent the remaining
+    restores — a partial rollback is still better than abandoning the dataset.
     """
-    backed_up: list[tuple[str, str]] = []
-    published: list[str] = []
-
-    try:
-        # Step 1 — move source files to backup (makes them invisible to readers)
-        for src in source_files:
-            bak = os.path.join(backup_dir, os.path.basename(src))
-            os.rename(src, bak)
-            backed_up.append((src, bak))
-
-        # Step 2 — move staged files into the live dataset root
-        for staged in staged_files:
-            dest = os.path.join(dataset_root, os.path.basename(staged))
-            os.rename(staged, dest)
-            published.append(dest)
-
-        return PublicationOutcome(
-            succeeded=True,
-            published_files=tuple(published),
-            removed_source_files=tuple(src for src, _ in backed_up),
-        )
-
-    except Exception as exc:
-        # Rollback: remove staged files already placed in dataset root, then
-        # restore backed-up source files to their original paths.
+    for backed_up, published in swaps:
         for dest in published:
             try:
                 os.remove(dest)
             except Exception:  # noqa: BLE001
                 pass
-        for original, bak in backed_up:
+        for original, backup in backed_up:
             try:
-                os.rename(bak, original)
+                os.rename(backup, original)
             except Exception:  # noqa: BLE001
                 pass
+
+
+def _publish_atomic_local(
+    source_files: list[str],
+    staged_files: list[str],
+    dataset_root: str,
+    backup_dir: str,
+    staged_partition_dirs: list[str] | None = None,
+) -> PublicationOutcome:
+    """Publish staged files via the per-subtree backup-then-rename protocol.
+
+    When *staged_partition_dirs* is provided it must be parallel to
+    *staged_files*; entry *i* is the partition directory (relative to
+    *dataset_root*) beneath which staged file *i* is published. Source files
+    are grouped by the partition directory implied by their path relative to
+    *dataset_root*.
+
+    Each partition subtree is swapped independently — back up its source
+    files, then rename its staged outputs into place — while one caller-held
+    exclusive window protects the whole multi-directory transaction. On any
+    failure every already-swapped subtree (including the in-progress one) is
+    rolled back before returning, so a failed multi-subtree publication never
+    leaves a partially visible dataset (#38).
+
+    When *staged_partition_dirs* is ``None`` the publication is flat: every
+    output lands directly beneath *dataset_root* and every backup lands
+    directly beneath *backup_dir*, matching the original single-directory
+    contract.
+
+    A ``PublicationOutcome`` with ``succeeded=False`` is returned (not raised)
+    so callers can attach it to the ``MaintenanceResult`` without losing
+    per-phase context.
+    """
+    if staged_partition_dirs is None:
+        staged_partition_dirs = [""] * len(staged_files)
+
+    # Group source files by their partition directory relative to the root.
+    source_subtrees: dict[str, list[str]] = {}
+    for src in source_files:
+        rel = _relative_file_path(src, dataset_root)
+        subtree = posixpath.dirname(rel)
+        source_subtrees.setdefault(subtree, []).append(src)
+
+    # Group staged outputs by their target partition directory.
+    staged_subtrees: dict[str, list[str]] = {}
+    for staged, subtree in zip(staged_files, staged_partition_dirs):
+        staged_subtrees.setdefault(subtree, []).append(staged)
+
+    all_subtrees = sorted(set(source_subtrees) | set(staged_subtrees))
+
+    completed: list[tuple[list[tuple[str, str]], list[str]]] = []
+    current_backed_up: list[tuple[str, str]] = []
+    current_published: list[str] = []
+
+    try:
+        for subtree in all_subtrees:
+            current_backed_up = []
+            current_published = []
+
+            # Step 1 — back up this subtree's source files (hide from readers).
+            for src in source_subtrees.get(subtree, []):
+                backup_rel = (
+                    os.path.join(subtree, os.path.basename(src))
+                    if subtree
+                    else os.path.basename(src)
+                )
+                backup_path = os.path.join(backup_dir, backup_rel)
+                os.makedirs(os.path.dirname(backup_path), exist_ok=True)
+                os.rename(src, backup_path)
+                current_backed_up.append((src, backup_path))
+
+            # Step 2 — publish this subtree's staged outputs into place.
+            target_dir = (
+                os.path.join(dataset_root, subtree) if subtree else dataset_root
+            )
+            for staged in staged_subtrees.get(subtree, []):
+                dest = os.path.join(target_dir, os.path.basename(staged))
+                os.rename(staged, dest)
+                current_published.append(dest)
+
+            completed.append((current_backed_up, current_published))
+
+        return PublicationOutcome(
+            succeeded=True,
+            published_files=tuple(
+                dest for _, published in completed for dest in published
+            ),
+            removed_source_files=tuple(
+                src for backed_up, _ in completed for src, _ in backed_up
+            ),
+        )
+
+    except Exception as exc:
+        # Roll back the in-progress subtree, then every completed subtree.
+        _rollback_publication([(current_backed_up, current_published)])
+        _rollback_publication(completed)
         return PublicationOutcome(
             succeeded=False,
             error=f"Publication rename failed: {exc}",
         )
+
+
+def _group_partition_dir(group: CompactionGroup, dataset_root: str) -> str:
+    """Return the partition directory shared by a compaction group's files.
+
+    The directory is relative to *dataset_root* and empty for files that live
+    directly in the root. Partition-local planning guarantees every file in a
+    group shares one partition tuple, so the first file is representative.
+    """
+    for file_info in group.files:
+        return posixpath.dirname(_relative_file_path(file_info.path, dataset_root))
+    return ""
 
 
 def _execute_atomic_local_compaction(
@@ -1824,9 +1937,7 @@ def _execute_atomic_local_compaction(
             plan=plan,
             succeeded=True,
             guarantee_level=plan.guarantee_level,
-            phase_outcomes=(
-                PhaseOutcome(phase="write", succeeded=True),
-            ),
+            phase_outcomes=(PhaseOutcome(phase="write", succeeded=True),),
             actual_metrics=ActualMetrics(row_count=0, file_count=0, total_bytes=0),
         )
 
@@ -1850,6 +1961,7 @@ def _execute_atomic_local_compaction(
         )
 
     staged_files: list[str] = []
+    staged_partition_dirs: list[str] = []
     total_rows_written = 0
     source_files_in_groups: list[str] = []
     expected_rows = sum(
@@ -1862,6 +1974,7 @@ def _execute_atomic_local_compaction(
     try:
         for group in plan.compaction_groups:
             source_files_in_groups.extend(fi.path for fi in group.files)
+            group_partition_dir = _group_partition_dir(group, dataset_root)
             tables = []
             for fi in group.files:
                 with open(fi.path, "rb") as fh:
@@ -1886,6 +1999,7 @@ def _execute_atomic_local_compaction(
                 out_path = os.path.join(staged_dir, out_name)
                 pq.write_table(chunk, out_path, compression=plan.selected_codec)
                 staged_files.append(out_path)
+                staged_partition_dirs.append(group_partition_dir)
                 total_rows_written += chunk.num_rows
                 offset += chunk_size
 
@@ -1986,6 +2100,7 @@ def _execute_atomic_local_compaction(
             staged_files=staged_files,
             dataset_root=dataset_root,
             backup_dir=backup_dir,
+            staged_partition_dirs=staged_partition_dirs,
         )
         phase_outcomes.append(
             PhaseOutcome(
@@ -2034,9 +2149,7 @@ def _execute_atomic_local_compaction(
         )
 
     total_bytes = sum(
-        os.path.getsize(f)
-        for f in publication.published_files
-        if os.path.exists(f)
+        os.path.getsize(f) for f in publication.published_files if os.path.exists(f)
     )
 
     return MaintenanceResult(
@@ -2250,9 +2363,7 @@ def _execute_best_effort_compaction(
         phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=True))
     except Exception as exc:
         err = f"Stage phase failed: {exc}"
-        phase_outcomes.append(
-            PhaseOutcome(phase="stage", succeeded=False, error=err)
-        )
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=False, error=err))
         return BestEffortCompactionResult(
             plan=plan,
             succeeded=False,
@@ -2456,7 +2567,9 @@ def _execute_best_effort_compaction(
             delete_failed.append(src_path)
             # Stop immediately — do not attempt to delete any further sources.
             remaining_after_failure = [
-                p for p in remaining_to_delete if p not in source_keys_deleted and p != src_path
+                p
+                for p in remaining_to_delete
+                if p not in source_keys_deleted and p != src_path
             ]
             delete_failed.extend(remaining_after_failure)
             break
@@ -2527,6 +2640,245 @@ def _execute_best_effort_compaction(
         copied_live_keys=tuple(copied_live_keys),
         untouched_source_keys=remaining_untouched,
         drift_detected=False,
+    )
+
+def _canonical_deduplication_value(value: Any) -> Any:
+    """Return a hashable stored-value representation for duplicate-key comparison."""
+    if isinstance(value, float) and value != value:
+        return ("nan",)
+    if isinstance(value, list):
+        return tuple(_canonical_deduplication_value(item) for item in value)
+    if isinstance(value, dict):
+        return tuple(
+            sorted(
+                (key, _canonical_deduplication_value(item))
+                for key, item in value.items()
+            )
+        )
+    return value
+
+
+def _deduplicate_partition_table(
+    table: pa.Table,
+    key_columns: tuple[str, ...] | None,
+    order_by: tuple[str, ...] | None,
+) -> pa.Table:
+    """Retain one deterministic row for each key within one physical partition."""
+    if order_by:
+        import pyarrow.compute as pc  # noqa: PLC0415
+
+        indices = pc.sort_indices(
+            table,
+            sort_keys=[(column, "ascending") for column in order_by],
+        )
+        table = table.take(indices)
+    keys = key_columns or tuple(table.column_names)
+    seen: set[tuple[Any, ...]] = set()
+    retained_indices: list[int] = []
+    columns = [table[column].to_pylist() for column in keys]
+    for row_index in range(table.num_rows):
+        key = tuple(
+            _canonical_deduplication_value(column[row_index]) for column in columns
+        )
+        if key not in seen:
+            seen.add(key)
+            retained_indices.append(row_index)
+    return table.take(pa.array(retained_indices, type=pa.int64()))
+
+
+def _execute_best_effort_partition_local_deduplication(
+    plan: PartitionLocalDeduplicationPlan,
+    filesystem: AbstractFileSystem,
+) -> BestEffortCompactionResult:
+    """Execute partition-local deduplication through best-effort object publication."""
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    run_id = uuid.uuid4().hex[:16]
+    dataset_root = plan.source_snapshot.dataset_path
+    staging_prefix = posixpath.join(dataset_root, "_maintenance_staging", run_id)
+    phase_outcomes: list[PhaseOutcome] = []
+    sources_by_partition: dict[str, list[SourceFileInfo]] = {}
+    for source in plan.source_snapshot.files:
+        partition = posixpath.dirname(source.relative_path)
+        sources_by_partition.setdefault(partition, []).append(source)
+    staged_keys: list[str] = []
+    staged_to_live: dict[str, str] = {}
+    staged_rows: dict[str, int] = {}
+    try:
+        for partition_index, partition in enumerate(sorted(sources_by_partition)):
+            tables: list[pa.Table] = []
+            for source in sources_by_partition[partition]:
+                with filesystem.open(source.absolute_path, "rb") as fh:
+                    tables.append(pq.read_table(fh))
+            deduplicated = _deduplicate_partition_table(
+                pa.concat_tables(tables),
+                plan.dedup_key_columns,
+                plan.dedup_order_by,
+            )
+            if plan.schema is not None:
+                deduplicated = deduplicated.cast(plan.schema)
+            for chunk_index, chunk in enumerate(
+                _split_table_by_rows(deduplicated, plan.max_rows_per_file)
+            ):
+                if chunk.num_rows == 0:
+                    continue
+                name = f"deduplicated-{run_id}-{partition_index:04d}-{chunk_index:04d}.parquet"
+                staged_path = posixpath.join(staging_prefix, partition, name)
+                live_path = posixpath.join(dataset_root, partition, name)
+                buffer = BytesIO()
+                pq.write_table(chunk, buffer, compression=plan.selected_codec)
+                filesystem.pipe(staged_path, buffer.getvalue())
+                staged_keys.append(staged_path)
+                staged_to_live[staged_path] = live_path
+                staged_rows[staged_path] = chunk.num_rows
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=True))
+    except Exception as exc:
+        error = f"Stage phase failed: {exc}"
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=False, error=error))
+        return BestEffortCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            untouched_source_keys=tuple(source.absolute_path for source in plan.source_snapshot.files),
+            error=error,
+        )
+
+    try:
+        for staged_path in staged_keys:
+            with filesystem.open(staged_path, "rb") as fh:
+                parquet_file = pq.ParquetFile(fh)
+                if plan.schema is not None and not parquet_file.schema_arrow.equals(plan.schema):
+                    raise ValueError(f"Schema mismatch in staged file {staged_path}")
+        validation = ValidationOutcome(
+            succeeded=True,
+            staged_row_count=sum(staged_rows.values()),
+        )
+        phase_outcomes.append(PhaseOutcome(phase="validate", succeeded=True))
+    except Exception as exc:
+        error = f"Staged validation failed: {exc}"
+        validation = ValidationOutcome(succeeded=False, error=error)
+        phase_outcomes.append(PhaseOutcome(phase="validate", succeeded=False, error=error))
+        return BestEffortCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            untouched_source_keys=tuple(source.absolute_path for source in plan.source_snapshot.files),
+            error=error,
+        )
+
+    copied_live_keys: list[str] = []
+    failed_copies: list[str] = []
+    for staged_path, live_path in staged_to_live.items():
+        try:
+            filesystem.pipe(live_path, filesystem.cat(staged_path))
+            with filesystem.open(live_path, "rb") as fh:
+                pq.read_metadata(fh)
+            copied_live_keys.append(live_path)
+        except Exception:
+            failed_copies.append(live_path)
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="publish",
+            succeeded=not failed_copies,
+            error=f"Failed live copies: {failed_copies}" if failed_copies else None,
+        )
+    )
+    all_sources = tuple(source.absolute_path for source in plan.source_snapshot.files)
+    if failed_copies:
+        return BestEffortCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            copied_live_keys=tuple(copied_live_keys),
+            failed_copies=tuple(failed_copies),
+            untouched_source_keys=all_sources,
+            error="Live copy failed; source objects were not deleted.",
+        )
+
+    drift_errors = [
+        error
+        for source in plan.source_snapshot.files
+        if (error := _revalidate_source_token(filesystem, source)) is not None
+    ]
+    if drift_errors:
+        error = drift_errors[0]
+        phase_outcomes.append(PhaseOutcome(phase="drift_check", succeeded=False, error=error))
+        return BestEffortCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                error=error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            copied_live_keys=tuple(copied_live_keys),
+            untouched_source_keys=all_sources,
+            drift_detected=True,
+            error=f"Source drift detected; no sources deleted: {error}",
+        )
+    phase_outcomes.append(PhaseOutcome(phase="drift_check", succeeded=True))
+    deleted: list[str] = []
+    try:
+        for source in all_sources:
+            filesystem.rm(source)
+            deleted.append(source)
+    except Exception as exc:
+        error = f"Source deletion failed: {exc}"
+        phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=False, error=error))
+        return BestEffortCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            copied_live_keys=tuple(copied_live_keys),
+            untouched_source_keys=tuple(source for source in all_sources if source not in deleted),
+            error=error,
+        )
+    filesystem.rm(staging_prefix, recursive=True)
+    phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=True))
+    return BestEffortCompactionResult(
+        plan=plan,
+        succeeded=True,
+        guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+        phase_outcomes=tuple(phase_outcomes),
+        validation=validation,
+        publication=PublicationOutcome(
+            succeeded=True,
+            published_files=tuple(copied_live_keys),
+            removed_source_files=tuple(deleted),
+        ),
+        actual_metrics=ActualMetrics(
+            row_count=sum(staged_rows.values()),
+            file_count=len(copied_live_keys),
+            total_bytes=sum(filesystem.info(path).get("size", 0) for path in copied_live_keys),
+        ),
+        staging_prefix=staging_prefix,
+        staged_keys=tuple(staged_keys),
+        copied_live_keys=tuple(copied_live_keys),
     )
 
 
@@ -2610,13 +2962,28 @@ class DatasetMaintenanceCoordinator:
             validation_level,
             codec,
         )
-        groups = plan_compaction_groups(
-            file_stats, target_mb_per_file, target_rows_per_file
-        )
+        # Partition-local planning (#38) is scoped to the atomic_local path,
+        # whose per-subtree publisher preserves partition tuples. The
+        # best_effort_object_store publisher (#39) flattens outputs and keeps
+        # its own planning policy until its partition-subtree work lands.
+        guarantee_level = _classify_guarantee(fs)
+        if guarantee_level == GuaranteeLevel.ATOMIC_LOCAL:
+            compaction_groups = _plan_partition_local_compaction_groups(
+                file_stats,
+                snapshot.dataset_path,
+                target_mb_per_file,
+                target_rows_per_file,
+            )
+        else:
+            compaction_groups = tuple(
+                plan_compaction_groups(
+                    file_stats, target_mb_per_file, target_rows_per_file
+                )["groups"]
+            )
         return CompactionPlan(
             source_snapshot=snapshot,
             selected_backend=self.backend,
-            guarantee_level=_classify_guarantee(fs),
+            guarantee_level=guarantee_level,
             partition_scope=scope,
             schema_outcome=schema_outcome,
             selected_codec=selected_codec,
@@ -2624,7 +2991,7 @@ class DatasetMaintenanceCoordinator:
             target_byte_size=target_byte_size,
             validation_level=validation,
             schema=schema,
-            compaction_groups=tuple(groups["groups"]),
+            compaction_groups=compaction_groups,
         )
 
     def plan_partition_local_deduplication(
@@ -2881,9 +3248,8 @@ class DatasetMaintenanceCoordinator:
             ValueError: When *filesystem* is not provided for a
                 ``best_effort_object_store`` plan.
         """
-        if (
-            plan.guarantee_level == GuaranteeLevel.ATOMIC_LOCAL
-            and isinstance(plan, CompactionPlan)
+        if plan.guarantee_level == GuaranteeLevel.ATOMIC_LOCAL and isinstance(
+            plan, CompactionPlan
         ):
             return _execute_atomic_local_compaction(
                 plan,
@@ -2909,10 +3275,23 @@ class DatasetMaintenanceCoordinator:
                 )
             return _execute_best_effort_compaction(plan, filesystem)
 
+        if (
+            plan.guarantee_level == GuaranteeLevel.BEST_EFFORT_OBJECT_STORE
+            and isinstance(plan, PartitionLocalDeduplicationPlan)
+        ):
+            if filesystem is None:
+                raise ValueError(
+                    "best_effort_object_store deduplication requires the filesystem "
+                    "used to create the plan."
+                )
+            return _execute_best_effort_partition_local_deduplication(plan, filesystem)
+
         # ---------------------------------------------------------- #
         # Seams for downstream issues — raise descriptive errors
         # ---------------------------------------------------------- #
-        if isinstance(plan, (PartitionLocalDeduplicationPlan, GlobalRepartitionDeduplicationPlan)):
+        if isinstance(
+            plan, (PartitionLocalDeduplicationPlan, GlobalRepartitionDeduplicationPlan)
+        ):
             # TODO(#40): implement deduplication execution.
             raise NotImplementedError(
                 "Deduplication execute() is deferred to issues #40-#43; "
@@ -2930,4 +3309,3 @@ class DatasetMaintenanceCoordinator:
             f"execute() is not implemented for plan type {type(plan).__name__!r} "
             f"with guarantee_level={plan.guarantee_level!r}."
         )
-

@@ -16,8 +16,7 @@ from __future__ import annotations
 
 import uuid
 from io import BytesIO
-from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -28,15 +27,10 @@ from fsspeckit.core.maintenance import (
     BEST_EFFORT_CONCURRENCY_DISCLAIMER,
     ActualMetrics,
     BestEffortCompactionResult,
-    CompactionPlan,
     DatasetMaintenanceCoordinator,
     GuaranteeLevel,
     MaintenanceBackend,
     MaintenanceResult,
-    PhaseOutcome,
-    PublicationOutcome,
-    ValidationOutcome,
-    _execute_best_effort_compaction,
     _revalidate_source_token,
     _split_table_by_rows,
 )
@@ -464,6 +458,7 @@ class TestCopyFailureRetainsArtifacts:
         fs.cat = failing_cat  # type: ignore[method-assign]
 
         result = coordinator.execute(plan, filesystem=fs)
+        fs.cat = original_cat  # type: ignore[method-assign]
 
         assert isinstance(result, BestEffortCompactionResult)
         assert result.succeeded is False
@@ -531,3 +526,73 @@ class TestResultTypeContract:
 
         assert isinstance(result, BestEffortCompactionResult)
         assert result.concurrency_disclaimer  # non-empty string
+
+
+class TestBestEffortPartitionLocalDeduplication:
+    """Acceptance coverage for object-store partition-local deduplication (#41)."""
+
+    def test_preserves_partitions_and_uses_null_nan_key_semantics(self):
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        _write_parquet(
+            fs,
+            f"{root}/country=US/one.parquet",
+            pa.table({"id": [1.0, None, float("nan")], "value": ["first", "n1", "a"]}),
+        )
+        _write_parquet(
+            fs,
+            f"{root}/country=US/two.parquet",
+            pa.table({"id": [1.0, None, float("nan")], "value": ["second", "n2", "b"]}),
+        )
+        _write_parquet(
+            fs,
+            f"{root}/country=DE/one.parquet",
+            pa.table({"id": [1.0], "value": ["separate-partition"]}),
+        )
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_partition_local_deduplication(
+            root, filesystem=fs, key_columns=["id"]
+        )
+
+        result = coordinator.execute(plan, filesystem=fs)
+
+        assert result.succeeded
+        assert result.guarantee_level == GuaranteeLevel.BEST_EFFORT_OBJECT_STORE
+        assert result.concurrency_disclaimer == BEST_EFFORT_CONCURRENCY_DISCLAIMER
+        assert result.publication is not None
+        assert all(
+            path.startswith(f"{root}/country=")
+            for path in result.publication.published_files
+        )
+        assert all(
+            not fs.exists(source.absolute_path) for source in plan.source_snapshot.files
+        )
+        tables = [_read_parquet(fs, path) for path in result.publication.published_files]
+        outputs = pa.concat_tables(tables)
+        assert outputs.num_rows == 4
+        assert set(outputs.column("value").to_pylist()) == {
+            "first",
+            "n1",
+            "a",
+            "separate-partition",
+        }
+
+    def test_source_drift_prevents_all_deletion_and_reports_recovery(self):
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        source = f"{root}/country=US/source.parquet"
+        _write_parquet(fs, source, pa.table({"id": [1, 1], "value": ["a", "b"]}))
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_partition_local_deduplication(
+            root, filesystem=fs, key_columns=["id"]
+        )
+        _write_parquet(fs, source, pa.table({"id": [1, 1, 2], "value": ["a", "b", "c"]}))
+
+        result = coordinator.execute(plan, filesystem=fs)
+
+        assert not result.succeeded
+        assert result.drift_detected
+        assert source in result.untouched_source_keys
+        assert fs.exists(source)
+        assert result.recovery is not None
+        assert result.recovery.workspace_path is not None
