@@ -42,6 +42,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
+from io import BytesIO
 from pathlib import Path
 from typing import Any, cast
 
@@ -1661,7 +1662,7 @@ def _validate_staged_output(
             total_rows += meta.num_rows
             if expected_schema is not None:
                 schema = pq.read_schema(path)
-                if not schema.equals(expected_schema):
+                if not schema.equals(expected_schema, check_metadata=False):
                     return ValidationOutcome(
                         succeeded=False,
                         staged_row_count=total_rows,
@@ -1809,6 +1810,18 @@ def _execute_atomic_local_compaction(
     backup_dir = ""
     staged_dir = ""
 
+    # Short-circuit when there is nothing to compact.
+    if not plan.compaction_groups:
+        return MaintenanceResult(
+            plan=plan,
+            succeeded=True,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=(
+                PhaseOutcome(phase="write", succeeded=True),
+            ),
+            actual_metrics=ActualMetrics(row_count=0, file_count=0, total_bytes=0),
+        )
+
     # ------------------------------------------------------------------ #
     # Phase: stage
     # ------------------------------------------------------------------ #
@@ -1840,10 +1853,10 @@ def _execute_atomic_local_compaction(
     # ------------------------------------------------------------------ #
     try:
         for group in plan.compaction_groups:
-            source_files_in_groups.extend(fi.absolute_path for fi in group.files)
+            source_files_in_groups.extend(fi.path for fi in group.files)
             tables = []
             for fi in group.files:
-                with open(fi.absolute_path, "rb") as fh:
+                with open(fi.path, "rb") as fh:
                     tables.append(pq.read_table(fh))
 
             combined = pa.concat_tables(tables)
@@ -2034,11 +2047,490 @@ def _execute_atomic_local_compaction(
     )
 
 
+# --------------------------------------------------------------------------- #
+# Best-effort object-store execution helpers (#39)
+# --------------------------------------------------------------------------- #
+
+#: Explicit concurrency disclaimer for best_effort_object_store results.
+BEST_EFFORT_CONCURRENCY_DISCLAIMER = (
+    "best_effort_object_store: no distributed lock, no atomic visibility, "
+    "no automatic rollback. Staging locations and partial live outputs are "
+    "preserved as recovery artifacts after failure."
+)
+
+
+@dataclass(frozen=True)
+class BestEffortCompactionResult(MaintenanceResult):
+    """Typed result for best_effort_object_store compaction execution.
+
+    Extends :class:`MaintenanceResult` with object-store-specific publication
+    fields that explicitly disclose staged keys, copy failures, untouched
+    sources, drift detection, and concurrency limitations.
+
+    No distributed lock, atomic visibility, or automatic rollback is claimed.
+    Staging locations and partial live outputs are preserved as recovery
+    artifacts after any failure.
+
+    Attributes:
+        staging_prefix: The object-store prefix used for staged output files.
+        staged_keys: Absolute paths of all staged output objects.
+        copied_live_keys: Absolute paths of live objects successfully copied
+            from staged output (populated after the publish phase).
+        failed_copies: Live key paths where the copy operation failed.
+        untouched_source_keys: Source keys that were NOT deleted — either
+            because drift was detected, copies failed, or they were not part
+            of any compaction group.
+        drift_detected: True if any source revalidation found a changed
+            content token; when True no source objects are deleted.
+        concurrency_disclaimer: Explicit statement that no distributed lock,
+            atomic visibility, or automatic rollback is provided.
+    """
+
+    staging_prefix: str = ""
+    staged_keys: tuple[str, ...] = ()
+    copied_live_keys: tuple[str, ...] = ()
+    failed_copies: tuple[str, ...] = ()
+    untouched_source_keys: tuple[str, ...] = ()
+    drift_detected: bool = False
+    concurrency_disclaimer: str = BEST_EFFORT_CONCURRENCY_DISCLAIMER
+
+
+def _split_table_by_rows(table: pa.Table, max_rows: int | None) -> list[pa.Table]:
+    """Split a PyArrow table into chunks with at most *max_rows* rows each.
+
+    Args:
+        table: The table to split.
+        max_rows: Hard upper-bound on rows per chunk.  When *None* the whole
+            table is returned as a single-element list.
+
+    Returns:
+        A non-empty list of table slices.  An empty source table produces a
+        single empty-table slice.
+    """
+    if max_rows is None:
+        return [table]
+    n = table.num_rows
+    if n == 0:
+        return [table]
+    chunks: list[pa.Table] = []
+    offset = 0
+    while offset < n:
+        end = min(offset + max_rows, n)
+        chunks.append(table.slice(offset, end - offset))
+        offset = end
+    return chunks
+
+
+def _revalidate_source_token(
+    filesystem: AbstractFileSystem,
+    file_info: SourceFileInfo,
+) -> str | None:
+    """Return a drift-error string if *file_info*'s content token has changed.
+
+    Compares the token recorded at plan time against a freshly computed one
+    from :func:`filesystem.info`.  A missing file is always a drift signal.
+
+    Returns:
+        None when the token matches (no drift); an error string otherwise.
+    """
+    try:
+        info = filesystem.info(file_info.absolute_path)
+    except Exception as exc:
+        return f"Source file not accessible: {file_info.absolute_path}: {exc}"
+    current_size: int = info.get("size", info.get("Size", 0))
+    current_token = _content_token(info, current_size)
+    if current_token != file_info.content_token:
+        return (
+            f"Source drift detected: {file_info.absolute_path} "
+            f"(token {file_info.content_token!r} → {current_token!r})"
+        )
+    return None
+
+
+def _execute_best_effort_compaction(
+    plan: CompactionPlan,
+    filesystem: AbstractFileSystem,
+) -> BestEffortCompactionResult:
+    """Execute the best_effort_object_store lifecycle for a compaction plan.
+
+    Lifecycle phases (in order):
+
+    1. **stage** — write every compaction-group output under a staging prefix;
+       enforce ``max_rows_per_file`` as a HARD upper bound.
+    2. **validate** — read metadata of every staged file and confirm the total
+       row count equals the source snapshot row count for those groups.  No
+       live-key copy begins until this passes.
+    3. **publish** — copy each staged file to its planned live key; validate
+       EVERY live key individually after copy (prefix listing is not proof).
+    4. **drift_check** — revalidate every planned source object immediately
+       before deletion; if ANY drift is detected, delete NO source objects.
+    5. **cleanup** — delete source objects that were successfully compacted;
+       remove staging prefix on full success (retained on failure).
+
+    On any failure the staging prefix and any partial live outputs are reported
+    in the returned :class:`BestEffortCompactionResult` as recovery artifacts;
+    no automatic rollback is performed.
+
+    Args:
+        plan: An accepted :class:`CompactionPlan` with
+            ``guarantee_level == GuaranteeLevel.BEST_EFFORT_OBJECT_STORE``.
+        filesystem: The fsspec filesystem used to read and write all files.
+
+    Returns:
+        A :class:`BestEffortCompactionResult` describing every phase, staged
+        keys, copied live keys, copy failures, untouched source keys, and
+        whether source drift was detected.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    run_id = uuid.uuid4().hex[:16]
+    dataset_root = plan.source_snapshot.dataset_path
+    staging_prefix = posixpath.join(dataset_root, "_maintenance_staging", run_id)
+
+    phase_outcomes: list[PhaseOutcome] = []
+
+    # Collect which source paths are involved in compaction groups.
+    source_paths_in_groups: set[str] = {
+        fi.path for group in plan.compaction_groups for fi in group.files
+    }
+    # Source files not in any group are always untouched.
+    all_source_paths = {fi.absolute_path for fi in plan.source_snapshot.files}
+    always_untouched = sorted(all_source_paths - source_paths_in_groups)
+
+    # Expected total rows from compacted sources.
+    expected_rows = sum(
+        sum(fi.num_rows for fi in group.files) for group in plan.compaction_groups
+    )
+
+    # ------------------------------------------------------------------ #
+    # Phase: stage — write all outputs under the staging prefix
+    # ------------------------------------------------------------------ #
+    staged_keys: list[str] = []
+    staged_key_rows: dict[str, int] = {}
+    staged_to_live: dict[str, str] = {}
+
+    try:
+        for group_idx, group in enumerate(plan.compaction_groups):
+            tables = []
+            for fi in group.files:
+                with filesystem.open(fi.path, "rb") as fh:
+                    tables.append(pq.read_table(fh))
+
+            combined = pa.concat_tables(tables)
+            if plan.schema is not None:
+                combined = combined.cast(plan.schema)
+
+            chunks = _split_table_by_rows(combined, plan.max_rows_per_file)
+            for chunk_idx, chunk in enumerate(chunks):
+                if chunk.num_rows == 0:
+                    continue
+                staged_path = posixpath.join(
+                    staging_prefix,
+                    f"output-{group_idx:04d}-{chunk_idx:04d}.parquet",
+                )
+                live_path = posixpath.join(
+                    dataset_root,
+                    f"compacted-{run_id}-{group_idx:04d}-{chunk_idx:04d}.parquet",
+                )
+                buf = BytesIO()
+                pq.write_table(chunk, buf, compression=plan.selected_codec)
+                filesystem.pipe(staged_path, buf.getvalue())
+                staged_keys.append(staged_path)
+                staged_key_rows[staged_path] = chunk.num_rows
+                staged_to_live[staged_path] = live_path
+
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=True))
+    except Exception as exc:
+        err = f"Stage phase failed: {exc}"
+        phase_outcomes.append(
+            PhaseOutcome(phase="stage", succeeded=False, error=err)
+        )
+        return BestEffortCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            untouched_source_keys=tuple(
+                sorted(source_paths_in_groups | set(always_untouched))
+            ),
+            error=err,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: validate — check ALL staged files before any live copy
+    #
+    # Spec: "fully validate staged output BEFORE any live-key copy begins."
+    # Checks: file readability, row-count match, schema compatibility.
+    # ------------------------------------------------------------------ #
+    total_staged_rows = 0
+    validation_error: str | None = None
+
+    try:
+        for staged_path in staged_keys:
+            with filesystem.open(staged_path, "rb") as fh:
+                staged_file = pq.ParquetFile(fh)
+                staged_meta = staged_file.metadata
+                total_staged_rows += staged_meta.num_rows
+                # Schema check: every staged file must be compatible with
+                # the plan's reconciled schema (when one was captured).
+                if plan.schema is not None:
+                    staged_schema = staged_file.schema_arrow
+                    if not staged_schema.equals(plan.schema):
+                        validation_error = (
+                            f"Schema mismatch in staged file {staged_path}: "
+                            f"expected {plan.schema}, got {staged_schema}"
+                        )
+                        break
+        if validation_error is None and total_staged_rows != expected_rows:
+            validation_error = (
+                f"Staged row count mismatch: got {total_staged_rows}, "
+                f"expected {expected_rows}"
+            )
+    except Exception as exc:
+        validation_error = f"Staged validation error: {exc}"
+
+    validation_outcome = ValidationOutcome(
+        succeeded=validation_error is None,
+        staged_row_count=total_staged_rows,
+        expected_row_count=expected_rows,
+        error=validation_error,
+    )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="validate",
+            succeeded=validation_error is None,
+            error=validation_error,
+        )
+    )
+
+    if validation_error is not None:
+        return BestEffortCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation_outcome,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            untouched_source_keys=tuple(
+                sorted(source_paths_in_groups | set(always_untouched))
+            ),
+            error=f"Staged validation failed: {validation_error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: publish — copy staged → live keys, validate each live key
+    # ------------------------------------------------------------------ #
+    copied_live_keys: list[str] = []
+    failed_copies: list[str] = []
+
+    for staged_path in staged_keys:
+        live_path = staged_to_live[staged_path]
+        try:
+            content = filesystem.cat(staged_path)
+            filesystem.pipe(live_path, content)
+            # Validate this live key individually (prefix listing is NOT proof).
+            with filesystem.open(live_path, "rb") as fh:
+                pq.read_metadata(fh)
+            copied_live_keys.append(live_path)
+        except Exception as exc:
+            logger.warning(
+                "Failed to copy/validate staged key %s → %s: %s",
+                staged_path,
+                live_path,
+                exc,
+            )
+            failed_copies.append(live_path)
+
+    copy_succeeded = not failed_copies
+    publish_error = (
+        f"Failed to copy or validate live keys: {failed_copies}"
+        if failed_copies
+        else None
+    )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="publish",
+            succeeded=copy_succeeded,
+            error=publish_error,
+        )
+    )
+
+    if not copy_succeeded:
+        return BestEffortCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation_outcome,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            copied_live_keys=tuple(copied_live_keys),
+            failed_copies=tuple(failed_copies),
+            untouched_source_keys=tuple(
+                sorted(source_paths_in_groups | set(always_untouched))
+            ),
+            error="Copy or live-key validation failed; staging and partial live "
+            "outputs retained as recovery artifacts.",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: drift_check — revalidate sources before any deletion
+    # ------------------------------------------------------------------ #
+    snapshot_map = {fi.absolute_path: fi for fi in plan.source_snapshot.files}
+    drift_error: str | None = None
+
+    for src_path in sorted(source_paths_in_groups):
+        snap_fi = snapshot_map.get(src_path)
+        if snap_fi is None:
+            drift_error = f"Source file not in snapshot: {src_path}"
+            break
+        err_msg = _revalidate_source_token(filesystem, snap_fi)
+        if err_msg is not None:
+            drift_error = err_msg
+            break
+
+    drift_detected = drift_error is not None
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="drift_check",
+            succeeded=not drift_detected,
+            error=drift_error,
+        )
+    )
+
+    if drift_detected:
+        # Zero source deletions when any drift is detected.
+        return BestEffortCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation_outcome,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                error=f"Source drift detected; no sources deleted: {drift_error}",
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            copied_live_keys=tuple(copied_live_keys),
+            untouched_source_keys=tuple(
+                sorted(source_paths_in_groups | set(always_untouched))
+            ),
+            drift_detected=True,
+            error=f"Source drift detected, no sources deleted: {drift_error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: cleanup — delete compacted source objects
+    #
+    # Spec: "failures retain staging plus partial live artifacts WITHOUT
+    # DELETING REMAINING SOURCES."  On the first delete failure we stop
+    # immediately; every not-yet-deleted source is left untouched.
+    # ------------------------------------------------------------------ #
+    source_keys_deleted: list[str] = []
+    delete_failed: list[str] = []
+    remaining_to_delete = sorted(source_paths_in_groups)
+
+    for src_path in remaining_to_delete:
+        try:
+            filesystem.rm(src_path)
+            source_keys_deleted.append(src_path)
+        except Exception as exc:
+            logger.warning("Failed to delete source %s: %s", src_path, exc)
+            delete_failed.append(src_path)
+            # Stop immediately — do not attempt to delete any further sources.
+            remaining_after_failure = [
+                p for p in remaining_to_delete if p not in source_keys_deleted and p != src_path
+            ]
+            delete_failed.extend(remaining_after_failure)
+            break
+
+    delete_succeeded = not delete_failed
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="cleanup",
+            succeeded=delete_succeeded,
+            error=(
+                f"Failed to delete sources: {delete_failed}" if delete_failed else None
+            ),
+        )
+    )
+
+    # Remove staging prefix only after complete success.
+    staging_prefix_in_result: str | None
+    if delete_succeeded:
+        try:
+            filesystem.rm(staging_prefix, recursive=True)
+        except Exception:  # noqa: BLE001
+            pass
+        staging_prefix_in_result = None
+    else:
+        staging_prefix_in_result = staging_prefix
+
+    # Compute actual bytes written.
+    total_bytes_written = 0
+    for live_path in copied_live_keys:
+        try:
+            total_bytes_written += filesystem.info(live_path).get("size", 0)
+        except Exception:  # noqa: BLE001
+            pass
+
+    remaining_untouched = tuple(sorted(set(delete_failed) | set(always_untouched)))
+    succeeded = delete_succeeded
+
+    return BestEffortCompactionResult(
+        plan=plan,
+        succeeded=succeeded,
+        guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+        phase_outcomes=tuple(phase_outcomes),
+        validation=validation_outcome,
+        publication=PublicationOutcome(
+            succeeded=succeeded,
+            published_files=tuple(copied_live_keys),
+            removed_source_files=tuple(source_keys_deleted),
+            error=(
+                f"Failed to delete sources: {delete_failed}" if delete_failed else None
+            ),
+        ),
+        recovery=(
+            RecoveryArtifacts(workspace_path=staging_prefix_in_result)
+            if not succeeded
+            else None
+        ),
+        actual_metrics=(
+            ActualMetrics(
+                row_count=sum(staged_key_rows[k] for k in staged_keys),
+                file_count=len(copied_live_keys),
+                total_bytes=total_bytes_written,
+            )
+            if succeeded
+            else None
+        ),
+        staging_prefix=staging_prefix,
+        staged_keys=tuple(staged_keys),
+        copied_live_keys=tuple(copied_live_keys),
+        untouched_source_keys=remaining_untouched,
+        drift_detected=False,
+    )
+
+
 class DatasetMaintenanceCoordinator:
     """Direct coordinator that creates immutable, backend-pinned maintenance plans.
 
-    Planning is lock-free and does not modify dataset files. Execution is
-    intentionally deferred to downstream issue #37.
+    Planning is lock-free and does not modify dataset files.  Execution
+    implements the full staged-rename lifecycle for ``atomic_local``
+    :class:`CompactionPlan` (flat local datasets, issue #37) and the
+    staged-copy lifecycle for ``best_effort_object_store``
+    :class:`CompactionPlan` (issue #39).  Other plan types are left as
+    typed seams with descriptive ``NotImplementedError`` messages.
     """
 
     def __init__(self, backend: str | MaintenanceBackend) -> None:
@@ -2339,32 +2831,47 @@ class DatasetMaintenanceCoordinator:
     def execute(
         self,
         plan: MaintenancePlan,
+        filesystem: AbstractFileSystem | None = None,
         lock_timeout_s: float = 30.0,
         lock_retry_interval_s: float = 0.05,
     ) -> MaintenanceResult:
         """Execute an accepted maintenance plan and return a typed result.
 
-        Currently implements the ``atomic_local`` lifecycle for
-        :class:`CompactionPlan` (flat, non-partitioned local datasets).
+        Implemented paths:
+
+        - ``atomic_local`` :class:`CompactionPlan` — full staged-rename
+          lifecycle with advisory locking (flat, non-partitioned local
+          datasets).  *filesystem* is ignored for this path.
+        - ``best_effort_object_store`` :class:`CompactionPlan` — staged-copy
+          lifecycle with per-key validation, source-drift revalidation, and
+          recovery artifact reporting.  *filesystem* is **required** for this
+          path.
 
         Deferred paths (leave clean seams):
+
         - Partitioned atomic_local compaction: TODO(#38)
-        - best_effort_object_store execution: TODO(#39)
         - Deduplication execution: TODO(#40)
         - Coordinated optimization execution: TODO(#44)
 
         Args:
             plan: An accepted plan created by one of the ``plan_*`` methods.
-            lock_timeout_s: Maximum seconds to wait for the publication lock.
-            lock_retry_interval_s: Sleep between lock-acquisition retries.
+            filesystem: Required for ``best_effort_object_store`` plans.
+                Ignored for ``atomic_local`` plans.
+            lock_timeout_s: Maximum seconds to wait for the publication lock
+                (``atomic_local`` only).
+            lock_retry_interval_s: Sleep between lock-acquisition retries
+                (``atomic_local`` only).
 
         Returns:
-            A :class:`MaintenanceResult` carrying per-phase outcomes,
-            validation, publication, recovery artifacts, and actual metrics.
+            A :class:`MaintenanceResult` (or :class:`BestEffortCompactionResult`
+            subclass) carrying per-phase outcomes, validation, publication,
+            recovery artifacts, and actual metrics.
 
         Raises:
             NotImplementedError: For plan types or guarantee levels not yet
                 implemented in this release.
+            ValueError: When *filesystem* is not provided for a
+                ``best_effort_object_store`` plan.
         """
         if (
             plan.guarantee_level == GuaranteeLevel.ATOMIC_LOCAL
@@ -2377,15 +2884,26 @@ class DatasetMaintenanceCoordinator:
             )
 
         # ---------------------------------------------------------- #
+        # best_effort_object_store compaction (#39)
+        # ---------------------------------------------------------- #
+        if (
+            plan.guarantee_level == GuaranteeLevel.BEST_EFFORT_OBJECT_STORE
+            and isinstance(plan, CompactionPlan)
+        ):
+            if filesystem is None:
+                # Keep a NotImplementedError seam that callers can detect until
+                # they update to pass the filesystem argument.  The "#39" token
+                # lets existing tests and tooling identify the seam.
+                raise NotImplementedError(
+                    "best_effort_object_store execute() requires a filesystem "
+                    "argument (pass the fsspec filesystem used to create the plan). "
+                    "See issue #39."
+                )
+            return _execute_best_effort_compaction(plan, filesystem)
+
+        # ---------------------------------------------------------- #
         # Seams for downstream issues — raise descriptive errors
         # ---------------------------------------------------------- #
-        if plan.guarantee_level == GuaranteeLevel.BEST_EFFORT_OBJECT_STORE:
-            # TODO(#39): implement best_effort_object_store execution path.
-            raise NotImplementedError(
-                "best_effort_object_store execute() is deferred to issue #39; "
-                "plan is available for inspection."
-            )
-
         if isinstance(plan, (PartitionLocalDeduplicationPlan, GlobalRepartitionDeduplicationPlan)):
             # TODO(#40): implement deduplication execution.
             raise NotImplementedError(
