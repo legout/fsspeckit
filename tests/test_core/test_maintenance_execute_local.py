@@ -1408,3 +1408,569 @@ class TestAtomicLocalPartitionLocalDeduplication:
         assert _partition_files(str(dataset), "part=x") == [
             os.path.join(str(dataset), "part=x", "a.parquet")
         ]
+
+
+# --------------------------------------------------------------------------- #
+# Global-repartitioning deduplication — atomic local lane (#42)
+# --------------------------------------------------------------------------- #
+
+
+class TestAtomicLocalGlobalRepartitionDeduplication:
+    """Acceptance coverage for the native global-repartitioning dedup lane (#42).
+
+    Covers the three #42 acceptance criteria:
+    - Global deduplication is opt-in and requires declared destination
+      partition columns.
+    - Retained rows are written only to their declared destination tuple.
+    - Atomic-local validation and rollback cover the entire global rewrite.
+    Plus key semantics, winner ordering, and fault injection.
+    """
+
+    def _plan(
+        self,
+        dataset,
+        *,
+        partition_columns=None,
+        key_columns=None,
+        dedup_order_by=None,
+        target_rows_per_file=None,
+        validation_level=None,
+    ):
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        return coordinator.plan_global_repartition_deduplication(
+            str(dataset),
+            partition_columns or ["region"],
+            filesystem=fs,
+            key_columns=key_columns,
+            dedup_order_by=dedup_order_by,
+            target_rows_per_file=target_rows_per_file,
+            validation_level=validation_level,
+        )
+
+    def _execute(self, dataset, **kwargs):
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_global_repartition_deduplication(
+            str(dataset),
+            kwargs.pop("partition_columns", ["region"]),
+            filesystem=fs,
+            key_columns=kwargs.pop("key_columns", None),
+            dedup_order_by=kwargs.pop("dedup_order_by", None),
+            target_rows_per_file=kwargs.pop("target_rows_per_file", None),
+            validation_level=kwargs.pop("validation_level", None),
+        )
+        return coordinator.execute(plan), plan
+
+    @staticmethod
+    def _read_file(path):
+        """Read a Parquet file via a binary handle to bypass Hive partition discovery."""
+        with open(path, "rb") as fh:
+            return pq.read_table(fh)
+
+    # ---------------------------------------------------------- #
+    # AC1: global dedup is opt-in, requires declared partition cols
+    # ---------------------------------------------------------- #
+
+    def test_requires_non_empty_partition_columns(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset), {"": [("a.parquet", pa.table({"id": [1], "region": ["US"]}))]}
+        )
+        with pytest.raises(ValueError, match="partition_columns"):
+            self._execute(dataset, partition_columns=[])
+
+    def test_partition_columns_must_be_in_schema(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset), {"": [("a.parquet", pa.table({"id": [1], "region": ["US"]}))]}
+        )
+        with pytest.raises(ValueError, match="partition_columns"):
+            self._execute(dataset, partition_columns=["missing_col"])
+
+    # ---------------------------------------------------------- #
+    # AC1+AC2: cross-partition dedup + rows follow declared partitions
+    # ---------------------------------------------------------- #
+
+    def test_cross_partition_duplicates_removed_and_rows_follow_declared_partitions(
+        self, tmp_path
+    ):
+        """Rows from different source partitions merge and follow declared tuple."""
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "source=A": [
+                    (
+                        "a.parquet",
+                        pa.table(
+                            {
+                                "id": [1, 2],
+                                "region": ["US", "DE"],
+                                "value": ["a-first", "a-second"],
+                                "score": [2, 1],
+                            }
+                        ),
+                    )
+                ],
+                "source=B": [
+                    (
+                        "b.parquet",
+                        pa.table(
+                            {
+                                "id": [1, 3],
+                                "region": ["US", "CA"],
+                                "value": ["b-winner", "b-third"],
+                                "score": [1, 1],
+                            }
+                        ),
+                    )
+                ],
+            },
+        )
+        result, plan = self._execute(
+            dataset, key_columns=["id"], dedup_order_by=["score"]
+        )
+
+        assert plan.guarantee_level == GuaranteeLevel.ATOMIC_LOCAL
+        assert result.succeeded, result.error
+        assert result.validation is not None and result.validation.succeeded
+
+        # Source partition files were moved out (empty dirs may remain).
+        assert _partition_files(str(dataset), "source=A") == []
+        assert _partition_files(str(dataset), "source=B") == []
+        # Retained rows live under declared destination tuples.
+        us_files = _partition_files(str(dataset), "region=US")
+        de_files = _partition_files(str(dataset), "region=DE")
+        ca_files = _partition_files(str(dataset), "region=CA")
+        assert len(us_files) == 1
+        assert len(de_files) == 1
+        assert len(ca_files) == 1
+        us_output = self._read_file(us_files[0]).to_pydict()
+        assert us_output["id"] == [1]
+        assert us_output["value"] == ["b-winner"]  # winner by score=1 < None
+        de_output = self._read_file(de_files[0]).to_pydict()
+        assert de_output["id"] == [2]
+        ca_output = self._read_file(ca_files[0]).to_pydict()
+        assert ca_output["id"] == [3]
+        assert result.actual_metrics is not None
+        assert result.actual_metrics.row_count == 3
+        assert result.actual_metrics.file_count == 3
+
+    def test_flat_sources_repartition_into_declared_tuples(self, tmp_path):
+        """Flat (un-partitioned) sources repartition into new Hive-style dirs."""
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "": [
+                    (
+                        "a.parquet",
+                        pa.table(
+                            {
+                                "id": [1, 2, 3],
+                                "region": ["US", "DE", "US"],
+                            }
+                        ),
+                    )
+                ]
+            },
+        )
+        result, _ = self._execute(dataset, key_columns=["id"])
+
+        assert result.succeeded, result.error
+        # Three unique keys survive global dedup, in two destination partitions.
+        assert result.actual_metrics.row_count == 3
+        assert _partition_files(str(dataset), "region=US")
+        assert _partition_files(str(dataset), "region=DE")
+        assert not _list_parquet(str(dataset))
+
+    # ---------------------------------------------------------- #
+    # Key semantics: null/NaN/exact-string/type
+    # ---------------------------------------------------------- #
+
+    def test_null_nan_and_exact_string_keys_compare_equal(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "": [
+                    (
+                        "a.parquet",
+                        pa.table(
+                            {
+                                "id": [None, None, "Value", "value", "1"],
+                                "region": ["X", "X", "X", "X", "X"],
+                                "measure": [float("nan"), float("nan"), 1.0, 1.0, 1.0],
+                                "payload": ["null-a", "null-b", "upper", "lower", "num"],
+                            }
+                        ),
+                    )
+                ]
+            },
+        )
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_global_repartition_deduplication(
+            str(dataset),
+            ["region"],
+            filesystem=fs,
+            key_columns=["id", "measure"],
+            validation_level="full_distinct_key_scan",
+        )
+        result = coordinator.execute(plan)
+
+        assert result.succeeded, result.error
+        output = self._read_file(_partition_files(str(dataset), "region=X")[0]).to_pydict()
+        # null==null (2 collapsed to first), "Value"!="value", 1 != True
+        assert output["payload"] == ["null-a", "upper", "lower", "num"]
+
+    def test_explicit_order_wins_and_physical_order_breaks_ties(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "": [
+                    (
+                        "a.parquet",
+                        pa.table(
+                            {
+                                "id": [1, 1, 2, 2],
+                                "region": ["X", "X", "X", "X"],
+                                "priority": [3, 1, 5, 5],
+                                "payload": ["high", "low", "first", "second"],
+                            }
+                        ),
+                    )
+                ]
+            },
+        )
+        result, _ = self._execute(
+            dataset, key_columns=["id"], dedup_order_by=["priority"]
+        )
+
+        assert result.succeeded, result.error
+        output = self._read_file(_partition_files(str(dataset), "region=X")[0]).to_pydict()
+        assert output["payload"] == ["low", "first"]
+
+    # ---------------------------------------------------------- #
+    # max_rows_per_file hard bound
+    # ---------------------------------------------------------- #
+
+    def test_max_rows_per_file_is_hard_bound(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "": [
+                    (
+                        "a.parquet",
+                        pa.table(
+                            {
+                                "id": list(range(5)),
+                                "region": ["X"] * 5,
+                            }
+                        ),
+                    )
+                ]
+            },
+        )
+        result, _ = self._execute(dataset, key_columns=["id"], target_rows_per_file=2)
+
+        assert result.succeeded, result.error
+        files = _partition_files(str(dataset), "region=X")
+        assert len(files) == 3
+        assert all(self._read_file(f).num_rows <= 2 for f in files)
+        assert result.actual_metrics.row_count == 5
+
+    # ---------------------------------------------------------- #
+    # Full distinct-key scan validation
+    # ---------------------------------------------------------- #
+
+    def test_full_distinct_key_scan_passes_when_globally_unique(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "": [
+                    (
+                        "a.parquet",
+                        pa.table({"id": [1, 2, 3], "region": ["A", "B", "A"]}),
+                    )
+                ]
+            },
+        )
+        result, _ = self._execute(
+            dataset,
+            key_columns=["id"],
+            validation_level="full_distinct_key_scan",
+        )
+
+        assert result.succeeded, result.error
+        assert result.validation is not None and result.validation.succeeded
+
+    # ---------------------------------------------------------- #
+    # AC3: atomic-local validation failure keeps live sources
+    # ---------------------------------------------------------- #
+
+    def test_validation_failure_keeps_live_sources(self, tmp_path, monkeypatch):
+        dataset = tmp_path / "ds"
+        original_a = str(dataset / "source=A" / "a.parquet")
+        _write_partitioned(
+            str(dataset),
+            {
+                "source=A": [
+                    (
+                        "a.parquet",
+                        pa.table({"id": [1, 1], "region": ["US", "US"]}),
+                    )
+                ]
+            },
+        )
+        import fsspeckit.core.maintenance as maintenance
+
+        monkeypatch.setattr(
+            maintenance,
+            "_validate_staged_output",
+            lambda *_args: ValidationOutcome(
+                succeeded=False, expected_row_count=1, error="injected validation failure"
+            ),
+        )
+        result, _ = self._execute(dataset, key_columns=["id"])
+
+        assert not result.succeeded
+        assert result.validation is not None and not result.validation.succeeded
+        # Original source file untouched.
+        assert self._read_file(original_a).num_rows == 2
+        assert not os.path.exists(os.path.join(str(dataset), "region=US"))
+
+    # ---------------------------------------------------------- #
+    # AC3: source drift aborts before publication
+    # ---------------------------------------------------------- #
+
+    def test_source_drift_aborts_before_publication(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "": [
+                    (
+                        "a.parquet",
+                        pa.table({"id": [1, 1], "region": ["US", "US"]}),
+                    )
+                ]
+            },
+        )
+        plan = self._plan(dataset, key_columns=["id"])
+        source = plan.source_snapshot.files[0].absolute_path
+        pq.write_table(
+            pa.table({"id": [1, 1, 2], "region": ["US", "US", "DE"]}),
+            source,
+        )
+
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        result = coordinator.execute(plan)
+
+        assert not result.succeeded
+        assert any(
+            phase.phase == "drift_check" and not phase.succeeded
+            for phase in result.phase_outcomes
+        )
+        assert _list_parquet(str(dataset)) == [source]
+        assert not os.path.exists(os.path.join(str(dataset), "region=US"))
+
+    # ---------------------------------------------------------- #
+    # AC3: publish failure rolls back every swapped subtree
+    # ---------------------------------------------------------- #
+
+    def test_publish_failure_rolls_back_source_files(self, tmp_path, monkeypatch):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "": [
+                    (
+                        "a.parquet",
+                        pa.table(
+                            {
+                                "id": [1, 2, 3],
+                                "region": ["US", "DE", "US"],
+                            }
+                        ),
+                    )
+                ]
+            },
+        )
+        original_file = _list_parquet(str(dataset))[0]
+
+        import fsspeckit.core.maintenance as maintenance
+
+        real_rename = maintenance.os.rename
+        us_prefix = os.path.join(str(dataset), "region=US")
+        injected = {"done": False}
+
+        def fail_on_us_publish(src, dst):
+            if not injected["done"] and str(dst).startswith(us_prefix):
+                injected["done"] = True
+                raise OSError("injected global dedup publish failure")
+            real_rename(src, dst)
+
+        monkeypatch.setattr(maintenance.os, "rename", fail_on_us_publish)
+        result, _ = self._execute(dataset, key_columns=["id"])
+
+        assert not result.succeeded
+        assert result.publication is not None and not result.publication.succeeded
+        # Source file restored.
+        assert _list_parquet(str(dataset)) == [original_file]
+        # No destination partition output files leaked (empty dir may remain).
+        assert _partition_files(str(dataset), "region=US") == []
+        assert result.recovery is not None and result.recovery.recovered
+
+    def test_rollback_failure_is_reported_as_unrecovered(self, tmp_path, monkeypatch):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "": [
+                    (
+                        "a.parquet",
+                        pa.table(
+                            {
+                                "id": [1, 2, 3],
+                                "region": ["US", "DE", "US"],
+                            }
+                        ),
+                    )
+                ]
+            },
+        )
+
+        import fsspeckit.core.maintenance as maintenance
+
+        real_rename = maintenance.os.rename
+        us_prefix = os.path.join(str(dataset), "region=US")
+        injected = {"publish": False, "rollback": False}
+
+        def fail_publish_and_rollback(src, dst):
+            src_text = str(src)
+            dst_text = str(dst)
+            if (
+                not injected["publish"]
+                and dst_text.startswith(us_prefix)
+                and "staged" in src_text
+            ):
+                injected["publish"] = True
+                raise OSError("injected publish failure")
+            if (
+                injected["publish"]
+                and not injected["rollback"]
+                and "backup" in src_text
+            ):
+                injected["rollback"] = True
+                raise OSError("injected rollback failure")
+            real_rename(src, dst)
+
+        monkeypatch.setattr(maintenance.os, "rename", fail_publish_and_rollback)
+        result, _ = self._execute(dataset, key_columns=["id"])
+
+        assert not result.succeeded
+        assert result.recovery is not None
+        assert not result.recovery.recovered
+        assert result.recovery.error is not None
+        assert "restore" in result.recovery.error
+        assert result.recovery.workspace_path is not None
+
+    # ---------------------------------------------------------- #
+    # Cleanup behavior
+    # ---------------------------------------------------------- #
+
+    def test_workspace_cleaned_up_on_success(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {"": [("a.parquet", pa.table({"id": [1, 2], "region": ["US", "DE"]}))]},
+        )
+        result, _ = self._execute(dataset, key_columns=["id"])
+
+        assert result.succeeded, result.error
+        assert result.recovery is not None and result.recovery.workspace_path is None
+
+    def test_cleanup_failure_reports_retained_backups(self, tmp_path, monkeypatch):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {"": [("a.parquet", pa.table({"id": [1, 2], "region": ["US", "DE"]}))]},
+        )
+        import shutil
+
+        real_rmtree = shutil.rmtree
+
+        def fail_cleanup(_path):
+            raise OSError("injected cleanup failure")
+
+        monkeypatch.setattr(shutil, "rmtree", fail_cleanup)
+        result, _ = self._execute(dataset, key_columns=["id"])
+
+        assert result.succeeded
+        assert result.recovery is not None
+        assert result.recovery.workspace_path is not None
+        assert result.recovery.backup_paths
+        assert all(os.path.exists(path) for path in result.recovery.backup_paths)
+        assert any(
+            phase.phase == "cleanup" and not phase.succeeded
+            for phase in result.phase_outcomes
+        )
+        monkeypatch.setattr(shutil, "rmtree", real_rmtree)
+        real_rmtree(result.recovery.workspace_path)
+
+    # ---------------------------------------------------------- #
+    # Metadata conflict invalidates plan
+    # ---------------------------------------------------------- #
+
+    def test_metadata_conflict_invalidates_plan(self, tmp_path):
+        dataset = tmp_path / "ds"
+        dataset.mkdir()
+        first = pa.table({"id": [1], "region": ["US"]}).replace_schema_metadata(
+            {b"source": b"first"}
+        )
+        second = pa.table({"id": [2], "region": ["DE"]}).replace_schema_metadata(
+            {b"source": b"second"}
+        )
+        pq.write_table(first, dataset / "a.parquet")
+        pq.write_table(second, dataset / "b.parquet")
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+
+        with pytest.raises(ValueError, match="Schema reconciliation required"):
+            coordinator.plan_global_repartition_deduplication(
+                str(dataset), ["region"], filesystem=fs, key_columns=["id"]
+            )
+
+
+    # ---------------------------------------------------------- #
+    # Null partition values map to Hive default partition
+    # ---------------------------------------------------------- #
+
+    def test_null_partition_value_uses_hive_default_partition(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "": [
+                    (
+                        "a.parquet",
+                        pa.table(
+                            {
+                                "id": [1, 2],
+                                "region": ["US", None],
+                            }
+                        ),
+                    )
+                ]
+            },
+        )
+        result, _ = self._execute(dataset, key_columns=["id"])
+
+        assert result.succeeded, result.error
+        assert _partition_files(str(dataset), "region=US")
+        assert _partition_files(str(dataset), "region=__HIVE_DEFAULT_PARTITION__")
