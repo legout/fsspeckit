@@ -6,7 +6,6 @@ for processing high-cardinality datasets efficiently.
 """
 
 import random
-import string
 import time
 import os
 import sys
@@ -102,7 +101,7 @@ def process_clickstream_with_deduplication(table, tracker):
         try:
             process = psutil.Process(os.getpid())
             start_memory = process.memory_info().rss
-        except:
+        except Exception:
             pass
 
     unique_sessions = []
@@ -161,7 +160,7 @@ def process_clickstream_with_deduplication(table, tracker):
         try:
             process = psutil.Process(os.getpid())
             end_memory = process.memory_info().rss
-        except:
+        except Exception:
             pass
 
     # Create result table

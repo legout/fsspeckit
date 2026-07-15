@@ -6,24 +6,21 @@ and integrating with fsspec filesystems.
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import duckdb
-    from fsspeckit.storage_options.base import BaseStorageOptions
+
 
 from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
 
 from fsspeckit.common.logging import get_logger
-from fsspeckit.common.optional import _DUCKDB_AVAILABLE
 from fsspeckit.datasets.duckdb.exceptions import (
     ConnectionException,
     IOException,
     OperationalError,
 )
-from fsspeckit.datasets.duckdb.helpers import _unregister_duckdb_table_safely
 
 logger = get_logger(__name__)
 
@@ -126,7 +123,7 @@ class DuckDBConnection:
             finally:
                 self._connection = None
 
-    def __enter__(self) -> "DuckDBConnection":
+    def __enter__(self) -> DuckDBConnection:
         """Enter context manager.
 
         Returns:
@@ -136,9 +133,9 @@ class DuckDBConnection:
 
     def __exit__(
         self,
-        exc_type: Any,
-        exc_val: Any,
-        exc_tb: Any,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: Any,
     ) -> None:
         """Exit context manager and close connection."""
         self.close()

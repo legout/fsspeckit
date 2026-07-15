@@ -9,17 +9,15 @@ including:
 """
 
 import importlib.metadata
+from contextlib import suppress
 
-try:
+__version__ = "0.5.0-dev"
+with suppress(importlib.metadata.PackageNotFoundError):
     __version__ = importlib.metadata.version("fsspeckit")
-except importlib.metadata.PackageNotFoundError:
-    __version__ = "0.5.0-dev"
-except Exception:
-    # Fallback for any other import issues during development
-    __version__ = "0.5.0-dev"
+from fsspec import AbstractFileSystem
 
-
-from .core import AbstractFileSystem, DirFileSystem, filesystem, get_filesystem
+from .common.logging import setup_logging
+from .core import DirFileSystem, filesystem, get_filesystem
 from .storage_options import (
     AwsStorageOptions,
     AzureStorageOptions,
@@ -30,7 +28,6 @@ from .storage_options import (
     LocalStorageOptions,
     StorageOptions,
 )
-from .common.logging import setup_logging
 
 # Configure logging when package is imported
 # setup_logging()
@@ -48,4 +45,5 @@ __all__ = [
     "GitLabStorageOptions",
     "LocalStorageOptions",
     "StorageOptions",
+    "setup_logging",
 ]

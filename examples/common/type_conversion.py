@@ -43,7 +43,6 @@ except ImportError:
     POLARS_AVAILABLE = False
     pl = None
 
-from fsspeckit.datasets.types import to_pyarrow_table, dict_to_dataframe
 
 
 def create_sample_data() -> pa.Table:
@@ -105,13 +104,13 @@ def demonstrate_basic_pyarrow_conversions():
         print(f"  {field.name}: {field.type}")
 
     # Basic conversions and transformations
-    print(f"\n📊 Table Information:")
+    print("\n📊 Table Information:")
     print(f"  Rows: {len(data):,}")
     print(f"  Columns: {len(data.schema)}")
     print(f"  Memory usage: {data.nbytes / 1024 / 1024:.2f} MB")
 
     # Type conversions within PyArrow
-    print(f"\n🔄 Type Conversions:")
+    print("\n🔄 Type Conversions:")
 
     # Convert price to float32 for memory efficiency
     price_col = data.column("price")
@@ -135,7 +134,7 @@ def demonstrate_basic_pyarrow_conversions():
         quantity_min, quantity_max = 0, 255
 
     if quantity_min >= 0 and quantity_max <= 255:
-        quantity_uint8 = quantity_col.cast(pa.uint8())
+        _quantity_uint8 = quantity_col.cast(pa.uint8())
         print(
             f"  Quantity: {quantity_col.type} -> uint8 (range: {quantity_min}-{quantity_max})"
         )
@@ -167,7 +166,7 @@ def demonstrate_basic_pyarrow_conversions():
         optimized_table = data.cast(optimized_schema)
         memory_reduction = (data.nbytes - optimized_table.nbytes) / data.nbytes * 100
 
-        print(f"\n💾 Memory Optimization:")
+        print("\n💾 Memory Optimization:")
         print(f"  Original:  {data.nbytes / 1024 / 1024:.2f} MB")
         print(f"  Optimized: {optimized_table.nbytes / 1024 / 1024:.2f} MB")
         print(f"  Reduction: {memory_reduction:.1f}%")
@@ -206,14 +205,14 @@ def demonstrate_pandas_conversion():
         )
 
         # Show data types comparison
-        print(f"\n📋 Data Type Comparison:")
+        print("\n📋 Data Type Comparison:")
         print("  PyArrow -> Pandas")
         for field in arrow_table.schema:
             pandas_dtype = str(pandas_df[field.name].dtype)
             print(f"  {field.name}: {field.type} -> {pandas_dtype}")
 
         # Demonstrate pandas-specific optimizations
-        print(f"\n⚡ Pandas Optimizations:")
+        print("\n⚡ Pandas Optimizations:")
 
         # Convert categorical columns
         categorical_cols = ["category", "brand"]
@@ -235,7 +234,7 @@ def demonstrate_pandas_conversion():
         optimized_memory = pandas_df.memory_usage(deep=True).sum()
         savings = (original_memory - optimized_memory) / original_memory * 100
 
-        print(f"\n💾 Memory Comparison:")
+        print("\n💾 Memory Comparison:")
         print(f"  PyArrow: {original_memory / 1024 / 1024:.2f} MB")
         print(f"  Pandas:   {optimized_memory / 1024 / 1024:.2f} MB")
         print(f"  Savings:  {savings:.1f}%")
@@ -272,7 +271,7 @@ def demonstrate_polars_conversion():
         print(f"  Estimated memory: {polars_df.estimated_size('mb'):.2f} MB")
 
         # Show data types comparison
-        print(f"\n📋 Data Type Comparison:")
+        print("\n📋 Data Type Comparison:")
         print("  PyArrow -> Polars")
         for field in arrow_table.schema:
             if field.name in polars_df.columns:
@@ -280,7 +279,7 @@ def demonstrate_polars_conversion():
                 print(f"  {field.name}: {field.type} -> {polars_dtype}")
 
         # Demonstrate Polars-specific optimizations
-        print(f"\n⚡ Polars Optimizations:")
+        print("\n⚡ Polars Optimizations:")
 
         # Convert to categorical
         categorical_cols = ["category", "brand"]
@@ -303,7 +302,7 @@ def demonstrate_polars_conversion():
         arrow_memory = arrow_table.nbytes / 1024 / 1024
         polars_memory = polars_df.estimated_size("mb")
 
-        print(f"\n💾 Memory Comparison:")
+        print("\n💾 Memory Comparison:")
         print(f"  PyArrow: {arrow_memory:.2f} MB")
         print(f"  Polars:   {polars_memory:.2f} MB")
         print(f"  Ratio:    {arrow_memory / polars_memory:.2f}x")
@@ -349,7 +348,7 @@ def demonstrate_cross_format_operations():
             print(f"✅ CSV read: {len(arrow_from_csv)} rows")
 
             # Compare results
-            print(f"\n📊 Format Comparison:")
+            print("\n📊 Format Comparison:")
             print(f"  Original Arrow: {len(arrow_table)} rows")
             print(f"  From Parquet:   {len(arrow_from_parquet)} rows")
             print(f"  From CSV:       {len(arrow_from_csv)} rows")
@@ -366,7 +365,7 @@ def demonstrate_cross_format_operations():
             parquet_size = parquet_path.stat().st_size
             csv_size = csv_path.stat().st_size
 
-            print(f"\n💾 File Size Comparison:")
+            print("\n💾 File Size Comparison:")
             print(f"  Parquet: {parquet_size / 1024:.1f} KB")
             print(f"  CSV:     {csv_size / 1024:.1f} KB")
             print(f"  Ratio:   {csv_size / parquet_size:.1f}x")
@@ -409,7 +408,7 @@ def demonstrate_type_safe_conversions():
         try:
             # Try direct conversion first
             return column.cast(pa.int64())
-        except:
+        except Exception:
             # Fall back to string parsing
             results = []
             for val in column.to_pylist():
@@ -420,7 +419,7 @@ def demonstrate_type_safe_conversions():
                         results.append(int(val) if val.isdigit() else default_value)
                     else:
                         results.append(int(val))
-                except:
+                except (TypeError, ValueError):
                     results.append(default_value)
             return pa.array(results, type=pa.int64())
 
@@ -428,7 +427,7 @@ def demonstrate_type_safe_conversions():
         """Safely convert array to floats."""
         try:
             return column.cast(pa.float64())
-        except:
+        except Exception:
             results = []
             for val in column.to_pylist():
                 try:
@@ -442,7 +441,7 @@ def demonstrate_type_safe_conversions():
                         )
                     else:
                         results.append(float(val))
-                except:
+                except (TypeError, ValueError):
                     results.append(default_value)
             return pa.array(results, type=pa.float64())
 
@@ -450,7 +449,7 @@ def demonstrate_type_safe_conversions():
         """Safely convert array to booleans."""
         try:
             return column.cast(pa.bool_())
-        except:
+        except Exception:
             results = []
             for val in column.to_pylist():
                 if val is None:
@@ -468,7 +467,7 @@ def demonstrate_type_safe_conversions():
             return pa.array(results, type=pa.bool_())
 
     # Apply safe conversions
-    print(f"\n🔄 Safe Conversions:")
+    print("\n🔄 Safe Conversions:")
 
     try:
         # Convert mixed numbers
@@ -518,7 +517,7 @@ def demonstrate_memory_efficient_conversions():
     print(f"Large dataset: {len(large_data):,} rows, {original_memory:.2f} MB")
 
     # Strategy 1: Column projection
-    print(f"\n1. Column Projection:")
+    print("\n1. Column Projection:")
     projected = large_data.select(["id", "value"])
     projected_memory = projected.nbytes / 1024 / 1024
     reduction = (1 - projected_memory / original_memory) * 100
@@ -527,7 +526,7 @@ def demonstrate_memory_efficient_conversions():
     )
 
     # Strategy 2: Row filtering before conversion
-    print(f"\n2. Early Filtering:")
+    print("\n2. Early Filtering:")
     filtered = large_data.filter(pc.greater(large_data.column("value"), 25000))
     filtered_memory = filtered.nbytes / 1024 / 1024
     reduction = (1 - filtered_memory / original_memory) * 100
@@ -537,7 +536,7 @@ def demonstrate_memory_efficient_conversions():
 
     # Strategy 3: Type optimization before pandas conversion
     if PANDAS_AVAILABLE:
-        print(f"\n3. Optimized Pandas Conversion:")
+        print("\n3. Optimized Pandas Conversion:")
 
         # Convert with PyArrow optimizations first
         optimized_arrow = large_data.cast(
@@ -565,7 +564,7 @@ def demonstrate_memory_efficient_conversions():
         )
 
     # Strategy 4: Chunked processing
-    print(f"\n4. Chunked Processing:")
+    print("\n4. Chunked Processing:")
     chunk_size = 10000
     processed_chunks = []
 
@@ -589,9 +588,9 @@ def main():
 
     try:
         # Run all conversion demonstrations
-        optimized_arrow = demonstrate_basic_pyarrow_conversions()
-        pandas_df = demonstrate_pandas_conversion()
-        polars_df = demonstrate_polars_conversion()
+        _ = demonstrate_basic_pyarrow_conversions()
+        _ = demonstrate_pandas_conversion()
+        _ = demonstrate_polars_conversion()
         demonstrate_cross_format_operations()
         demonstrate_type_safe_conversions()
         demonstrate_memory_efficient_conversions()
