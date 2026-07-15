@@ -13,13 +13,14 @@ from __future__ import annotations
 
 import os
 import posixpath
-from typing import Any
+from typing import Any, cast
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
 from fsspeckit.core.maintenance import (
+    CoordinatedOptimizationResult,
     DatasetMaintenanceCoordinator,
     GuaranteeLevel,
     LockAcquisitionError,
@@ -76,9 +77,7 @@ class TestAtomicLocalCompactionHappyPath:
 
         fs = __import__("fsspec").filesystem("file")
         coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
-        plan = coordinator.plan_compaction(
-            str(tmp_path), fs, target_rows_per_file=100
-        )
+        plan = coordinator.plan_compaction(str(tmp_path), fs, target_rows_per_file=100)
 
         result = coordinator.execute(plan)
 
@@ -105,9 +104,7 @@ class TestAtomicLocalCompactionHappyPath:
 
         fs = __import__("fsspec").filesystem("file")
         coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
-        plan = coordinator.plan_compaction(
-            str(tmp_path), fs, target_rows_per_file=7
-        )
+        plan = coordinator.plan_compaction(str(tmp_path), fs, target_rows_per_file=7)
 
         result = coordinator.execute(plan)
 
@@ -144,9 +141,7 @@ class TestAtomicLocalCompactionHappyPath:
         assert "publish" in phase_names
         assert "cleanup" in phase_names
         for outcome in result.phase_outcomes:
-            assert outcome.succeeded, (
-                f"Phase {outcome.phase!r} failed: {outcome.error}"
-            )
+            assert outcome.succeeded, f"Phase {outcome.phase!r} failed: {outcome.error}"
 
     def test_validation_outcome_populated(self, tmp_path):
         """The validation field is populated with correct row counts."""
@@ -238,9 +233,7 @@ class TestAtomicLocalCompactionHappyPath:
 
         fs = __import__("fsspec").filesystem("file")
         coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
-        plan = coordinator.plan_compaction(
-            str(tmp_path), fs, target_rows_per_file=200
-        )
+        plan = coordinator.plan_compaction(str(tmp_path), fs, target_rows_per_file=200)
 
         # If no groups, execute should still return a valid result.
         result = coordinator.execute(plan)
@@ -528,7 +521,11 @@ class TestAtomicLocalCompactionFailureInjection:
         finally:
             _shutil.rmtree = original_rmtree
             # Clean up the leftover workspace if it's still there
-            if result is not None and result.recovery and result.recovery.workspace_path:
+            if (
+                result is not None
+                and result.recovery
+                and result.recovery.workspace_path
+            ):
                 try:
                     original_rmtree(result.recovery.workspace_path, ignore_errors=True)
                 except Exception:
@@ -735,7 +732,6 @@ class TestCheckSourceDrift:
         assert "size changed" in error
 
 
-
 # --------------------------------------------------------------------------- #
 # Partition-subtree compaction (#38)
 # --------------------------------------------------------------------------- #
@@ -775,12 +771,18 @@ class TestPartitionSubtreeCompaction:
         _write_partitioned(
             str(dataset),
             {
-                "country=US/state=CA": [("p0.parquet", table.slice(0, 5)),
-                                         ("p1.parquet", table.slice(5, 5))],
-                "country=US/state=NY": [("p0.parquet", table.slice(0, 5)),
-                                         ("p1.parquet", table.slice(5, 5))],
-                "country=DE/state=BY": [("p0.parquet", table.slice(0, 5)),
-                                         ("p1.parquet", table.slice(5, 5))],
+                "country=US/state=CA": [
+                    ("p0.parquet", table.slice(0, 5)),
+                    ("p1.parquet", table.slice(5, 5)),
+                ],
+                "country=US/state=NY": [
+                    ("p0.parquet", table.slice(0, 5)),
+                    ("p1.parquet", table.slice(5, 5)),
+                ],
+                "country=DE/state=BY": [
+                    ("p0.parquet", table.slice(0, 5)),
+                    ("p1.parquet", table.slice(5, 5)),
+                ],
             },
         )
 
@@ -805,6 +807,7 @@ class TestPartitionSubtreeCompaction:
         ny_rows = pa.concat_tables([_read_parquet(f) for f in ny_outputs]).num_rows
         assert ca_rows == 10
         assert ny_rows == 10
+        assert result.actual_metrics is not None
         assert result.actual_metrics.row_count == 20
 
     def test_unrelated_partition_files_remain_unchanged(self, tmp_path):
@@ -814,10 +817,14 @@ class TestPartitionSubtreeCompaction:
         _write_partitioned(
             str(dataset),
             {
-                "country=US/state=CA": [("p0.parquet", table.slice(0, 5)),
-                                         ("p1.parquet", table.slice(5, 5))],
-                "country=DE/state=BY": [("p0.parquet", table.slice(0, 5)),
-                                         ("p1.parquet", table.slice(5, 5))],
+                "country=US/state=CA": [
+                    ("p0.parquet", table.slice(0, 5)),
+                    ("p1.parquet", table.slice(5, 5)),
+                ],
+                "country=DE/state=BY": [
+                    ("p0.parquet", table.slice(0, 5)),
+                    ("p1.parquet", table.slice(5, 5)),
+                ],
             },
         )
 
@@ -843,7 +850,9 @@ class TestPartitionSubtreeCompaction:
         # The DE files were never part of the publication.
         assert result.publication is not None
         de_root = os.path.join(str(dataset), "country=DE")
-        assert not any(p.startswith(de_root) for p in result.publication.published_files)
+        assert not any(
+            p.startswith(de_root) for p in result.publication.published_files
+        )
         assert not any(
             p.startswith(de_root) for p in result.publication.removed_source_files
         )
@@ -862,15 +871,12 @@ class TestPartitionSubtreeCompaction:
         )
 
         original_paths = {
-            part: _partition_files(str(dataset), part)
-            for part in ("p=a", "p=b", "p=c")
+            part: _partition_files(str(dataset), part) for part in ("p=a", "p=b", "p=c")
         }
 
         fs = __import__("fsspec").filesystem("file")
         coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
-        plan = coordinator.plan_compaction(
-            str(dataset), fs, target_rows_per_file=100
-        )
+        plan = coordinator.plan_compaction(str(dataset), fs, target_rows_per_file=100)
         # Three partition-local groups -> three subtrees to swap.
         assert len(plan.compaction_groups) == 3
 
@@ -920,10 +926,26 @@ class TestPlanPartitionLocalCompactionGroups:
         """Files from different partitions never share a compaction group."""
         root = str(tmp_path)
         file_stats = [
-            {"path": os.path.join(root, "p=a", "f0.parquet"), "size_bytes": 10, "num_rows": 5},
-            {"path": os.path.join(root, "p=a", "f1.parquet"), "size_bytes": 10, "num_rows": 5},
-            {"path": os.path.join(root, "p=b", "f0.parquet"), "size_bytes": 10, "num_rows": 5},
-            {"path": os.path.join(root, "p=b", "f1.parquet"), "size_bytes": 10, "num_rows": 5},
+            {
+                "path": os.path.join(root, "p=a", "f0.parquet"),
+                "size_bytes": 10,
+                "num_rows": 5,
+            },
+            {
+                "path": os.path.join(root, "p=a", "f1.parquet"),
+                "size_bytes": 10,
+                "num_rows": 5,
+            },
+            {
+                "path": os.path.join(root, "p=b", "f0.parquet"),
+                "size_bytes": 10,
+                "num_rows": 5,
+            },
+            {
+                "path": os.path.join(root, "p=b", "f1.parquet"),
+                "size_bytes": 10,
+                "num_rows": 5,
+            },
         ]
 
         groups = _plan_partition_local_compaction_groups(file_stats, root, None, 100)
@@ -935,9 +957,7 @@ class TestPlanPartitionLocalCompactionGroups:
                 posixpath.dirname(posixpath.relpath(fi.path, root))
                 for fi in group.files
             }
-            assert len(part_dirs) == 1, (
-                f"Group mixes partitions: {part_dirs}"
-            )
+            assert len(part_dirs) == 1, f"Group mixes partitions: {part_dirs}"
 
     def test_flat_dataset_behaves_like_flat_planning(self, tmp_path):
         """Flat datasets collapse to a single partition and plan identically."""
@@ -993,7 +1013,9 @@ class TestPublishAtomicLocalPartitionSubtrees:
         assert os.path.exists(os.path.join(str(dataset_dir), "p=a", "out_a.parquet"))
         assert os.path.exists(os.path.join(str(dataset_dir), "p=b", "out_b.parquet"))
 
-    def test_multisubtree_failure_restores_every_swapped_subtree(self, tmp_path, monkeypatch):
+    def test_multisubtree_failure_restores_every_swapped_subtree(
+        self, tmp_path, monkeypatch
+    ):
         """A failure in subtree 3 rolls back subtrees 1 and 2 as well."""
         staged_dir = tmp_path / "staged"
         backup_dir = tmp_path / "backup"
@@ -1042,9 +1064,9 @@ class TestPublishAtomicLocalPartitionSubtrees:
             )
         # No output file leaked into any partition.
         for part in ("p=a", "p=b", "p=c"):
-            assert not os.path.exists(os.path.join(str(dataset_dir), part, "out.parquet")), (
-                f"Output file leaked into {part!r}"
-            )
+            assert not os.path.exists(
+                os.path.join(str(dataset_dir), part, "out.parquet")
+            ), f"Output file leaked into {part!r}"
 
 
 # --------------------------------------------------------------------------- #
@@ -1063,17 +1085,28 @@ class TestAtomicLocalPartitionLocalDeduplication:
         )
         return coordinator.execute(plan), plan
 
-    def test_preserves_partition_tuples_and_deduplicates_all_source_files(self, tmp_path):
+    def test_preserves_partition_tuples_and_deduplicates_all_source_files(
+        self, tmp_path
+    ):
         dataset = tmp_path / "ds"
         _write_partitioned(
             str(dataset),
             {
                 "country=US": [
-                    ("a.parquet", pa.table({"id": [1, 1], "value": ["first", "second"]})),
-                    ("b.parquet", pa.table({"id": [1, 2], "value": ["third", "unique"]})),
+                    (
+                        "a.parquet",
+                        pa.table({"id": [1, 1], "value": ["first", "second"]}),
+                    ),
+                    (
+                        "b.parquet",
+                        pa.table({"id": [1, 2], "value": ["third", "unique"]}),
+                    ),
                 ],
                 "country=DE": [
-                    ("a.parquet", pa.table({"id": [1, 3], "value": ["de-one", "de-three"]})),
+                    (
+                        "a.parquet",
+                        pa.table({"id": [1, 3], "value": ["de-one", "de-three"]}),
+                    ),
                 ],
             },
         )
@@ -1087,12 +1120,16 @@ class TestAtomicLocalPartitionLocalDeduplication:
         de_files = _partition_files(str(dataset), "country=DE")
         assert len(us_files) == 1
         assert len(de_files) == 1
-        assert pa.concat_tables([_read_parquet(path) for path in us_files]).to_pydict() == {
+        assert pa.concat_tables(
+            [_read_parquet(path) for path in us_files]
+        ).to_pydict() == {
             "country": ["US", "US"],
             "id": [1, 2],
             "value": ["first", "unique"],
         }
-        assert pa.concat_tables([_read_parquet(path) for path in de_files]).to_pydict() == {
+        assert pa.concat_tables(
+            [_read_parquet(path) for path in de_files]
+        ).to_pydict() == {
             "country": ["DE", "DE"],
             "id": [1, 3],
             "value": ["de-one", "de-three"],
@@ -1181,7 +1218,10 @@ class TestAtomicLocalPartitionLocalDeduplication:
             str(dataset),
             {
                 "part=x": [
-                    ("a.parquet", pa.table({"id": list(range(5)), "payload": list("abcde")})),
+                    (
+                        "a.parquet",
+                        pa.table({"id": list(range(5)), "payload": list("abcde")}),
+                    ),
                 ]
             },
         )
@@ -1218,7 +1258,11 @@ class TestAtomicLocalPartitionLocalDeduplication:
         dataset = tmp_path / "ds"
         _write_partitioned(
             str(dataset),
-            {"part=x": [("a.parquet", pa.table({"id": [1, 1], "payload": ["a", "b"]}))]},
+            {
+                "part=x": [
+                    ("a.parquet", pa.table({"id": [1, 1], "payload": ["a", "b"]}))
+                ]
+            },
         )
         import shutil
 
@@ -1279,9 +1323,7 @@ class TestAtomicLocalPartitionLocalDeduplication:
             part: _partition_files(str(dataset), part)[0]
             for part in ("part=a", "part=b")
         }
-        import fsspeckit.core.maintenance as maintenance
-
-        real_rename = maintenance.os.rename
+        real_rename = os.rename
         b_prefix = os.path.join(str(dataset), "part=b")
         injected = {"done": False}
 
@@ -1291,7 +1333,7 @@ class TestAtomicLocalPartitionLocalDeduplication:
                 raise OSError("injected local dedup publish failure")
             real_rename(src, dst)
 
-        monkeypatch.setattr(maintenance.os, "rename", fail_on_b)
+        monkeypatch.setattr(os, "rename", fail_on_b)
         result, _ = self._execute(dataset)
 
         assert not result.succeeded
@@ -1300,7 +1342,7 @@ class TestAtomicLocalPartitionLocalDeduplication:
         assert _partition_files(str(dataset), "part=b") == [original["part=b"]]
         assert all(
             not os.path.basename(path).startswith("deduplicated_")
-            for part in ("part=a", "part=b")
+            for part in ["part=a", "part=b"]
             for path in _partition_files(str(dataset), part)
         )
         assert result.recovery is not None and result.recovery.recovered
@@ -1318,9 +1360,7 @@ class TestAtomicLocalPartitionLocalDeduplication:
                 ],
             },
         )
-        import fsspeckit.core.maintenance as maintenance
-
-        real_rename = maintenance.os.rename
+        real_rename = os.rename
         b_prefix = os.path.join(str(dataset), "part=b")
         injected = {"publish": False, "rollback": False}
 
@@ -1344,7 +1384,7 @@ class TestAtomicLocalPartitionLocalDeduplication:
                 raise OSError("injected rollback failure")
             real_rename(src, dst)
 
-        monkeypatch.setattr(maintenance.os, "rename", fail_publish_and_rollback)
+        monkeypatch.setattr(os, "rename", fail_publish_and_rollback)
         result, _ = self._execute(dataset)
 
         assert not result.succeeded
@@ -1356,7 +1396,7 @@ class TestAtomicLocalPartitionLocalDeduplication:
         assert workspace is not None
         backup_b = os.path.join(workspace, "backup", "part=b", "b.parquet")
         backup_a = os.path.join(workspace, "backup", "part=a", "a.parquet")
-        assert result.recovery.backup_paths == (backup_b,)
+        assert list(result.recovery.backup_paths) == [backup_b]
         assert os.path.exists(backup_b)
         assert not os.path.exists(backup_a)
 
@@ -1364,7 +1404,11 @@ class TestAtomicLocalPartitionLocalDeduplication:
         dataset = tmp_path / "ds"
         _write_partitioned(
             str(dataset),
-            {"part=x": [("a.parquet", pa.table({"id": [1, 1], "payload": ["a", "b"]}))]},
+            {
+                "part=x": [
+                    ("a.parquet", pa.table({"id": [1, 1], "payload": ["a", "b"]}))
+                ]
+            },
         )
         fs = __import__("fsspec").filesystem("file")
         coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
@@ -1390,7 +1434,11 @@ class TestAtomicLocalPartitionLocalDeduplication:
         dataset = tmp_path / "ds"
         _write_partitioned(
             str(dataset),
-            {"part=x": [("a.parquet", pa.table({"id": [1, 1], "payload": ["a", "b"]}))]},
+            {
+                "part=x": [
+                    ("a.parquet", pa.table({"id": [1, 1], "payload": ["a", "b"]}))
+                ]
+            },
         )
         import fsspeckit.core.maintenance as maintenance
 
@@ -1398,7 +1446,9 @@ class TestAtomicLocalPartitionLocalDeduplication:
             maintenance,
             "_validate_staged_output",
             lambda *_args: ValidationOutcome(
-                succeeded=False, expected_row_count=1, error="injected validation failure"
+                succeeded=False,
+                expected_row_count=1,
+                error="injected validation failure",
             ),
         )
         result, _ = self._execute(dataset)
@@ -1580,6 +1630,7 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
 
         assert result.succeeded, result.error
         # Three unique keys survive global dedup, in two destination partitions.
+        assert result.actual_metrics is not None
         assert result.actual_metrics.row_count == 3
         assert _partition_files(str(dataset), "region=US")
         assert _partition_files(str(dataset), "region=DE")
@@ -1602,7 +1653,13 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
                                 "id": [None, None, "Value", "value", "1"],
                                 "region": ["X", "X", "X", "X", "X"],
                                 "measure": [float("nan"), float("nan"), 1.0, 1.0, 1.0],
-                                "payload": ["null-a", "null-b", "upper", "lower", "num"],
+                                "payload": [
+                                    "null-a",
+                                    "null-b",
+                                    "upper",
+                                    "lower",
+                                    "num",
+                                ],
                             }
                         ),
                     )
@@ -1621,7 +1678,9 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
         result = coordinator.execute(plan)
 
         assert result.succeeded, result.error
-        output = self._read_file(_partition_files(str(dataset), "region=X")[0]).to_pydict()
+        output = self._read_file(
+            _partition_files(str(dataset), "region=X")[0]
+        ).to_pydict()
         # null==null (2 collapsed to first), "Value"!="value", 1 != True
         assert output["payload"] == ["null-a", "upper", "lower", "num"]
 
@@ -1650,7 +1709,9 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
         )
 
         assert result.succeeded, result.error
-        output = self._read_file(_partition_files(str(dataset), "region=X")[0]).to_pydict()
+        output = self._read_file(
+            _partition_files(str(dataset), "region=X")[0]
+        ).to_pydict()
         assert output["payload"] == ["low", "first"]
 
     # ---------------------------------------------------------- #
@@ -1681,6 +1742,7 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
         files = _partition_files(str(dataset), "region=X")
         assert len(files) == 3
         assert all(self._read_file(f).num_rows <= 2 for f in files)
+        assert result.actual_metrics is not None
         assert result.actual_metrics.row_count == 5
 
     # ---------------------------------------------------------- #
@@ -1733,7 +1795,9 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
             maintenance,
             "_validate_staged_output",
             lambda *_args: ValidationOutcome(
-                succeeded=False, expected_row_count=1, error="injected validation failure"
+                succeeded=False,
+                expected_row_count=1,
+                error="injected validation failure",
             ),
         )
         result, _ = self._execute(dataset, key_columns=["id"])
@@ -1803,9 +1867,7 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
         )
         original_file = _list_parquet(str(dataset))[0]
 
-        import fsspeckit.core.maintenance as maintenance
-
-        real_rename = maintenance.os.rename
+        real_rename = os.rename
         us_prefix = os.path.join(str(dataset), "region=US")
         injected = {"done": False}
 
@@ -1815,7 +1877,7 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
                 raise OSError("injected global dedup publish failure")
             real_rename(src, dst)
 
-        monkeypatch.setattr(maintenance.os, "rename", fail_on_us_publish)
+        monkeypatch.setattr(os, "rename", fail_on_us_publish)
         result, _ = self._execute(dataset, key_columns=["id"])
 
         assert not result.succeeded
@@ -1845,9 +1907,7 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
             },
         )
 
-        import fsspeckit.core.maintenance as maintenance
-
-        real_rename = maintenance.os.rename
+        real_rename = os.rename
         us_prefix = os.path.join(str(dataset), "region=US")
         injected = {"publish": False, "rollback": False}
 
@@ -1870,7 +1930,7 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
                 raise OSError("injected rollback failure")
             real_rename(src, dst)
 
-        monkeypatch.setattr(maintenance.os, "rename", fail_publish_and_rollback)
+        monkeypatch.setattr(os, "rename", fail_publish_and_rollback)
         result, _ = self._execute(dataset, key_columns=["id"])
 
         assert not result.succeeded
@@ -1946,7 +2006,6 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
                 str(dataset), ["region"], filesystem=fs, key_columns=["id"]
             )
 
-
     # ---------------------------------------------------------- #
     # Null partition values map to Hive default partition
     # ---------------------------------------------------------- #
@@ -1974,3 +2033,129 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
         assert result.succeeded, result.error
         assert _partition_files(str(dataset), "region=US")
         assert _partition_files(str(dataset), "region=__HIVE_DEFAULT_PARTITION__")
+
+
+class TestAtomicLocalCoordinatedOptimization:
+    """Local optimization publishes deduplication and compaction atomically."""
+
+    @staticmethod
+    def _execute(dataset, **kwargs):
+        filesystem = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_coordinated_optimization(
+            str(dataset), filesystem, **kwargs
+        )
+        return cast(CoordinatedOptimizationResult, coordinator.execute(plan)), plan
+
+    def test_dedup_and_compaction_report_separate_actual_phases(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "country=US": [
+                    ("a.parquet", pa.table({"id": [1, 1], "value": ["a", "b"]})),
+                    ("b.parquet", pa.table({"id": [1, 2], "value": ["c", "d"]})),
+                ],
+                "country=DE": [
+                    ("a.parquet", pa.table({"id": [1, 2], "value": ["e", "f"]})),
+                ],
+            },
+        )
+
+        result, plan = self._execute(
+            dataset,
+            dedup_key_columns=["id"],
+            target_rows_per_file=1,
+            validation_level="full_distinct_key_scan",
+        )
+
+        assert result.succeeded, result.error
+        assert isinstance(result, CoordinatedOptimizationResult)
+        assert result.guarantee_level == GuaranteeLevel.ATOMIC_LOCAL
+        assert result.dedup_phase_executed
+        assert result.dedup_rows_removed == 2
+        assert [outcome.phase for outcome in result.phase_outcomes] == [
+            "stage",
+            "dedup",
+            "compaction",
+            "validate",
+            "lock",
+            "drift_check",
+            "publish",
+            "cleanup",
+        ]
+        assert all(outcome.succeeded for outcome in result.phase_outcomes)
+        assert result.validation is not None and result.validation.succeeded
+        assert result.actual_metrics is not None
+        assert result.actual_metrics.row_count == 4
+        assert len(_partition_files(str(dataset), "country=US")) == 2
+        assert len(_partition_files(str(dataset), "country=DE")) == 2
+        assert plan.dedup_key_columns is not None
+        assert list(plan.dedup_key_columns) == ["id"]
+
+    def test_compaction_only_skips_deduplication_without_repartitioning(self, tmp_path):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "country=US": [
+                    ("a.parquet", pa.table({"id": [1, 2], "value": ["a", "b"]})),
+                    ("b.parquet", pa.table({"id": [3, 4], "value": ["c", "d"]})),
+                ],
+                "country=DE": [
+                    ("a.parquet", pa.table({"id": [5, 6], "value": ["e", "f"]})),
+                ],
+            },
+        )
+
+        result, _ = self._execute(dataset, target_rows_per_file=10)
+
+        assert result.succeeded, result.error
+        assert not result.dedup_phase_executed
+        assert result.dedup_rows_removed is None
+        assert "dedup" not in [outcome.phase for outcome in result.phase_outcomes]
+        assert result.actual_metrics is not None
+        assert result.actual_metrics.row_count == 4
+        assert len(_partition_files(str(dataset), "country=US")) == 1
+        de_files = _partition_files(str(dataset), "country=DE")
+        assert len(de_files) == 1
+        assert _read_parquet(de_files[0]).to_pydict()["id"] == [5, 6]
+
+    def test_publish_failure_restores_all_partitions_before_returning(
+        self, tmp_path, monkeypatch
+    ):
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "part=a": [("a.parquet", pa.table({"id": [1, 1]}))],
+                "part=b": [("b.parquet", pa.table({"id": [2, 2]}))],
+            },
+        )
+        original = {
+            partition: _partition_files(str(dataset), partition)
+            for partition in ("part=a", "part=b")
+        }
+        real_rename = os.rename
+        destination_prefix = os.path.join(str(dataset), "part=b")
+        injected = False
+
+        def fail_second_partition_publish(source, destination):
+            nonlocal injected
+            if (
+                not injected
+                and str(source).find("staged") >= 0
+                and str(destination).startswith(destination_prefix)
+            ):
+                injected = True
+                raise OSError("injected optimization publish failure")
+            real_rename(source, destination)
+
+        monkeypatch.setattr(os, "rename", fail_second_partition_publish)
+        result, _ = self._execute(dataset, dedup_key_columns=["id"])
+
+        assert not result.succeeded
+        assert result.publication is not None and not result.publication.succeeded
+        assert result.recovery is not None and result.recovery.recovered
+        assert _partition_files(str(dataset), "part=a") == original["part=a"]
+        assert _partition_files(str(dataset), "part=b") == original["part=b"]
