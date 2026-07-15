@@ -169,7 +169,6 @@ class BaseDatasetHandler(ABC):
         """
         ...
 
-    @abstractmethod
     def compact_parquet_dataset(
         self,
         path: str,
@@ -197,7 +196,6 @@ class BaseDatasetHandler(ABC):
         """
         ...
 
-    @abstractmethod
     def optimize_parquet_dataset(
         self,
         path: str,

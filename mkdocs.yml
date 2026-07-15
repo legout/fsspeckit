@@ -58,6 +58,7 @@ nav:
       - Architecture: explanation/architecture.md
       - Migration:
           - Upgrade from the Pre-refactor Layout: migration/dataset-module-refactor.md
+          - Coordinator-backed Maintenance: migration/maintenance-api.md
           - Move Your Package Imports: migration/migrate-package-layout.md
   - Contributing: contributing.md
 

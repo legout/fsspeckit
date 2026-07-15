@@ -21,7 +21,6 @@ from .connection import (
 from .dataset import (
     DuckDBDatasetIO,
     collect_dataset_stats_duckdb,
-    compact_parquet_dataset_duckdb,
 )
 
 # Re-export helpers
@@ -37,6 +36,5 @@ __all__ = [
     "DuckDBDatasetIO",
     # Dataset operations
     "collect_dataset_stats_duckdb",
-    "compact_parquet_dataset_duckdb",
     "MergeStrategy",
 ]

@@ -11,7 +11,6 @@ This package contains focused submodules for different file formats and operatio
 All public APIs are re-exported here for convenient access.
 """
 
-
 # Import the registration layer to attach methods to AbstractFileSystem
 # This must happen after all imports
 from . import register  # noqa: F401
@@ -26,6 +25,15 @@ from .csv import (
 
 # Dataset helpers
 from .dataset import (
+    compact_parquet_dataset,
+    deduplicate_and_repartition_parquet_dataset,
+    deduplicate_parquet_dataset,
+    execute_maintenance_plan,
+    optimize_parquet_dataset,
+    plan_parquet_compaction,
+    plan_parquet_global_repartition_deduplication,
+    plan_parquet_optimization,
+    plan_parquet_partition_local_deduplication,
     pyarrow_dataset,
     pyarrow_parquet_dataset,
 )
@@ -67,6 +75,16 @@ __all__ = [
     # Dataset helpers
     "pyarrow_dataset",
     "pyarrow_parquet_dataset",
+    # Coordinator-backed maintenance façade
+    "plan_parquet_compaction",
+    "plan_parquet_partition_local_deduplication",
+    "plan_parquet_global_repartition_deduplication",
+    "plan_parquet_optimization",
+    "execute_maintenance_plan",
+    "compact_parquet_dataset",
+    "deduplicate_parquet_dataset",
+    "deduplicate_and_repartition_parquet_dataset",
+    "optimize_parquet_dataset",
     # Universal I/O
     "read_files",
     "write_file",

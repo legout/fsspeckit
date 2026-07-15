@@ -59,17 +59,11 @@ or be removed without notice.
 | `from fsspeckit.core.merge import execute_merge_by_strategy` | [api/fsspeckit.core.merge.md](../api/fsspeckit.core.merge.md) | - | Stable |
 | `from fsspeckit.core.merge import build_merge_statistics` | [api/fsspeckit.core.merge.md](../api/fsspeckit.core.merge.md) | - | Stable |
 | `from fsspeckit.core.merge import handle_file_io_error_conservative` | [api/fsspeckit.core.merge.md](../api/fsspeckit.core.merge.md) | - | Stable |
-| `from fsspeckit.core.maintenance import FileInfo` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
-| `from fsspeckit.core.maintenance import MaintenanceStats` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
-| `from fsspeckit.core.maintenance import CompactionGroup` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
-| `from fsspeckit.core.maintenance import collect_dataset_stats` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
-| `from fsspeckit.core.maintenance import plan_compaction_groups` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
-| `from fsspeckit.core.maintenance import plan_optimize_groups` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
-| `from fsspeckit.core.maintenance import plan_deduplication_groups` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
-| `from fsspeckit.core.maintenance import validate_deduplication_inputs` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
-| `from fsspeckit.core.maintenance import prepare_deduplication_stats` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
-| `from fsspeckit.core.maintenance import execute_deduplication_template` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
-| `from fsspeckit.core.maintenance import execute_compaction_template` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
+| `from fsspeckit.core.maintenance import DatasetMaintenanceCoordinator` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
+| `from fsspeckit.core.maintenance import MaintenancePlan` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
+| `from fsspeckit.core.maintenance import MaintenanceResult` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
+| `from fsspeckit.core.maintenance import GuaranteeLevel` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
+| `from fsspeckit.core.maintenance import MaintenanceBackend` | [api/fsspeckit.core.maintenance.md](../api/fsspeckit.core.maintenance.md) | - | Stable |
 
 ## Datasets / backends
 
@@ -86,8 +80,6 @@ or be removed without notice.
 | `from fsspeckit.datasets import validate_dataset_path` | [api/fsspeckit.datasets.md](../api/fsspeckit.datasets.md) | - | Stable |
 | `from fsspeckit.datasets import PyarrowDatasetIO` | [api/fsspeckit.datasets.md](../api/fsspeckit.datasets.md) | datasets | Stable |
 | `from fsspeckit.datasets import collect_dataset_stats_pyarrow` | [api/fsspeckit.datasets.md](../api/fsspeckit.datasets.md) | datasets | Stable |
-| `from fsspeckit.datasets import compact_parquet_dataset_pyarrow` | [api/fsspeckit.datasets.md](../api/fsspeckit.datasets.md) | datasets | Stable |
-| `from fsspeckit.datasets import optimize_parquet_dataset_pyarrow` | [api/fsspeckit.datasets.md](../api/fsspeckit.datasets.md) | datasets | Stable |
 | `from fsspeckit.datasets import cast_schema` | [api/fsspeckit.datasets.md](../api/fsspeckit.datasets.md) | datasets | Stable |
 | `from fsspeckit.datasets import convert_large_types_to_normal` | [api/fsspeckit.datasets.md](../api/fsspeckit.datasets.md) | datasets | Stable |
 | `from fsspeckit.datasets import opt_dtype_pa` | [api/fsspeckit.datasets.md](../api/fsspeckit.datasets.md) | datasets | Stable |
@@ -98,12 +90,9 @@ or be removed without notice.
 | `from fsspeckit.datasets.duckdb import create_duckdb_connection` | [api/fsspeckit.datasets.duckdb.md](../api/fsspeckit.datasets.duckdb.md) | datasets | Stable |
 | `from fsspeckit.datasets.duckdb import DuckDBDatasetIO` | [api/fsspeckit.datasets.duckdb.md](../api/fsspeckit.datasets.duckdb.md) | datasets | Stable |
 | `from fsspeckit.datasets.duckdb import collect_dataset_stats_duckdb` | [api/fsspeckit.datasets.duckdb.md](../api/fsspeckit.datasets.duckdb.md) | datasets | Stable |
-| `from fsspeckit.datasets.duckdb import compact_parquet_dataset_duckdb` | [api/fsspeckit.datasets.duckdb.md](../api/fsspeckit.datasets.duckdb.md) | datasets | Stable |
 | `from fsspeckit.datasets.duckdb import MergeStrategy` | [api/fsspeckit.datasets.duckdb.md](../api/fsspeckit.datasets.duckdb.md) | datasets | Stable |
 | `from fsspeckit.datasets.pyarrow import PyarrowDatasetIO` | [api/fsspeckit.datasets.pyarrow.md](../api/fsspeckit.datasets.pyarrow.md) | datasets | Stable |
 | `from fsspeckit.datasets.pyarrow import collect_dataset_stats_pyarrow` | [api/fsspeckit.datasets.pyarrow.md](../api/fsspeckit.datasets.pyarrow.md) | datasets | Stable |
-| `from fsspeckit.datasets.pyarrow import compact_parquet_dataset_pyarrow` | [api/fsspeckit.datasets.pyarrow.md](../api/fsspeckit.datasets.pyarrow.md) | datasets | Stable |
-| `from fsspeckit.datasets.pyarrow import optimize_parquet_dataset_pyarrow` | [api/fsspeckit.datasets.pyarrow.md](../api/fsspeckit.datasets.pyarrow.md) | datasets | Stable |
 | `from fsspeckit.datasets.pyarrow import pyarrow_dataset` | [api/fsspeckit.datasets.pyarrow.md](../api/fsspeckit.datasets.pyarrow.md) | datasets | Stable |
 | `from fsspeckit.datasets.pyarrow import pyarrow_parquet_dataset` | [api/fsspeckit.datasets.pyarrow.md](../api/fsspeckit.datasets.pyarrow.md) | datasets | Stable |
 | `from fsspeckit.datasets.pyarrow import MemoryMonitor` | [api/fsspeckit.datasets.pyarrow.md](../api/fsspeckit.datasets.pyarrow.md) | monitoring | Stable |

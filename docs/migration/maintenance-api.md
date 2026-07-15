@@ -1,0 +1,62 @@
+# Migrate to coordinator-backed maintenance
+
+The maintenance API is a major-version migration. Dictionary-returning PyArrow
+and DuckDB maintenance helpers, including their `dry_run` execution flag, are
+no longer supported public APIs. Use an explicit immutable plan for review and
+a typed `MaintenanceResult` for execution.
+
+## Direct coordinator workflow
+
+Direct callers select their backend, create a plan without mutating the dataset,
+and execute that accepted plan through the single generic entry point.
+
+```python
+from fsspeckit.core.maintenance import DatasetMaintenanceCoordinator
+
+coordinator = DatasetMaintenanceCoordinator("pyarrow")
+plan = coordinator.plan_compaction(
+    "dataset/", target_rows_per_file=100_000
+)
+# inspect plan.source_snapshot, plan.partition_scope, and plan.guarantee_level
+result = coordinator.execute(plan)
+assert result.succeeded
+```
+
+Pass the fsspec filesystem to both planning and execution for object-store
+plans. Their result reports `best_effort_object_store`; it does not promise
+atomic visibility, distributed locking, or automatic rollback.
+
+## Filesystem convenience workflow
+
+The fsspec extension selects the always-available PyArrow backend and records
+that choice in the plan. It keeps the one-call workflow while returning the
+same typed result:
+
+```python
+from fsspeckit import filesystem
+
+fs = filesystem("file")
+result = fs.compact_parquet_dataset("dataset/", target_rows_per_file=100_000)
+assert result.succeeded
+```
+
+For review before mutation, use `fs.plan_parquet_compaction(...)` followed by
+`fs.execute_maintenance_plan(plan)`. Corresponding planning and one-call
+methods exist for partition-local deduplication and coordinated optimization.
+Global deduplication is deliberately explicit through
+`plan_parquet_global_repartition_deduplication` and
+`deduplicate_and_repartition_parquet_dataset`.
+
+## Replacements
+
+| Removed dictionary API | Replacement |
+| --- | --- |
+| `compact_parquet_dataset_pyarrow` | `DatasetMaintenanceCoordinator.plan_compaction` then `execute`, or `fs.compact_parquet_dataset` |
+| `deduplicate_parquet_dataset_pyarrow` | `plan_partition_local_deduplication` then `execute`, or `fs.deduplicate_parquet_dataset` |
+| `optimize_parquet_dataset_pyarrow` | `plan_coordinated_optimization` then `execute`, or `fs.optimize_parquet_dataset` |
+| `compact_parquet_dataset_duckdb` | Construct `DatasetMaintenanceCoordinator("duckdb")`, then plan and execute |
+| Any `dry_run=True` maintenance call | The corresponding `plan_*` method |
+
+`MaintenanceResult` replaces dictionary indexing. Its `plan`, `phase_outcomes`,
+`validation`, `publication`, `recovery`, and `actual_metrics` fields provide the
+observed execution details.

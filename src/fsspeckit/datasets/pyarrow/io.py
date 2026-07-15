@@ -1044,108 +1044,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             metrics=metrics,
         )
 
-    def compact_parquet_dataset(
-        self,
-        path: str,
-        target_mb_per_file: int | None = None,
-        target_rows_per_file: int | None = None,
-        partition_filter: list[str] | None = None,
-        compression: str | None = None,
-        dry_run: bool = False,
-        verbose: bool = False,
-    ) -> dict[str, Any]:
-        """Compact a parquet dataset using PyArrow.
-
-        Args:
-            path: Dataset path
-            target_mb_per_file: Target size per file in MB
-            target_rows_per_file: Target rows per file
-            partition_filter: Optional partition filters
-            compression: Compression codec
-            dry_run: Whether to perform a dry run
-            verbose: Print progress information
-
-        Returns:
-            Compaction statistics
-
-        Example:
-            ```python
-            io = PyarrowDatasetIO()
-            stats = io.compact_parquet_dataset(
-                "/path/to/dataset/",
-                target_mb_per_file=64,
-                dry_run=True,
-            )
-            print(f"Files before: {stats['before_file_count']}")
-            ```
-        """
-        from fsspeckit.datasets.pyarrow.dataset import compact_parquet_dataset_pyarrow
-
-        path = self._normalize_path(path, operation="compact")
-
-        return compact_parquet_dataset_pyarrow(
-            path=path,
-            target_mb_per_file=target_mb_per_file,
-            target_rows_per_file=target_rows_per_file,
-            partition_filter=partition_filter,
-            compression=compression,
-            dry_run=dry_run,
-            filesystem=self._filesystem,
-        )
-
-    def optimize_parquet_dataset(
-        self,
-        path: str,
-        target_mb_per_file: int | None = None,
-        target_rows_per_file: int | None = None,
-        partition_filter: list[str] | None = None,
-        compression: str | None = None,
-        deduplicate_key_columns: list[str] | str | None = None,
-        dedup_order_by: list[str] | str | None = None,
-        verbose: bool = False,
-    ) -> dict[str, Any]:
-        """Optimize a parquet dataset.
-
-        Args:
-            path: Dataset path
-            target_mb_per_file: Target size per file in MB
-            target_rows_per_file: Target rows per file
-            partition_filter: Optional partition filters
-            compression: Compression codec
-            deduplicate_key_columns: Optional key columns for deduplication before optimization
-            dedup_order_by: Columns to order by for deduplication
-            verbose: Print progress information
-
-        Returns:
-            Optimization statistics
-
-        Example:
-            ```python
-            io = PyarrowDatasetIO()
-            stats = io.optimize_parquet_dataset(
-                "dataset/",
-                target_mb_per_file=64,
-                compression="zstd",
-            )
-            ```
-        """
-        from fsspeckit.datasets.pyarrow.dataset import optimize_parquet_dataset_pyarrow
-
-        path = self._normalize_path(path, operation="optimize")
-
-        return optimize_parquet_dataset_pyarrow(
-            path=path,
-            target_mb_per_file=target_mb_per_file,
-            target_rows_per_file=target_rows_per_file,
-            partition_filter=partition_filter,
-            compression=compression,
-            deduplicate_key_columns=deduplicate_key_columns,
-            dedup_order_by=dedup_order_by,
-            filesystem=self._filesystem,
-            verbose=verbose,
-        )
-
-    def __enter__(self) -> "PyarrowDatasetIO":
+    def __enter__(self) -> PyarrowDatasetIO:
         """Enter context manager.
 
         Provided for API symmetry with DuckDB. PyArrow has no connection
@@ -1153,9 +1052,11 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         """
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Exit context manager (no-op for PyArrow).
-
-        Kept for API symmetry with DuckDBDatasetIO. No resources to clean up.
-        """
-        pass
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: Any,
+    ) -> None:
+        """Exit context manager (no-op for PyArrow)."""
+        return None

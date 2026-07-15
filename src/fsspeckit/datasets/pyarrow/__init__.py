@@ -14,12 +14,7 @@ from fsspeckit.core.ext.dataset import (
 )
 
 # Re-export dataset operations
-from .dataset import (
-    collect_dataset_stats_pyarrow,
-    compact_parquet_dataset_pyarrow,
-    deduplicate_parquet_dataset_pyarrow,
-    optimize_parquet_dataset_pyarrow,
-)
+from .dataset import collect_dataset_stats_pyarrow
 
 # Re-export memory monitoring and tracking utilities
 from .memory import (
@@ -36,9 +31,6 @@ from .io import (
 __all__ = [
     # Dataset operations
     "collect_dataset_stats_pyarrow",
-    "compact_parquet_dataset_pyarrow",
-    "deduplicate_parquet_dataset_pyarrow",
-    "optimize_parquet_dataset_pyarrow",
     "pyarrow_dataset",
     "pyarrow_parquet_dataset",
     # Memory monitoring and tracking

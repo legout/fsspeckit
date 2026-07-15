@@ -15,8 +15,6 @@
         - validate_dataset_path
         - PyarrowDatasetIO
         - collect_dataset_stats_pyarrow
-        - compact_parquet_dataset_pyarrow
-        - optimize_parquet_dataset_pyarrow
         - cast_schema
         - convert_large_types_to_normal
         - opt_dtype_pa

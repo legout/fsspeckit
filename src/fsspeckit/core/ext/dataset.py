@@ -18,6 +18,16 @@ import pyarrow.dataset as pds
 
 from fsspec import AbstractFileSystem
 
+from fsspeckit.core.maintenance import (
+    CompactionPlan,
+    CoordinatedOptimizationPlan,
+    DatasetMaintenanceCoordinator,
+    GlobalRepartitionDeduplicationPlan,
+    MaintenancePlan,
+    MaintenanceResult,
+    PartitionLocalDeduplicationPlan,
+)
+
 
 def pyarrow_dataset(
     self: AbstractFileSystem,
@@ -154,90 +164,152 @@ def pyarrow_parquet_dataset(
     )
 
 
-def deduplicate_parquet_dataset(
+def _automatic_maintenance_coordinator() -> DatasetMaintenanceCoordinator:
+    """Create the façade's always-available maintenance coordinator.
+
+    PyArrow is a required dependency, unlike DuckDB.  Selecting it here keeps
+    filesystem maintenance usable in the base installation and records that
+    stable choice in every returned plan.
+    """
+
+    return DatasetMaintenanceCoordinator("pyarrow")
+
+
+def _normalize_optional_columns(
+    columns: list[str] | str | None,
+) -> list[str] | None:
+    if columns is None:
+        return None
+
+    from fsspeckit.core.merge import normalize_key_columns
+
+    return normalize_key_columns(columns)
+
+
+def plan_parquet_compaction(
+    self: AbstractFileSystem,
+    path: str,
+    *,
+    target_mb_per_file: int | None = None,
+    target_rows_per_file: int | None = None,
+    partition_filter: list[str] | None = None,
+    compression: str | None = None,
+) -> CompactionPlan:
+    """Create an immutable, lock-free compaction plan for *path*."""
+    return _automatic_maintenance_coordinator().plan_compaction(
+        path,
+        filesystem=self,
+        target_mb_per_file=target_mb_per_file,
+        target_rows_per_file=target_rows_per_file,
+        partition_filter=partition_filter,
+        codec=compression,
+    )
+
+
+def plan_parquet_partition_local_deduplication(
     self: AbstractFileSystem,
     path: str,
     *,
     key_columns: list[str] | str | None = None,
     dedup_order_by: list[str] | str | None = None,
+    target_mb_per_file: int | None = None,
+    target_rows_per_file: int | None = None,
     partition_filter: list[str] | None = None,
     compression: str | None = None,
-    dry_run: bool = False,
-    verbose: bool = False,
-    **kwargs: Any,
-) -> dict[str, Any]:
-    """Deduplicate an existing parquet dataset using the most appropriate backend.
+) -> PartitionLocalDeduplicationPlan:
+    """Create an immutable plan for partition-local deduplication."""
+    return _automatic_maintenance_coordinator().plan_partition_local_deduplication(
+        path,
+        filesystem=self,
+        key_columns=_normalize_optional_columns(key_columns),
+        dedup_order_by=_normalize_optional_columns(dedup_order_by),
+        target_mb_per_file=target_mb_per_file,
+        target_rows_per_file=target_rows_per_file,
+        partition_filter=partition_filter,
+        codec=compression,
+    )
 
-    This method provides a unified interface for deduplicating existing parquet datasets
-    across different backends. It will automatically select the best backend available
-    (DuckDB if available, otherwise PyArrow).
 
-    Args:
-        path: Dataset path
-        key_columns: Optional key columns for deduplication.
-            If provided, keeps one row per key combination.
-            If None, removes exact duplicate rows across all columns.
-        dedup_order_by: Columns to order by for selecting which
-            record to keep when duplicates are found. Defaults to key_columns.
-        partition_filter: Optional partition filters to limit scope
-        compression: Output compression codec
-        dry_run: Whether to perform a dry run (return plan without execution)
-        verbose: Print progress information
-        **kwargs: Additional backend-specific arguments
+def plan_parquet_global_repartition_deduplication(
+    self: AbstractFileSystem,
+    path: str,
+    *,
+    partition_columns: list[str] | str,
+    key_columns: list[str] | str | None = None,
+    dedup_order_by: list[str] | str | None = None,
+    target_mb_per_file: int | None = None,
+    target_rows_per_file: int | None = None,
+    compression: str | None = None,
+) -> GlobalRepartitionDeduplicationPlan:
+    """Create an explicit whole-dataset repartitioning deduplication plan."""
+    return _automatic_maintenance_coordinator().plan_global_repartition_deduplication(
+        path,
+        partition_columns=_normalize_optional_columns(partition_columns) or [],
+        filesystem=self,
+        key_columns=_normalize_optional_columns(key_columns),
+        dedup_order_by=_normalize_optional_columns(dedup_order_by),
+        target_mb_per_file=target_mb_per_file,
+        target_rows_per_file=target_rows_per_file,
+        codec=compression,
+    )
 
-    Returns:
-        Dictionary containing deduplication statistics
 
-    Example:
-        ```python
-        from fsspec import LocalFileSystem
+def plan_parquet_optimization(
+    self: AbstractFileSystem,
+    path: str,
+    *,
+    deduplicate_key_columns: list[str] | str | None = None,
+    dedup_order_by: list[str] | str | None = None,
+    target_mb_per_file: int | None = None,
+    target_rows_per_file: int | None = None,
+    partition_filter: list[str] | None = None,
+    compression: str | None = None,
+) -> CoordinatedOptimizationPlan:
+    """Create an immutable plan for optional deduplication then compaction."""
+    return _automatic_maintenance_coordinator().plan_coordinated_optimization(
+        path,
+        filesystem=self,
+        dedup_key_columns=_normalize_optional_columns(deduplicate_key_columns),
+        dedup_order_by=_normalize_optional_columns(dedup_order_by),
+        target_mb_per_file=target_mb_per_file,
+        target_rows_per_file=target_rows_per_file,
+        partition_filter=partition_filter,
+        codec=compression,
+    )
 
-        fs = LocalFileSystem()
 
-        # Key-based deduplication
-        stats = fs.deduplicate_parquet_dataset(
-            "/tmp/dataset/",
-            key_columns=["id", "timestamp"],
-            dedup_order_by=["-timestamp"],  # Keep most recent
-            verbose=True
-        )
+def execute_maintenance_plan(
+    self: AbstractFileSystem, plan: MaintenancePlan
+) -> MaintenanceResult:
+    """Execute an accepted façade plan and return its typed result."""
+    if plan.selected_backend != "pyarrow":
+        raise ValueError("filesystem façade plans must use the pyarrow backend")
+    return DatasetMaintenanceCoordinator("pyarrow").execute(plan, filesystem=self)
 
-        # Exact duplicate removal
-        stats = fs.deduplicate_parquet_dataset("/tmp/dataset/")
-        ```
-    """
-    # Try DuckDB first if available, fall back to PyArrow
-    try:
-        from fsspeckit.datasets.duckdb.connection import create_duckdb_connection
-        from fsspeckit.datasets.duckdb.dataset import DuckDBDatasetIO
 
-        # Use DuckDB backend
-        conn = create_duckdb_connection()
-        io = DuckDBDatasetIO(conn)
+def compact_parquet_dataset(self: AbstractFileSystem, path: str, **kwargs: Any):
+    """Plan then execute compaction, returning ``MaintenanceResult``."""
+    return execute_maintenance_plan(self, plan_parquet_compaction(self, path, **kwargs))
 
-        return io.deduplicate_parquet_dataset(
-            path=path,
-            key_columns=key_columns,
-            dedup_order_by=dedup_order_by,
-            partition_filter=partition_filter,
-            compression=compression,
-            dry_run=dry_run,
-            verbose=verbose,
-        )
 
-    except ImportError:
-        # DuckDB not available, use PyArrow
-        from fsspeckit.datasets.pyarrow.dataset import (
-            deduplicate_parquet_dataset_pyarrow,
-        )
+def deduplicate_parquet_dataset(self: AbstractFileSystem, path: str, **kwargs: Any):
+    """Plan then execute partition-local deduplication."""
+    return execute_maintenance_plan(
+        self, plan_parquet_partition_local_deduplication(self, path, **kwargs)
+    )
 
-        return deduplicate_parquet_dataset_pyarrow(
-            path=path,
-            key_columns=key_columns,
-            dedup_order_by=dedup_order_by,
-            partition_filter=partition_filter,
-            compression=compression,
-            dry_run=dry_run,
-            filesystem=self,
-            verbose=verbose,
-        )
+
+def deduplicate_and_repartition_parquet_dataset(
+    self: AbstractFileSystem, path: str, **kwargs: Any
+):
+    """Plan then execute explicit global-repartitioning deduplication."""
+    return execute_maintenance_plan(
+        self, plan_parquet_global_repartition_deduplication(self, path, **kwargs)
+    )
+
+
+def optimize_parquet_dataset(self: AbstractFileSystem, path: str, **kwargs: Any):
+    """Plan then execute optional deduplication followed by compaction."""
+    return execute_maintenance_plan(
+        self, plan_parquet_optimization(self, path, **kwargs)
+    )

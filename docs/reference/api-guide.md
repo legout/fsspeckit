@@ -23,7 +23,7 @@ imports only for backend-specific symbols.
 | DuckDB dataset handler | `from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection` | `datasets` |
 | PyArrow dataset handler | `from fsspeckit.datasets.pyarrow import PyarrowDatasetIO` | `datasets` |
 | Schema utilities | `from fsspeckit.datasets import cast_schema, convert_large_types_to_normal, opt_dtype_pa, unify_schemas_pa` | `datasets` |
-| PyArrow maintenance functions | `from fsspeckit.datasets.pyarrow import compact_parquet_dataset_pyarrow, optimize_parquet_dataset_pyarrow, collect_dataset_stats_pyarrow` | `datasets` |
+| Coordinated maintenance | `from fsspeckit.core.maintenance import DatasetMaintenanceCoordinator` | `datasets` |
 | Adaptive key tracking | `from fsspeckit.datasets.pyarrow import AdaptiveKeyTracker` | `datasets` |
 | SQL filter translation | `from fsspeckit.sql import sql2pyarrow_filter, sql2polars_filter` | `sql` |
 | Parallel processing | `from fsspeckit.common import run_parallel` | none |

@@ -26,8 +26,6 @@ from .polars import (
 )
 from .pyarrow import (
     collect_dataset_stats_pyarrow,
-    compact_parquet_dataset_pyarrow,
-    optimize_parquet_dataset_pyarrow,
     # Dataset I/O class
     PyarrowDatasetIO,
 )
@@ -91,9 +89,7 @@ __all__ = [
     # PyArrow utilities
     "cast_schema",
     "collect_dataset_stats_pyarrow",
-    "compact_parquet_dataset_pyarrow",
     "convert_large_types_to_normal",
-    "optimize_parquet_dataset_pyarrow",
     "opt_dtype_pa",
     "unify_schemas_pa",
 ]

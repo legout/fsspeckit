@@ -4,14 +4,14 @@
     options:
       show_submodules: false
       members:
-        - FileInfo
-        - MaintenanceStats
-        - CompactionGroup
+        - DatasetMaintenanceCoordinator
+        - MaintenancePlan
+        - CompactionPlan
+        - PartitionLocalDeduplicationPlan
+        - GlobalRepartitionDeduplicationPlan
+        - CoordinatedOptimizationPlan
+        - MaintenanceResult
+        - GuaranteeLevel
+        - ValidationLevel
+        - MaintenanceBackend
         - collect_dataset_stats
-        - plan_compaction_groups
-        - plan_optimize_groups
-        - plan_deduplication_groups
-        - validate_deduplication_inputs
-        - prepare_deduplication_stats
-        - execute_deduplication_template
-        - execute_compaction_template

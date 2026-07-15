@@ -5,6 +5,8 @@ This module provides the wiring layer that attaches format-specific helpers
 This ensures that all filesystem instances have access to the enhanced I/O methods.
 """
 
+from typing import Any
+
 from fsspec import AbstractFileSystem
 
 from fsspeckit.core.ext.csv import (
@@ -13,6 +15,15 @@ from fsspeckit.core.ext.csv import (
     write_csv,
 )
 from fsspeckit.core.ext.dataset import (
+    compact_parquet_dataset,
+    deduplicate_and_repartition_parquet_dataset,
+    deduplicate_parquet_dataset,
+    execute_maintenance_plan,
+    optimize_parquet_dataset,
+    plan_parquet_compaction,
+    plan_parquet_global_repartition_deduplication,
+    plan_parquet_optimization,
+    plan_parquet_partition_local_deduplication,
     pyarrow_dataset,
     pyarrow_parquet_dataset,
 )
@@ -43,29 +54,48 @@ def clear_cache(fs: AbstractFileSystem | None):
     Args:
         fs: Filesystem instance or None
     """
-    if hasattr(fs, "dircache"):
-        if hasattr(fs, "fs"):
-            fs.fs.invalidate_cache()
-            fs.fs.clear_instance_cache()
-        else:
-            fs.invalidate_cache()
-            fs.clear_instance_cache()
+    if fs is None or not hasattr(fs, "dircache"):
+        return
+
+    target: Any = getattr(fs, "fs", fs)
+    target.invalidate_cache()
+    target.clear_instance_cache()
 
 
 # Register all methods with AbstractFileSystem
 # This is the single place where monkey-patching happens
-AbstractFileSystem.clear_cache = clear_cache
-AbstractFileSystem.read_json_file = read_json_file
-AbstractFileSystem.read_json = read_json
-AbstractFileSystem.read_csv_file = read_csv_file
-AbstractFileSystem.read_csv = read_csv
-AbstractFileSystem.read_parquet_file = read_parquet_file
-AbstractFileSystem.read_parquet = read_parquet
-AbstractFileSystem.read_files = read_files
-AbstractFileSystem.pyarrow_dataset = pyarrow_dataset
-AbstractFileSystem.pyarrow_parquet_dataset = pyarrow_parquet_dataset
-AbstractFileSystem.write_parquet = write_parquet
-AbstractFileSystem.write_json = write_json
-AbstractFileSystem.write_csv = write_csv
-AbstractFileSystem.write_file = write_file
-AbstractFileSystem.write_files = write_files
+_FILESYSTEM_METHODS = {
+    "clear_cache": clear_cache,
+    "read_json_file": read_json_file,
+    "read_json": read_json,
+    "read_csv_file": read_csv_file,
+    "read_csv": read_csv,
+    "read_parquet_file": read_parquet_file,
+    "read_parquet": read_parquet,
+    "read_files": read_files,
+    "pyarrow_dataset": pyarrow_dataset,
+    "pyarrow_parquet_dataset": pyarrow_parquet_dataset,
+    "plan_parquet_compaction": plan_parquet_compaction,
+    "plan_parquet_partition_local_deduplication": (
+        plan_parquet_partition_local_deduplication
+    ),
+    "plan_parquet_global_repartition_deduplication": (
+        plan_parquet_global_repartition_deduplication
+    ),
+    "plan_parquet_optimization": plan_parquet_optimization,
+    "execute_maintenance_plan": execute_maintenance_plan,
+    "compact_parquet_dataset": compact_parquet_dataset,
+    "deduplicate_parquet_dataset": deduplicate_parquet_dataset,
+    "deduplicate_and_repartition_parquet_dataset": (
+        deduplicate_and_repartition_parquet_dataset
+    ),
+    "optimize_parquet_dataset": optimize_parquet_dataset,
+    "write_parquet": write_parquet,
+    "write_json": write_json,
+    "write_csv": write_csv,
+    "write_file": write_file,
+    "write_files": write_files,
+}
+
+for method_name, method in _FILESYSTEM_METHODS.items():
+    setattr(AbstractFileSystem, method_name, method)

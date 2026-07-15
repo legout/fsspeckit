@@ -137,18 +137,19 @@ full symbol list.
 
 ## Dataset maintenance
 
-Compacting small files into fewer larger ones improves read performance.
-`compact_parquet_dataset_pyarrow` and `optimize_parquet_dataset_pyarrow` are
-available as module functions and as handler methods. These require the
-`datasets` extra.
+Compacting small files into fewer larger ones improves read performance. Use
+the coordinator-backed filesystem façade; it returns a typed result and exposes
+an explicit plan when review is needed.
 
 ```python
-from fsspeckit.datasets.pyarrow import compact_parquet_dataset_pyarrow
+from fsspeckit import filesystem
 
-summary = compact_parquet_dataset_pyarrow("dataset/", target_mb_per_file=128)
+fs = filesystem("file")
+summary = fs.compact_parquet_dataset("dataset/", target_mb_per_file=128)
 ```
 
-See [Dataset Handlers](../dataset-handlers.md) for the maintenance interface.
+See [Coordinator-backed Maintenance](../migration/maintenance-api.md) for the
+planning workflow and guarantee levels.
 
 ## Related documentation
 

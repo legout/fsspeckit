@@ -124,14 +124,11 @@ class TestUtilsFaçade:
         assert utils_pyarrow.opt_dtype_pa is datasets_schema.opt_dtype
         assert utils_pyarrow.unify_schemas is datasets_schema.unify_schemas
 
-    def test_datasets_pyarrow_exports_persisted_dataset_deduplication(self):
-        """Test the supported package-level persisted-deduplication export."""
-        from fsspeckit.datasets.pyarrow import deduplicate_parquet_dataset_pyarrow
-        from fsspeckit.datasets.pyarrow.dataset import (
-            deduplicate_parquet_dataset_pyarrow as implementation,
-        )
+    def test_datasets_pyarrow_omits_legacy_dictionary_maintenance_exports(self):
+        """Maintenance is exposed through the coordinator-backed façade."""
+        from fsspeckit.datasets import pyarrow
 
-        assert deduplicate_parquet_dataset_pyarrow is implementation
+        assert "deduplicate_parquet_dataset_pyarrow" not in pyarrow.__all__
 
     def test_utils_re_exports_datasets(self):
         """Test that utils re-exports from datasets."""
