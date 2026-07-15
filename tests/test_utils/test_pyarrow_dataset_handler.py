@@ -79,9 +79,7 @@ class TestPyarrowDatasetIOReadWrite:
         """Test hive partitioning is default when partition_by is set."""
         dataset_dir = temp_dir / "partitioned"
 
-        table = pa.table(
-            {"event_date": ["2025-01-01", "2025-01-02"], "value": [1, 2]}
-        )
+        table = pa.table({"event_date": ["2025-01-01", "2025-01-02"], "value": [1, 2]})
 
         io = PyarrowDatasetIO()
         io.write_dataset(
@@ -110,48 +108,6 @@ class TestPyarrowDatasetIOReadWrite:
 class TestPyarrowDatasetIOMaintenance:
     """Tests for maintenance operations."""
 
-    def test_compact_dataset(self, sample_table, temp_dir):
-        """Test dataset compaction."""
-        dataset_dir = temp_dir / "dataset"
-        dataset_dir.mkdir(parents=True, exist_ok=True)
-
-        io = PyarrowDatasetIO()
-
-        # Create multiple small files
-        for i in range(5):
-            chunk = sample_table.slice(i % sample_table.num_rows, 1)
-            file_path = dataset_dir / f"part_{i}.parquet"
-            io.write_parquet(chunk, str(file_path))
-
-        # Compact
-        result = io.compact_parquet_dataset(str(dataset_dir), target_mb_per_file=1)
-        assert "before_file_count" in result
-        assert "after_file_count" in result
-
-    def test_compact_dry_run(self, sample_table, temp_dir):
-        """Test dry run compaction."""
-        dataset_dir = temp_dir / "dataset"
-        dataset_dir.mkdir(parents=True, exist_ok=True)
-
-        io = PyarrowDatasetIO()
-        io.write_dataset(sample_table, str(dataset_dir))
-
-        result = io.compact_parquet_dataset(
-            str(dataset_dir), target_mb_per_file=1, dry_run=True
-        )
-        assert result["dry_run"] is True
-
-    def test_optimize_dataset(self, sample_table, temp_dir):
-        """Test dataset optimization."""
-        dataset_dir = temp_dir / "dataset"
-        dataset_dir.mkdir(parents=True, exist_ok=True)
-
-        io = PyarrowDatasetIO()
-        io.write_dataset(sample_table, str(dataset_dir))
-
-        result = io.optimize_parquet_dataset(str(dataset_dir), target_mb_per_file=64)
-        assert "before_file_count" in result
-
 
 class TestPyarrowDatasetIOAPI:
     """Tests to verify PyarrowDatasetIO has the correct API."""
@@ -179,18 +135,6 @@ class TestPyarrowDatasetIOAPI:
         io = PyarrowDatasetIO()
         assert hasattr(io, "merge")
         assert callable(io.merge)
-
-    def test_has_compact_parquet_dataset(self):
-        """Test that IO class has compact_parquet_dataset method."""
-        io = PyarrowDatasetIO()
-        assert hasattr(io, "compact_parquet_dataset")
-        assert callable(io.compact_parquet_dataset)
-
-    def test_has_optimize_parquet_dataset(self):
-        """Test that IO class has optimize_parquet_dataset method."""
-        io = PyarrowDatasetIO()
-        assert hasattr(io, "optimize_parquet_dataset")
-        assert callable(io.optimize_parquet_dataset)
 
     def test_has_context_manager(self):
         """Test that IO class has context manager protocol."""

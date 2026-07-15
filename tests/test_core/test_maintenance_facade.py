@@ -48,6 +48,45 @@ def test_filesystem_facade_compaction_preserves_one_call_typed_result(tmp_path) 
     assert result.plan.selected_backend == MaintenanceBackend.PYARROW.value
 
 
+def test_filesystem_facade_supports_each_maintenance_operation(tmp_path) -> None:
+    filesystem = fsspec.filesystem("file")
+
+    dedup_dataset = tmp_path / "dedup"
+    dedup_dataset.mkdir()
+    pq.write_table(pa.table({"id": [1, 1, 2]}), dedup_dataset / "data.parquet")
+    dedup_result = filesystem.deduplicate_parquet_dataset(
+        str(dedup_dataset), key_columns=["id"]
+    )
+
+    optimization_dataset = tmp_path / "optimization"
+    _write_fragmented_dataset(optimization_dataset)
+    optimization_result = filesystem.optimize_parquet_dataset(
+        str(optimization_dataset), target_rows_per_file=4
+    )
+
+    repartition_dataset = tmp_path / "repartition"
+    repartition_dataset.mkdir()
+    pq.write_table(
+        pa.table({"id": [1, 1], "region": ["eu", "us"]}),
+        repartition_dataset / "data.parquet",
+    )
+    repartition_plan = filesystem.plan_parquet_global_repartition_deduplication(
+        str(repartition_dataset), partition_columns=["region"], key_columns=["id"]
+    )
+    repartition_result = filesystem.deduplicate_and_repartition_parquet_dataset(
+        str(repartition_dataset), partition_columns=["region"], key_columns=["id"]
+    )
+
+    assert isinstance(dedup_result, MaintenanceResult)
+    assert dedup_result.succeeded
+    assert isinstance(optimization_result, MaintenanceResult)
+    assert optimization_result.succeeded
+    assert isinstance(repartition_result, MaintenanceResult)
+    assert repartition_result.succeeded
+    assert type(repartition_result.plan) is type(repartition_plan)
+    assert repartition_result.plan.partition_scope == repartition_plan.partition_scope
+
+
 def test_legacy_dictionary_maintenance_exports_are_removed() -> None:
     pyarrow_maintenance = importlib.import_module("fsspeckit.datasets.pyarrow")
     pyarrow_implementation = importlib.import_module(

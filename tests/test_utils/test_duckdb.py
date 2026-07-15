@@ -143,47 +143,6 @@ def fragmented_dataset(io: DuckDBDatasetIO, temp_dir: Path) -> Path:
     return dataset_dir
 
 
-def test_compact_by_size(io: DuckDBDatasetIO, fragmented_dataset: Path):
-    before_files = list(fragmented_dataset.glob("*.parquet"))
-    before_rows = io.read_parquet(str(fragmented_dataset)).num_rows
-
-    result = io.compact_parquet_dataset(
-        path=str(fragmented_dataset), target_mb_per_file=1
-    )
-    assert result["dry_run"] is False
-
-    after_files = list(fragmented_dataset.glob("*.parquet"))
-    after_rows = io.read_parquet(str(fragmented_dataset)).num_rows
-    assert len(after_files) < len(before_files)
-    assert after_rows == before_rows
-
-
-def test_compact_dry_run(io: DuckDBDatasetIO, fragmented_dataset: Path):
-    before_files = list(fragmented_dataset.glob("*.parquet"))
-    result = io.compact_parquet_dataset(
-        path=str(fragmented_dataset), target_mb_per_file=1, dry_run=True
-    )
-    after_files = list(fragmented_dataset.glob("*.parquet"))
-    assert before_files == after_files
-    assert result["dry_run"] is True
-    assert result["planned_groups"]
-
-
-def test_optimize_is_compaction(io: DuckDBDatasetIO, fragmented_dataset: Path):
-    before_files = list(fragmented_dataset.glob("*.parquet"))
-    before_rows = io.read_parquet(str(fragmented_dataset)).num_rows
-
-    result = io.optimize_parquet_dataset(
-        path=str(fragmented_dataset), target_mb_per_file=1
-    )
-    assert result["dry_run"] is False
-
-    after_files = list(fragmented_dataset.glob("*.parquet"))
-    after_rows = io.read_parquet(str(fragmented_dataset)).num_rows
-    assert len(after_files) < len(before_files)
-    assert after_rows == before_rows
-
-
 def test_unregister_helper_success(conn_mgr):
     conn = conn_mgr.connection
     t = pa.table({"id": [1, 2, 3]})
