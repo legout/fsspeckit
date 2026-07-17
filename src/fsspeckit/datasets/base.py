@@ -194,7 +194,11 @@ class BaseDatasetHandler(ABC):
         Returns:
             Dictionary containing compaction statistics
         """
-        ...
+        raise NotImplementedError(
+            "compact_parquet_dataset was removed from dataset handlers in 0.25.0. "
+            "Use the filesystem facade: fs.compact_parquet_dataset(path, ...). "
+            "See docs/migration/maintenance-api.md."
+        )
 
     def optimize_parquet_dataset(
         self,
@@ -223,7 +227,11 @@ class BaseDatasetHandler(ABC):
         Returns:
             Dictionary containing optimization statistics
         """
-        ...
+        raise NotImplementedError(
+            "optimize_parquet_dataset was removed from dataset handlers in 0.25.0. "
+            "Use the filesystem facade: fs.optimize_parquet_dataset(path, ...). "
+            "See docs/migration/maintenance-api.md."
+        )
 
     def _validate_key_columns(
         self,

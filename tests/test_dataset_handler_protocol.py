@@ -2,14 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import pytest
-
-if TYPE_CHECKING:
-    import pyarrow as pa
-
-    from fsspeckit.datasets.interfaces import DatasetHandler
 
 
 class TestDatasetHandlerProtocol:
@@ -111,6 +104,26 @@ class TestProtocolDocumentation:
         assert (
             PyarrowDatasetIO.__doc__ is not None and len(PyarrowDatasetIO.__doc__) > 0
         ), "PyarrowDatasetIO class should have documentation"
+
+
+class TestMaintenanceStubsRaiseNotImplemented:
+    """Verify inherited maintenance stubs raise NotImplementedError (issue #49)."""
+
+    def test_compact_parquet_dataset_stub_raises(self) -> None:
+        """Inherited compact_parquet_dataset must raise, not silently return None."""
+        from fsspeckit.datasets.pyarrow.io import PyarrowDatasetIO
+
+        handler = PyarrowDatasetIO()
+        with pytest.raises(NotImplementedError):
+            handler.compact_parquet_dataset("/tmp/whatever", dry_run=True)
+
+    def test_optimize_parquet_dataset_stub_raises(self) -> None:
+        """Inherited optimize_parquet_dataset must raise, not silently return None."""
+        from fsspeckit.datasets.pyarrow.io import PyarrowDatasetIO
+
+        handler = PyarrowDatasetIO()
+        with pytest.raises(NotImplementedError):
+            handler.optimize_parquet_dataset("/tmp/whatever")
 
 
 if __name__ == "__main__":
