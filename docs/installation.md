@@ -6,7 +6,7 @@ backends are opt-in extras.
 
 ## Prerequisites
 
-- Python 3.11 or higher.
+- Python 3.12 or higher.
 
 ## Install
 
@@ -86,7 +86,7 @@ pixi add fsspeckit
 
 ## Troubleshooting
 
-- **Python version**: require 3.11+. Check with `python --version`.
+- **Python version**: require 3.12+. Check with `python --version`.
 - **Virtual environments**: use `venv`, `conda`, `uv`, or `pixi` to avoid
   system-package conflicts.
 - **Missing optional dependency**: if you call a feature whose extra is not

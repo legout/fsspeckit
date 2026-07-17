@@ -42,7 +42,7 @@ Minimum parity set:
 
 ## Rules
 - Follow OpenSpec process before implementing changes.
-- Preserve Python 3.11+ typing rules and optional dependency import patterns.
+- Preserve Python 3.12+ typing rules and optional dependency import patterns.
 - Do not add new dependencies unless necessary for parity or correctness.
 - Keep all public APIs fully typed and documented.
 - Avoid backend-specific behavior changes unless explicitly documented and tested.

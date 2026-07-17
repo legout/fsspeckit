@@ -11,7 +11,7 @@ builds on the three ideas in this script: a **filesystem**, a **dataset**, and a
 ## Before you begin
 
 You already manage a Python environment (a virtualenv, conda env, or similar)
-with Python 3.11 or higher. Install fsspeckit with the `datasets` extra, which
+with Python 3.12 or higher. Install fsspeckit with the `datasets` extra, which
 provides the complete dataset workflow used in this tutorial:
 
 ```bash
