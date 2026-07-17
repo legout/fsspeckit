@@ -42,7 +42,7 @@ try:
     from fsspeckit.datasets.pyarrow import collect_dataset_stats_pyarrow
 except ModuleNotFoundError as exc:
     raise SystemExit(
-        "Missing fsspeckit dataset dependencies. Install with: pip install -e \".[datasets]\" "
+        'Missing fsspeckit dataset dependencies. Install with: pip install -e ".[datasets]" '
         "(or run `uv sync` then `uv run python ...`)."
     ) from exc
 

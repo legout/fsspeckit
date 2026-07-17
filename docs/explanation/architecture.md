@@ -178,22 +178,3 @@ architecturally independent: it never imports the data-processing libraries at
 module level and works without them loaded. See
 [Installation and Optional Extras](../installation.md) for the full extras
 matrix.
-
-## Historical decisions and plans
-
-The following engineering documents record why the architecture reached its
-current shape. They are **historical context**, not current API or workflow
-guidance. Some describe the pre-0.22 layout or planning rationale that has
-since been refined; always cross-check against the current Reference pages
-above.
-
-- [ADR-0001: Import Layering Rules](../architecture/0001-layering-rules.md) -
-  established the domain package boundaries and import layering rules. Predates
-  the 0.22 schema/type relocation to `datasets`.
-- [ADR-0003: Common Layer Independence and core/ext Tier Separation](../adr/0003-common-layer-independence.md) -
-  moved schema, polars, and type utilities out of `common` into `datasets`.
-- [ADR-0004: Maintenance Execution Template](../adr/0004-maintenance-execution-template.md) -
-  extracted shared compaction execution into `core.maintenance`.
-
-These documents are intentionally not in the active navigation. They are linked
-here for readers who need the design rationale behind a specific boundary.

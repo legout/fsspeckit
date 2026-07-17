@@ -260,9 +260,7 @@ def demonstrate_query_optimization():
             print("\n2. Early Filtering:")
             print("   a) Filter after loading:")
             late_filter_results = profile_operation(
-                lambda: conn.execute_sql(
-                    "SELECT * FROM sales WHERE net_amount > 1000"
-                ),
+                lambda: conn.execute_sql("SELECT * FROM sales WHERE net_amount > 1000"),
                 "Late filtering",
                 2,
             )
@@ -769,7 +767,9 @@ def demonstrate_io_optimization():
         # partitioning=None: quarter/region are physical columns in the files;
         # hive inference from the key=value path segments would conflict.
         start_time = time.time()
-        partitioned_tables = [pq.read_table(f, partitioning=None) for f in partition_files]
+        partitioned_tables = [
+            pq.read_table(f, partitioning=None) for f in partition_files
+        ]
         partitioned_combined = pa.concat_tables(partitioned_tables)
         partitioned_read_time = time.time() - start_time
 
