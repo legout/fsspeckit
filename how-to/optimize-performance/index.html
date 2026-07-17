@@ -1103,6 +1103,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../maintain-parquet-datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintain Parquet Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2372,6 +2400,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../migration/maintenance-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coordinator-backed Maintenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../migration/migrate-package-layout/" class="md-nav__link">
         
   
@@ -2600,17 +2656,21 @@ Polars variants):</p>
 See the <a href="../../reference/public-api-inventory/">Public API Inventory</a> for the
 full symbol list.</p>
 <h2 id="dataset-maintenance">Dataset maintenance<a class="headerlink" href="#dataset-maintenance" title="Permanent link">&para;</a></h2>
-<p>Compacting small files into fewer larger ones improves read performance.
-<code>compact_parquet_dataset_pyarrow</code> and <code>optimize_parquet_dataset_pyarrow</code> are
-available as module functions and as handler methods. These require the
-<code>datasets</code> extra.</p>
+<p>Compacting small files into fewer larger ones improves read performance. Use
+the coordinator-backed filesystem façade; it returns a typed result and exposes
+an explicit plan when review is needed.</p>
 <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
 <span class="normal"><a href="#__codelineno-7-2">2</a></span>
-<span class="normal"><a href="#__codelineno-7-3">3</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.datasets.pyarrow</span><span class="w"> </span><span class="kn">import</span> <span class="n">compact_parquet_dataset_pyarrow</span>
+<span class="normal"><a href="#__codelineno-7-3">3</a></span>
+<span class="normal"><a href="#__codelineno-7-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit</span><span class="w"> </span><span class="kn">import</span> <span class="n">filesystem</span>
 <a id="__codelineno-7-2" name="__codelineno-7-2"></a>
-<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="n">summary</span> <span class="o">=</span> <span class="n">compact_parquet_dataset_pyarrow</span><span class="p">(</span><span class="s2">&quot;dataset/&quot;</span><span class="p">,</span> <span class="n">target_mb_per_file</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
+<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="n">fs</span> <span class="o">=</span> <span class="n">filesystem</span><span class="p">(</span><span class="s2">&quot;file&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="n">summary</span> <span class="o">=</span> <span class="n">fs</span><span class="o">.</span><span class="n">compact_parquet_dataset</span><span class="p">(</span><span class="s2">&quot;dataset/&quot;</span><span class="p">,</span> <span class="n">target_mb_per_file</span><span class="o">=</span><span class="mi">128</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
-<p>See <a href="../../dataset-handlers/">Dataset Handlers</a> for the maintenance interface.</p>
+<p>See <a href="../../migration/maintenance-api/">Coordinator-backed Maintenance</a> for the
+planning workflow and guarantee levels, and
+<a href="../maintain-parquet-datasets/">Maintain Parquet Datasets</a> for the full task
+guide including deduplication, repartitioning, and optimization.</p>
 <h2 id="related-documentation">Related documentation<a class="headerlink" href="#related-documentation" title="Permanent link">&para;</a></h2>
 <ul>
 <li><a href="../memory-constrained-environments/">Memory-Constrained Environments</a> -

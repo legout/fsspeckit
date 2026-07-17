@@ -974,6 +974,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../how-to/maintain-parquet-datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintain Parquet Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2378,6 +2406,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../../migration/maintenance-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coordinator-backed Maintenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../../migration/migrate-package-layout/" class="md-nav__link">
         
   
@@ -2675,67 +2731,31 @@ or be removed without notice.</p>
 <td>Stable</td>
 </tr>
 <tr>
-<td><code>from fsspeckit.core.maintenance import FileInfo</code></td>
+<td><code>from fsspeckit.core.maintenance import DatasetMaintenanceCoordinator</code></td>
 <td><a href="../../api/fsspeckit.core.maintenance/">api/fsspeckit.core.maintenance.md</a></td>
 <td>-</td>
 <td>Stable</td>
 </tr>
 <tr>
-<td><code>from fsspeckit.core.maintenance import MaintenanceStats</code></td>
+<td><code>from fsspeckit.core.maintenance import MaintenancePlan</code></td>
 <td><a href="../../api/fsspeckit.core.maintenance/">api/fsspeckit.core.maintenance.md</a></td>
 <td>-</td>
 <td>Stable</td>
 </tr>
 <tr>
-<td><code>from fsspeckit.core.maintenance import CompactionGroup</code></td>
+<td><code>from fsspeckit.core.maintenance import MaintenanceResult</code></td>
 <td><a href="../../api/fsspeckit.core.maintenance/">api/fsspeckit.core.maintenance.md</a></td>
 <td>-</td>
 <td>Stable</td>
 </tr>
 <tr>
-<td><code>from fsspeckit.core.maintenance import collect_dataset_stats</code></td>
+<td><code>from fsspeckit.core.maintenance import GuaranteeLevel</code></td>
 <td><a href="../../api/fsspeckit.core.maintenance/">api/fsspeckit.core.maintenance.md</a></td>
 <td>-</td>
 <td>Stable</td>
 </tr>
 <tr>
-<td><code>from fsspeckit.core.maintenance import plan_compaction_groups</code></td>
-<td><a href="../../api/fsspeckit.core.maintenance/">api/fsspeckit.core.maintenance.md</a></td>
-<td>-</td>
-<td>Stable</td>
-</tr>
-<tr>
-<td><code>from fsspeckit.core.maintenance import plan_optimize_groups</code></td>
-<td><a href="../../api/fsspeckit.core.maintenance/">api/fsspeckit.core.maintenance.md</a></td>
-<td>-</td>
-<td>Stable</td>
-</tr>
-<tr>
-<td><code>from fsspeckit.core.maintenance import plan_deduplication_groups</code></td>
-<td><a href="../../api/fsspeckit.core.maintenance/">api/fsspeckit.core.maintenance.md</a></td>
-<td>-</td>
-<td>Stable</td>
-</tr>
-<tr>
-<td><code>from fsspeckit.core.maintenance import validate_deduplication_inputs</code></td>
-<td><a href="../../api/fsspeckit.core.maintenance/">api/fsspeckit.core.maintenance.md</a></td>
-<td>-</td>
-<td>Stable</td>
-</tr>
-<tr>
-<td><code>from fsspeckit.core.maintenance import prepare_deduplication_stats</code></td>
-<td><a href="../../api/fsspeckit.core.maintenance/">api/fsspeckit.core.maintenance.md</a></td>
-<td>-</td>
-<td>Stable</td>
-</tr>
-<tr>
-<td><code>from fsspeckit.core.maintenance import execute_deduplication_template</code></td>
-<td><a href="../../api/fsspeckit.core.maintenance/">api/fsspeckit.core.maintenance.md</a></td>
-<td>-</td>
-<td>Stable</td>
-</tr>
-<tr>
-<td><code>from fsspeckit.core.maintenance import execute_compaction_template</code></td>
+<td><code>from fsspeckit.core.maintenance import MaintenanceBackend</code></td>
 <td><a href="../../api/fsspeckit.core.maintenance/">api/fsspeckit.core.maintenance.md</a></td>
 <td>-</td>
 <td>Stable</td>
@@ -2820,18 +2840,6 @@ or be removed without notice.</p>
 <td>Stable</td>
 </tr>
 <tr>
-<td><code>from fsspeckit.datasets import compact_parquet_dataset_pyarrow</code></td>
-<td><a href="../../api/fsspeckit.datasets/">api/fsspeckit.datasets.md</a></td>
-<td>datasets</td>
-<td>Stable</td>
-</tr>
-<tr>
-<td><code>from fsspeckit.datasets import optimize_parquet_dataset_pyarrow</code></td>
-<td><a href="../../api/fsspeckit.datasets/">api/fsspeckit.datasets.md</a></td>
-<td>datasets</td>
-<td>Stable</td>
-</tr>
-<tr>
 <td><code>from fsspeckit.datasets import cast_schema</code></td>
 <td><a href="../../api/fsspeckit.datasets/">api/fsspeckit.datasets.md</a></td>
 <td>datasets</td>
@@ -2892,12 +2900,6 @@ or be removed without notice.</p>
 <td>Stable</td>
 </tr>
 <tr>
-<td><code>from fsspeckit.datasets.duckdb import compact_parquet_dataset_duckdb</code></td>
-<td><a href="../../api/fsspeckit.datasets.duckdb/">api/fsspeckit.datasets.duckdb.md</a></td>
-<td>datasets</td>
-<td>Stable</td>
-</tr>
-<tr>
 <td><code>from fsspeckit.datasets.duckdb import MergeStrategy</code></td>
 <td><a href="../../api/fsspeckit.datasets.duckdb/">api/fsspeckit.datasets.duckdb.md</a></td>
 <td>datasets</td>
@@ -2911,18 +2913,6 @@ or be removed without notice.</p>
 </tr>
 <tr>
 <td><code>from fsspeckit.datasets.pyarrow import collect_dataset_stats_pyarrow</code></td>
-<td><a href="../../api/fsspeckit.datasets.pyarrow/">api/fsspeckit.datasets.pyarrow.md</a></td>
-<td>datasets</td>
-<td>Stable</td>
-</tr>
-<tr>
-<td><code>from fsspeckit.datasets.pyarrow import compact_parquet_dataset_pyarrow</code></td>
-<td><a href="../../api/fsspeckit.datasets.pyarrow/">api/fsspeckit.datasets.pyarrow.md</a></td>
-<td>datasets</td>
-<td>Stable</td>
-</tr>
-<tr>
-<td><code>from fsspeckit.datasets.pyarrow import optimize_parquet_dataset_pyarrow</code></td>
 <td><a href="../../api/fsspeckit.datasets.pyarrow/">api/fsspeckit.datasets.pyarrow.md</a></td>
 <td>datasets</td>
 <td>Stable</td>

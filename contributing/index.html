@@ -972,6 +972,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-to/maintain-parquet-datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintain Parquet Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2241,6 +2269,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../migration/maintenance-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coordinator-backed Maintenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../migration/migrate-package-layout/" class="md-nav__link">
         
   
@@ -2552,9 +2608,9 @@
 </code></pre></div></td></tr></table></div></li>
 <li><strong>Install Development Dependencies</strong>:
     The project uses <code>uv</code> to manage dependencies. Install the <code>dev</code> dependency group which includes tools for testing, linting, and documentation generation.
-    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>-e<span class="w"> </span><span class="s2">&quot;.[dev]&quot;</span>
+    <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-8-1">1</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-8-1" name="__codelineno-8-1"></a>uv<span class="w"> </span>sync<span class="w"> </span>--dev
 </code></pre></div></td></tr></table></div>
-    This command installs the project in editable mode (<code>-e</code>) and includes all development-related dependencies specified in <code>pyproject.toml</code> under the <code>[project.optional-dependencies] dev</code> section.</li>
+    This command creates the project virtual environment, installs the project in editable mode, and includes all development-related dependencies specified in <code>pyproject.toml</code> under the <code>[dependency-groups] dev</code> section.</li>
 </ol>
 <h2 id="best-practices-for-contributions">Best Practices for Contributions<a class="headerlink" href="#best-practices-for-contributions" title="Permanent link">&para;</a></h2>
 <ul>
@@ -2633,7 +2689,7 @@
 <a id="__codelineno-11-2" name="__codelineno-11-2"></a>uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/fsspeckit
 <a id="__codelineno-11-3" name="__codelineno-11-3"></a>
 <a id="__codelineno-11-4" name="__codelineno-11-4"></a><span class="c1"># Check specific modules</span>
-<a id="__codelineno-11-5" name="__codelineno-11-5"></a>uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/fsspeckit/datasets/pyarrow_dataset.py
+<a id="__codelineno-11-5" name="__codelineno-11-5"></a>uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span>src/fsspeckit/datasets/pyarrow/
 </code></pre></div></td></tr></table></div></p>
 <p><strong>Common Type Patterns:</strong>
 <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-12-1"> 1</a></span>
@@ -2686,7 +2742,7 @@
 <a id="__codelineno-13-5" name="__codelineno-13-5"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>--cov<span class="o">=</span>fsspeckit<span class="w"> </span>--cov-report<span class="o">=</span>term-missing
 <a id="__codelineno-13-6" name="__codelineno-13-6"></a>
 <a id="__codelineno-13-7" name="__codelineno-13-7"></a><span class="c1"># Run specific test file</span>
-<a id="__codelineno-13-8" name="__codelineno-13-8"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/test_utils/test_pyarrow_dataset_merge.py
+<a id="__codelineno-13-8" name="__codelineno-13-8"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/test_utils/test_pyarrow_merge_method.py
 <a id="__codelineno-13-9" name="__codelineno-13-9"></a>
 <a id="__codelineno-13-10" name="__codelineno-13-10"></a><span class="c1"># Run tests matching pattern</span>
 <a id="__codelineno-13-11" name="__codelineno-13-11"></a>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>-k<span class="w"> </span><span class="s2">&quot;test_merge&quot;</span>
@@ -2710,10 +2766,10 @@
 </code></pre></div></td></tr></table></div></p>
 <p><strong>High-Risk Changes:</strong></p>
 <p>Changes to the following modules REQUIRE both type checking AND comprehensive tests:
-- <code>core/filesystem.py</code> and core submodules
-- <code>core/ext*.py</code> and core submodules
-- <code>datasets/pyarrow*.py</code> and dataset submodules
-- <code>datasets/duckdb*.py</code> and dataset submodules</p>
+- <code>core/filesystem/</code> and core submodules
+- <code>core/ext/</code> and core submodules
+- <code>datasets/pyarrow/</code> and dataset submodules
+- <code>datasets/duckdb/</code> and dataset submodules</p>
 <p>For these changes:
 <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-15-1">1</a></span>
 <span class="normal"><a href="#__codelineno-15-2">2</a></span>

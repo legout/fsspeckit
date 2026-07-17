@@ -974,6 +974,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../how-to/maintain-parquet-datasets/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintain Parquet Datasets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2417,6 +2445,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../migration/maintenance-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Coordinator-backed Maintenance
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../migration/migrate-package-layout/" class="md-nav__link">
         
   
@@ -2515,10 +2571,15 @@ generated API for each backend.</p>
   dataset, returning a <code>WriteDatasetResult</code> with per-file metadata.</li>
 <li><code>merge(data, path, strategy, key_columns, ...)</code> - incrementally merge data
   into an existing dataset, returning a <code>MergeResult</code> with row and file counts.</li>
-<li><code>compact_parquet_dataset(path, ...)</code> - combine small files.</li>
-<li><code>optimize_parquet_dataset(path, ...)</code> - compaction plus optional deduplication.</li>
 <li><code>read_parquet(path, ...)</code> - read parquet files into a PyArrow table.</li>
 </ul>
+<p>Dataset maintenance (compaction, deduplication, repartitioning, optimization)
+is no longer part of the handler interface. Since 0.25.0 it lives on the
+filesystem via coordinator-backed facades such as
+<code>fs.compact_parquet_dataset(...)</code> and <code>fs.plan_parquet_compaction(...)</code> -
+see <a href="../how-to/maintain-parquet-datasets/">Maintain Parquet Datasets</a> for the
+task guide and <a href="../migration/maintenance-api/">Coordinator-backed Maintenance</a>
+for the migration mapping.</p>
 <p>For the authoritative signatures and parameter lists, see
 <a href="../api/fsspeckit.datasets.duckdb/">fsspeckit.datasets.duckdb</a> and
 <a href="../api/fsspeckit.datasets.pyarrow/">fsspeckit.datasets.pyarrow</a>.</p>

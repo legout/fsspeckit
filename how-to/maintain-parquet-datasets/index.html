@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://legout.github.io/fsspeckit/how-to/use-sql-filters/">
+        <link rel="canonical" href="https://legout.github.io/fsspeckit/how-to/maintain-parquet-datasets/">
       
       
-        <link rel="prev" href="../configure-cloud-storage/">
+        <link rel="prev" href="../merge-operations-examples/">
       
       
-        <link rel="next" href="../sync-and-manage-files/">
+        <link rel="next" href="../../reference/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>Use SQL Filters - fsspeckit</title>
+        <title>Maintain Parquet Datasets - fsspeckit</title>
       
     
     
@@ -80,7 +80,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#use-sql-filters" class="md-skip">
+        <a href="#maintain-parquet-datasets" class="md-skip">
           Skip to content
         </a>
       
@@ -114,7 +114,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Use SQL Filters
+              Maintain Parquet Datasets
             
           </span>
         </div>
@@ -731,37 +731,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    Use SQL Filters
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../use-sql-filters/" class="md-nav__link">
         
   
   
@@ -777,81 +750,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#basic-translation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Basic translation
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#cross-framework-use" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Cross-framework use
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#supported-sql" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Supported SQL
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#type-aware-conversion" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Type-aware conversion
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#related-documentation" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Related documentation
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1085,10 +983,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../maintain-parquet-datasets/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Maintain Parquet Datasets
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1104,6 +1029,158 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#compact-small-files" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Compact small files
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#plan-first-then-execute" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Plan first, then execute
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#choose-the-right-operation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Choose the right operation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#deduplicate-by-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Deduplicate by key
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#repartition-globally" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Repartition globally
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#optimize-dedup-compaction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Optimize (dedup + compaction)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#scope-work-with-a-partition-filter" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Scope work with a partition filter
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#understand-the-safety-guarantees" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Understand the safety guarantees
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#interpret-the-result" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interpret the result
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-the-coordinator-directly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Use the coordinator directly
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#working-examples" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Working examples
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#related-documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Related documentation
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -2489,16 +2566,28 @@
   
 
 
-<h1 id="use-sql-filters">Use SQL Filters<a class="headerlink" href="#use-sql-filters" title="Permanent link">&para;</a></h1>
-<p>fsspeckit translates a SQL <code>WHERE</code> clause into a PyArrow or Polars filter
-expression, so you can write a predicate once and apply it across frameworks.
-The translation is schema-aware: comparisons and literals are built from the
-target column types.</p>
-<p>SQL filter translation requires the <code>sql</code> extra. See the
-<a href="../../installation/#optional-extras">extras matrix</a>.</p>
-<h2 id="basic-translation">Basic translation<a class="headerlink" href="#basic-translation" title="Permanent link">&para;</a></h2>
-<p>Pass the SQL string and a schema. The function returns a native filter
-expression you can hand to a dataset scan or a DataFrame filter.</p>
+<h1 id="maintain-parquet-datasets">Maintain Parquet Datasets<a class="headerlink" href="#maintain-parquet-datasets" title="Permanent link">&para;</a></h1>
+<p>This guide covers physical dataset maintenance: compaction, deduplication,
+repartitioning, and optimization. Since 0.25.0 these operations run through a
+coordinator that produces an immutable, typed plan and executes it with
+explicit safety guarantees, returning a typed <code>MaintenanceResult</code>.</p>
+<p>Two workflows are available on every fsspec filesystem (registered when you
+import <code>fsspeckit</code>):</p>
+<ul>
+<li><strong>One-call</strong> - plan and execute in a single step
+  (<code>fs.compact_parquet_dataset(...)</code>).</li>
+<li><strong>Plan-then-execute</strong> - create a plan, inspect it, then execute
+  (<code>fs.plan_parquet_compaction(...)</code> + <code>fs.execute_maintenance_plan(plan)</code>).
+  Planning never mutates the dataset; it replaces the removed <code>dry_run=True</code>
+  mode of the pre-0.25 helpers.</li>
+</ul>
+<p>Migrating from the dictionary-returning helpers? See
+<a href="../../migration/maintenance-api/">Coordinator-backed Maintenance</a>.</p>
+<p>Maintenance uses the PyArrow backend by default and requires no extra beyond
+the base install (PyArrow is a core dependency).</p>
+<h2 id="compact-small-files">Compact small files<a class="headerlink" href="#compact-small-files" title="Permanent link">&para;</a></h2>
+<p>Fragmented datasets (many small parquet files) slow down reads. Compaction
+combines them:</p>
 <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-0-1"> 1</a></span>
 <span class="normal"><a href="#__codelineno-0-2"> 2</a></span>
 <span class="normal"><a href="#__codelineno-0-3"> 3</a></span>
@@ -2511,158 +2600,245 @@ expression you can hand to a dataset scan or a DataFrame filter.</p>
 <span class="normal"><a href="#__codelineno-0-10">10</a></span>
 <span class="normal"><a href="#__codelineno-0-11">11</a></span>
 <span class="normal"><a href="#__codelineno-0-12">12</a></span>
-<span class="normal"><a href="#__codelineno-0-13">13</a></span>
-<span class="normal"><a href="#__codelineno-0-14">14</a></span>
-<span class="normal"><a href="#__codelineno-0-15">15</a></span>
-<span class="normal"><a href="#__codelineno-0-16">16</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pyarrow</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pa</span>
-<a id="__codelineno-0-2" name="__codelineno-0-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.sql</span><span class="w"> </span><span class="kn">import</span> <span class="n">sql2pyarrow_filter</span>
-<a id="__codelineno-0-3" name="__codelineno-0-3"></a>
-<a id="__codelineno-0-4" name="__codelineno-0-4"></a><span class="n">schema</span> <span class="o">=</span> <span class="n">pa</span><span class="o">.</span><span class="n">schema</span><span class="p">([</span>
-<a id="__codelineno-0-5" name="__codelineno-0-5"></a>    <span class="p">(</span><span class="s2">&quot;id&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">int64</span><span class="p">()),</span>
-<a id="__codelineno-0-6" name="__codelineno-0-6"></a>    <span class="p">(</span><span class="s2">&quot;category&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">string</span><span class="p">()),</span>
-<a id="__codelineno-0-7" name="__codelineno-0-7"></a>    <span class="p">(</span><span class="s2">&quot;value&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">float64</span><span class="p">()),</span>
-<a id="__codelineno-0-8" name="__codelineno-0-8"></a>    <span class="p">(</span><span class="s2">&quot;timestamp&quot;</span><span class="p">,</span> <span class="n">pa</span><span class="o">.</span><span class="n">timestamp</span><span class="p">(</span><span class="s2">&quot;us&quot;</span><span class="p">)),</span>
-<a id="__codelineno-0-9" name="__codelineno-0-9"></a><span class="p">])</span>
-<a id="__codelineno-0-10" name="__codelineno-0-10"></a>
-<a id="__codelineno-0-11" name="__codelineno-0-11"></a><span class="n">pa_filter</span> <span class="o">=</span> <span class="n">sql2pyarrow_filter</span><span class="p">(</span><span class="s2">&quot;id &gt; 100 AND category IN (&#39;A&#39;, &#39;B&#39;, &#39;C&#39;)&quot;</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
-<a id="__codelineno-0-12" name="__codelineno-0-12"></a>
-<a id="__codelineno-0-13" name="__codelineno-0-13"></a><span class="kn">import</span><span class="w"> </span><span class="nn">pyarrow.parquet</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pq</span>
-<a id="__codelineno-0-14" name="__codelineno-0-14"></a><span class="n">dataset</span> <span class="o">=</span> <span class="n">pq</span><span class="o">.</span><span class="n">ParquetDataset</span><span class="p">(</span><span class="s2">&quot;data/&quot;</span><span class="p">)</span>
-<a id="__codelineno-0-15" name="__codelineno-0-15"></a><span class="n">table</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">to_table</span><span class="p">(</span><span class="nb">filter</span><span class="o">=</span><span class="n">pa_filter</span><span class="p">)</span>
-<a id="__codelineno-0-16" name="__codelineno-0-16"></a><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;Filtered rows: </span><span class="si">{</span><span class="n">table</span><span class="o">.</span><span class="n">num_rows</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="normal"><a href="#__codelineno-0-13">13</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-0-1" name="__codelineno-0-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">fsspec</span>
+<a id="__codelineno-0-2" name="__codelineno-0-2"></a>
+<a id="__codelineno-0-3" name="__codelineno-0-3"></a><span class="kn">import</span><span class="w"> </span><span class="nn">fsspeckit</span>  <span class="c1"># registers the filesystem maintenance facades</span>
+<a id="__codelineno-0-4" name="__codelineno-0-4"></a>
+<a id="__codelineno-0-5" name="__codelineno-0-5"></a><span class="n">fs</span> <span class="o">=</span> <span class="n">fsspec</span><span class="o">.</span><span class="n">filesystem</span><span class="p">(</span><span class="s2">&quot;file&quot;</span><span class="p">)</span>
+<a id="__codelineno-0-6" name="__codelineno-0-6"></a>
+<a id="__codelineno-0-7" name="__codelineno-0-7"></a><span class="n">result</span> <span class="o">=</span> <span class="n">fs</span><span class="o">.</span><span class="n">compact_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-0-8" name="__codelineno-0-8"></a>    <span class="s2">&quot;dataset/&quot;</span><span class="p">,</span>
+<a id="__codelineno-0-9" name="__codelineno-0-9"></a>    <span class="n">target_rows_per_file</span><span class="o">=</span><span class="mi">100_000</span><span class="p">,</span>  <span class="c1"># or target_mb_per_file=128</span>
+<a id="__codelineno-0-10" name="__codelineno-0-10"></a><span class="p">)</span>
+<a id="__codelineno-0-11" name="__codelineno-0-11"></a>
+<a id="__codelineno-0-12" name="__codelineno-0-12"></a><span class="k">assert</span> <span class="n">result</span><span class="o">.</span><span class="n">succeeded</span>
+<a id="__codelineno-0-13" name="__codelineno-0-13"></a><span class="nb">print</span><span class="p">(</span><span class="n">result</span><span class="o">.</span><span class="n">actual_metrics</span><span class="o">.</span><span class="n">file_count</span><span class="p">,</span> <span class="s2">&quot;files after compaction&quot;</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
-<p>For Polars, build a Polars schema and use <code>sql2polars_filter</code>:</p>
-<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1"> 1</a></span>
-<span class="normal"><a href="#__codelineno-1-2"> 2</a></span>
-<span class="normal"><a href="#__codelineno-1-3"> 3</a></span>
-<span class="normal"><a href="#__codelineno-1-4"> 4</a></span>
-<span class="normal"><a href="#__codelineno-1-5"> 5</a></span>
-<span class="normal"><a href="#__codelineno-1-6"> 6</a></span>
-<span class="normal"><a href="#__codelineno-1-7"> 7</a></span>
-<span class="normal"><a href="#__codelineno-1-8"> 8</a></span>
-<span class="normal"><a href="#__codelineno-1-9"> 9</a></span>
-<span class="normal"><a href="#__codelineno-1-10">10</a></span>
-<span class="normal"><a href="#__codelineno-1-11">11</a></span>
-<span class="normal"><a href="#__codelineno-1-12">12</a></span>
-<span class="normal"><a href="#__codelineno-1-13">13</a></span>
-<span class="normal"><a href="#__codelineno-1-14">14</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="kn">import</span><span class="w"> </span><span class="nn">polars</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pl</span>
-<a id="__codelineno-1-2" name="__codelineno-1-2"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.sql</span><span class="w"> </span><span class="kn">import</span> <span class="n">sql2polars_filter</span>
-<a id="__codelineno-1-3" name="__codelineno-1-3"></a>
-<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="n">schema</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">Schema</span><span class="p">({</span>
-<a id="__codelineno-1-5" name="__codelineno-1-5"></a>    <span class="s2">&quot;id&quot;</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">Int64</span><span class="p">,</span>
-<a id="__codelineno-1-6" name="__codelineno-1-6"></a>    <span class="s2">&quot;category&quot;</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">String</span><span class="p">,</span>
-<a id="__codelineno-1-7" name="__codelineno-1-7"></a>    <span class="s2">&quot;value&quot;</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">Float64</span><span class="p">,</span>
-<a id="__codelineno-1-8" name="__codelineno-1-8"></a>    <span class="s2">&quot;timestamp&quot;</span><span class="p">:</span> <span class="n">pl</span><span class="o">.</span><span class="n">Datetime</span><span class="p">,</span>
-<a id="__codelineno-1-9" name="__codelineno-1-9"></a><span class="p">})</span>
-<a id="__codelineno-1-10" name="__codelineno-1-10"></a>
-<a id="__codelineno-1-11" name="__codelineno-1-11"></a><span class="n">pl_filter</span> <span class="o">=</span> <span class="n">sql2polars_filter</span><span class="p">(</span><span class="s2">&quot;value &gt; 100 AND timestamp &gt;= &#39;2023-01-01&#39;&quot;</span><span class="p">,</span> <span class="n">schema</span><span class="p">)</span>
-<a id="__codelineno-1-12" name="__codelineno-1-12"></a>
-<a id="__codelineno-1-13" name="__codelineno-1-13"></a><span class="n">df</span> <span class="o">=</span> <span class="n">pl</span><span class="o">.</span><span class="n">read_parquet</span><span class="p">(</span><span class="s2">&quot;data.parquet&quot;</span><span class="p">)</span>
-<a id="__codelineno-1-14" name="__codelineno-1-14"></a><span class="n">filtered</span> <span class="o">=</span> <span class="n">df</span><span class="o">.</span><span class="n">filter</span><span class="p">(</span><span class="n">pl_filter</span><span class="p">)</span>
+<p><code>max_rows_per_file</code> is a hard upper bound on output rows per file;
+<code>target_mb_per_file</code> is advisory. Output defaults to Snappy compression unless
+you pass <code>compression=</code>.</p>
+<h2 id="plan-first-then-execute">Plan first, then execute<a class="headerlink" href="#plan-first-then-execute" title="Permanent link">&para;</a></h2>
+<p>Planning is lock-free and touches nothing. The plan captures an immutable
+snapshot of the source dataset, so you can review exactly what will happen:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-1-1">1</a></span>
+<span class="normal"><a href="#__codelineno-1-2">2</a></span>
+<span class="normal"><a href="#__codelineno-1-3">3</a></span>
+<span class="normal"><a href="#__codelineno-1-4">4</a></span>
+<span class="normal"><a href="#__codelineno-1-5">5</a></span>
+<span class="normal"><a href="#__codelineno-1-6">6</a></span>
+<span class="normal"><a href="#__codelineno-1-7">7</a></span>
+<span class="normal"><a href="#__codelineno-1-8">8</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-1-1" name="__codelineno-1-1"></a><span class="n">plan</span> <span class="o">=</span> <span class="n">fs</span><span class="o">.</span><span class="n">plan_parquet_compaction</span><span class="p">(</span><span class="s2">&quot;dataset/&quot;</span><span class="p">,</span> <span class="n">target_rows_per_file</span><span class="o">=</span><span class="mi">100_000</span><span class="p">)</span>
+<a id="__codelineno-1-2" name="__codelineno-1-2"></a>
+<a id="__codelineno-1-3" name="__codelineno-1-3"></a><span class="nb">print</span><span class="p">(</span><span class="n">plan</span><span class="o">.</span><span class="n">operation</span><span class="p">)</span>               <span class="c1"># MaintenanceOperation.COMPACTION</span>
+<a id="__codelineno-1-4" name="__codelineno-1-4"></a><span class="nb">print</span><span class="p">(</span><span class="n">plan</span><span class="o">.</span><span class="n">guarantee_level</span><span class="p">)</span>         <span class="c1"># GuaranteeLevel.ATOMIC_LOCAL (local fs)</span>
+<a id="__codelineno-1-5" name="__codelineno-1-5"></a><span class="nb">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">plan</span><span class="o">.</span><span class="n">source_snapshot</span><span class="o">.</span><span class="n">files</span><span class="p">),</span> <span class="n">plan</span><span class="o">.</span><span class="n">source_snapshot</span><span class="o">.</span><span class="n">total_rows</span><span class="p">)</span>
+<a id="__codelineno-1-6" name="__codelineno-1-6"></a><span class="nb">print</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">plan</span><span class="o">.</span><span class="n">compaction_groups</span><span class="p">))</span>  <span class="c1"># how many output groups will be written</span>
+<a id="__codelineno-1-7" name="__codelineno-1-7"></a>
+<a id="__codelineno-1-8" name="__codelineno-1-8"></a><span class="n">result</span> <span class="o">=</span> <span class="n">fs</span><span class="o">.</span><span class="n">execute_maintenance_plan</span><span class="p">(</span><span class="n">plan</span><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
-<h2 id="cross-framework-use">Cross-framework use<a class="headerlink" href="#cross-framework-use" title="Permanent link">&para;</a></h2>
-<p>The same SQL string works for both frameworks against their respective schemas:</p>
-<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
-<span class="normal"><a href="#__codelineno-2-2">2</a></span>
-<span class="normal"><a href="#__codelineno-2-3">3</a></span>
-<span class="normal"><a href="#__codelineno-2-4">4</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="n">sql</span> <span class="o">=</span> <span class="s2">&quot;(category = &#39;A&#39; OR category = &#39;B&#39;) AND value &gt; 100.0 AND timestamp &gt;= &#39;2023-01-01&#39;&quot;</span>
-<a id="__codelineno-2-2" name="__codelineno-2-2"></a>
-<a id="__codelineno-2-3" name="__codelineno-2-3"></a><span class="n">pa_filter</span> <span class="o">=</span> <span class="n">sql2pyarrow_filter</span><span class="p">(</span><span class="n">sql</span><span class="p">,</span> <span class="n">arrow_schema</span><span class="p">)</span>
-<a id="__codelineno-2-4" name="__codelineno-2-4"></a><span class="n">pl_filter</span> <span class="o">=</span> <span class="n">sql2polars_filter</span><span class="p">(</span><span class="n">sql</span><span class="p">,</span> <span class="n">polars_schema</span><span class="p">)</span>
-</code></pre></div></td></tr></table></div>
-<p>Note the <code>OR</code> chain instead of <code>IN</code>: <code>IN (...)</code> is only supported by the
-PyArrow translator (see the support matrix below).</p>
-<p>This lets you keep filtering logic in one place (for example, in configuration)
-and apply it to whichever engine processes the data.</p>
-<h2 id="supported-sql">Supported SQL<a class="headerlink" href="#supported-sql" title="Permanent link">&para;</a></h2>
-<p>The translator covers a deliberately small predicate surface. Unsupported
-constructs raise <code>ValueError</code> at translation time instead of silently
-mis-filtering. The matrix below is verified against the shipped translators:</p>
+<p>Use this workflow in production pipelines: log or persist the plan, require
+approval, then execute.</p>
+<h2 id="choose-the-right-operation">Choose the right operation<a class="headerlink" href="#choose-the-right-operation" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>Construct</th>
-<th>PyArrow</th>
-<th>Polars</th>
+<th>Goal</th>
+<th>One-call method</th>
+<th>Planning method</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>=</code>, <code>!=</code>, <code>&gt;</code>, <code>&gt;=</code>, <code>&lt;</code>, <code>&lt;=</code></td>
-<td>✅</td>
-<td>✅</td>
+<td>Combine small files</td>
+<td><code>compact_parquet_dataset</code></td>
+<td><code>plan_parquet_compaction</code></td>
 </tr>
 <tr>
-<td><code>AND</code>, <code>OR</code>, <code>NOT</code>, parentheses</td>
-<td>✅</td>
-<td>✅</td>
+<td>Remove duplicate rows, keep partitions</td>
+<td><code>deduplicate_parquet_dataset</code></td>
+<td><code>plan_parquet_partition_local_deduplication</code></td>
 </tr>
 <tr>
-<td><code>IS NULL</code>, <code>IS NOT NULL</code></td>
-<td>✅</td>
-<td>✅</td>
+<td>Remove duplicates <em>and</em> change partitioning</td>
+<td><code>deduplicate_and_repartition_parquet_dataset</code></td>
+<td><code>plan_parquet_global_repartition_deduplication</code></td>
 </tr>
 <tr>
-<td>Timestamp literals (<code>timestamp &gt;= '2023-01-01'</code>)</td>
-<td>✅</td>
-<td>✅</td>
-</tr>
-<tr>
-<td><code>IN (...)</code>, <code>NOT IN (...)</code></td>
-<td>✅</td>
-<td>❌</td>
-</tr>
-<tr>
-<td>Boolean literals (<code>active = TRUE</code>)</td>
-<td>✅</td>
-<td>❌</td>
-</tr>
-<tr>
-<td><code>BETWEEN</code>, <code>LIKE</code></td>
-<td>❌</td>
-<td>❌</td>
-</tr>
-<tr>
-<td>Function calls (<code>YEAR()</code>, <code>DATE()</code>, <code>UPPER()</code>, ...)</td>
-<td>❌</td>
-<td>❌</td>
-</tr>
-<tr>
-<td>Arithmetic (<code>value * 1.1 &gt; 100</code>)</td>
-<td>❌</td>
-<td>❌</td>
+<td>Deduplicate + compact in one pass</td>
+<td><code>optimize_parquet_dataset</code></td>
+<td><code>plan_parquet_optimization</code></td>
 </tr>
 </tbody>
 </table>
+<p>Partition-local deduplication is the default: it only rewrites files within
+each physical partition, never moving rows across partition boundaries.
+Global repartitioning is deliberately explicit - it rewrites the whole dataset
+into a new partition layout, which is why it requires <code>partition_columns</code>.</p>
+<h2 id="deduplicate-by-key">Deduplicate by key<a class="headerlink" href="#deduplicate-by-key" title="Permanent link">&para;</a></h2>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-2-1">1</a></span>
+<span class="normal"><a href="#__codelineno-2-2">2</a></span>
+<span class="normal"><a href="#__codelineno-2-3">3</a></span>
+<span class="normal"><a href="#__codelineno-2-4">4</a></span>
+<span class="normal"><a href="#__codelineno-2-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-2-1" name="__codelineno-2-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">fs</span><span class="o">.</span><span class="n">deduplicate_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-2-2" name="__codelineno-2-2"></a>    <span class="s2">&quot;dataset/&quot;</span><span class="p">,</span>
+<a id="__codelineno-2-3" name="__codelineno-2-3"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;tenant_id&quot;</span><span class="p">,</span> <span class="s2">&quot;record_id&quot;</span><span class="p">],</span>
+<a id="__codelineno-2-4" name="__codelineno-2-4"></a>    <span class="n">dedup_order_by</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;event_timestamp&quot;</span><span class="p">],</span>
+<a id="__codelineno-2-5" name="__codelineno-2-5"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p>Key semantics:</p>
+<ul>
+<li>One row survives per key combination. With <code>dedup_order_by</code>, rows are
+  ordered <strong>ascending</strong> and the <strong>first</strong> row per key wins (ties fall back to
+  physical order). Without it, physical order
+  <code>(partition path, file path, row offset)</code> decides.</li>
+<li>Omit <code>key_columns</code> to remove rows that are identical across <strong>all</strong> columns
+  (exact duplicates).</li>
+<li>Null and <code>NaN</code> key components compare equal; strings compare by exact
+  stored value.</li>
+<li>The legacy <code>-column</code> descending prefix from the pre-0.25 helpers is not
+  supported. Ordering is always ascending and the first row per key wins, so
+  to keep the <em>latest</em> record, ensure it sorts first (for example with an
+  inverted ordering column), or omit <code>dedup_order_by</code> and rely on ingest
+  order placing the preferred row first.</li>
+</ul>
+<h2 id="repartition-globally">Repartition globally<a class="headerlink" href="#repartition-globally" title="Permanent link">&para;</a></h2>
 <div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-3-1">1</a></span>
 <span class="normal"><a href="#__codelineno-3-2">2</a></span>
 <span class="normal"><a href="#__codelineno-3-3">3</a></span>
 <span class="normal"><a href="#__codelineno-3-4">4</a></span>
-<span class="normal"><a href="#__codelineno-3-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="n">filters</span> <span class="o">=</span> <span class="p">[</span>
-<a id="__codelineno-3-2" name="__codelineno-3-2"></a>    <span class="s2">&quot;value &gt;= 10 AND value &lt;= 100 OR category = &#39;SPECIAL&#39;&quot;</span><span class="p">,</span>  <span class="c1"># BETWEEN rewritten</span>
-<a id="__codelineno-3-3" name="__codelineno-3-3"></a>    <span class="s2">&quot;timestamp &gt;= &#39;2023-01-01&#39; AND timestamp &lt;= &#39;2023-12-31&#39;&quot;</span><span class="p">,</span>
-<a id="__codelineno-3-4" name="__codelineno-3-4"></a>    <span class="s2">&quot;category IN (&#39;a&#39;, &#39;b&#39;) AND value &gt; 50&quot;</span><span class="p">,</span>                  <span class="c1"># PyArrow only</span>
-<a id="__codelineno-3-5" name="__codelineno-3-5"></a><span class="p">]</span>
+<span class="normal"><a href="#__codelineno-3-5">5</a></span>
+<span class="normal"><a href="#__codelineno-3-6">6</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-3-1" name="__codelineno-3-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">fs</span><span class="o">.</span><span class="n">deduplicate_and_repartition_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-3-2" name="__codelineno-3-2"></a>    <span class="s2">&quot;dataset/&quot;</span><span class="p">,</span>
+<a id="__codelineno-3-3" name="__codelineno-3-3"></a>    <span class="n">partition_columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;year&quot;</span><span class="p">,</span> <span class="s2">&quot;month&quot;</span><span class="p">],</span>  <span class="c1"># required: new output layout</span>
+<a id="__codelineno-3-4" name="__codelineno-3-4"></a>    <span class="n">key_columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">],</span>
+<a id="__codelineno-3-5" name="__codelineno-3-5"></a>    <span class="n">dedup_order_by</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;updated_at&quot;</span><span class="p">],</span>
+<a id="__codelineno-3-6" name="__codelineno-3-6"></a><span class="p">)</span>
 </code></pre></div></td></tr></table></div>
-<p>Rewrite unsupported constructs in terms of supported ones:</p>
+<p>This reads the entire dataset, deduplicates globally, and writes it out under
+the given hive-style partition columns. Expect a full rewrite.</p>
+<h2 id="optimize-dedup-compaction">Optimize (dedup + compaction)<a class="headerlink" href="#optimize-dedup-compaction" title="Permanent link">&para;</a></h2>
+<p><code>optimize_parquet_dataset</code> runs optional key-based deduplication followed by
+compaction in one coordinated pass:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-4-1">1</a></span>
+<span class="normal"><a href="#__codelineno-4-2">2</a></span>
+<span class="normal"><a href="#__codelineno-4-3">3</a></span>
+<span class="normal"><a href="#__codelineno-4-4">4</a></span>
+<span class="normal"><a href="#__codelineno-4-5">5</a></span>
+<span class="normal"><a href="#__codelineno-4-6">6</a></span>
+<span class="normal"><a href="#__codelineno-4-7">7</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-4-1" name="__codelineno-4-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">fs</span><span class="o">.</span><span class="n">optimize_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-4-2" name="__codelineno-4-2"></a>    <span class="s2">&quot;dataset/&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-3" name="__codelineno-4-3"></a>    <span class="n">deduplicate_key_columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">],</span>   <span class="c1"># optional</span>
+<a id="__codelineno-4-4" name="__codelineno-4-4"></a>    <span class="n">dedup_order_by</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;updated_at&quot;</span><span class="p">],</span>    <span class="c1"># optional</span>
+<a id="__codelineno-4-5" name="__codelineno-4-5"></a>    <span class="n">target_rows_per_file</span><span class="o">=</span><span class="mi">500_000</span><span class="p">,</span>
+<a id="__codelineno-4-6" name="__codelineno-4-6"></a>    <span class="n">compression</span><span class="o">=</span><span class="s2">&quot;zstd&quot;</span><span class="p">,</span>
+<a id="__codelineno-4-7" name="__codelineno-4-7"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p>Pass no <code>deduplicate_key_columns</code> to get pure compaction with the same
+planning and validation machinery.</p>
+<h2 id="scope-work-with-a-partition-filter">Scope work with a partition filter<a class="headerlink" href="#scope-work-with-a-partition-filter" title="Permanent link">&para;</a></h2>
+<p>All planning and one-call methods accept <code>partition_filter</code>, a list of
+partition-path prefixes. Only matching files are considered:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-5-1">1</a></span>
+<span class="normal"><a href="#__codelineno-5-2">2</a></span>
+<span class="normal"><a href="#__codelineno-5-3">3</a></span>
+<span class="normal"><a href="#__codelineno-5-4">4</a></span>
+<span class="normal"><a href="#__codelineno-5-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-5-1" name="__codelineno-5-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">fs</span><span class="o">.</span><span class="n">compact_parquet_dataset</span><span class="p">(</span>
+<a id="__codelineno-5-2" name="__codelineno-5-2"></a>    <span class="s2">&quot;dataset/&quot;</span><span class="p">,</span>
+<a id="__codelineno-5-3" name="__codelineno-5-3"></a>    <span class="n">target_mb_per_file</span><span class="o">=</span><span class="mi">128</span><span class="p">,</span>
+<a id="__codelineno-5-4" name="__codelineno-5-4"></a>    <span class="n">partition_filter</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;year=2024/month=01&quot;</span><span class="p">],</span>
+<a id="__codelineno-5-5" name="__codelineno-5-5"></a><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<h2 id="understand-the-safety-guarantees">Understand the safety guarantees<a class="headerlink" href="#understand-the-safety-guarantees" title="Permanent link">&para;</a></h2>
+<p>The coordinator classifies every plan into a guarantee level, recorded on both
+<code>plan.guarantee_level</code> and <code>result.guarantee_level</code>:</p>
 <ul>
-<li><code>value BETWEEN 10 AND 100</code> -&gt; <code>value &gt;= 10 AND value &lt;= 100</code></li>
-<li><code>category IN ('a', 'b')</code> -&gt; <code>category = 'a' OR category = 'b'</code> (for Polars)</li>
-<li><code>YEAR(ts) = 2023</code> -&gt; <code>ts &gt;= '2023-01-01' AND ts &lt; '2024-01-01'</code></li>
-<li><code>name LIKE 'test%'</code> has no translator equivalent; filter natively in the
-  engine after the scan.</li>
+<li><strong><code>atomic_local</code></strong> (native local/POSIX filesystems): bounded advisory locks
+  for cooperating fsspeckit readers/writers, staged writes in a sibling
+  workspace, validation, atomic rename publication, and rollback before
+  publication. Concurrent readers see either the old or the new dataset.</li>
+<li><strong><code>best_effort_object_store</code></strong> (S3, GCS, Azure, and every other fsspec
+  filesystem): no distributed lock, no atomic visibility, no automatic
+  rollback. The coordinator writes and validates the full staged rewrite,
+  copies outputs to their live keys, revalidates them, then revalidates every
+  source object before deleting anything. If a source drifted mid-operation,
+  it deletes <strong>no</strong> inputs and preserves staging and partial outputs as
+  recovery artifacts on the result.</li>
 </ul>
-<h2 id="type-aware-conversion">Type-aware conversion<a class="headerlink" href="#type-aware-conversion" title="Permanent link">&para;</a></h2>
-<p>Literals are parsed and coerced to the schema's column type, so a comparison
-against a timestamp column uses a timestamp value, and a comparison against an
-integer column uses an integer. This avoids silent type-mismatch bugs.</p>
+<p>Practical guidance: on object stores, run maintenance against quiescent
+datasets (no concurrent writers), and check <code>result.succeeded</code> plus
+<code>result.recovery</code> before assuming the operation published.</p>
+<h2 id="interpret-the-result">Interpret the result<a class="headerlink" href="#interpret-the-result" title="Permanent link">&para;</a></h2>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-6-1"> 1</a></span>
+<span class="normal"><a href="#__codelineno-6-2"> 2</a></span>
+<span class="normal"><a href="#__codelineno-6-3"> 3</a></span>
+<span class="normal"><a href="#__codelineno-6-4"> 4</a></span>
+<span class="normal"><a href="#__codelineno-6-5"> 5</a></span>
+<span class="normal"><a href="#__codelineno-6-6"> 6</a></span>
+<span class="normal"><a href="#__codelineno-6-7"> 7</a></span>
+<span class="normal"><a href="#__codelineno-6-8"> 8</a></span>
+<span class="normal"><a href="#__codelineno-6-9"> 9</a></span>
+<span class="normal"><a href="#__codelineno-6-10">10</a></span>
+<span class="normal"><a href="#__codelineno-6-11">11</a></span>
+<span class="normal"><a href="#__codelineno-6-12">12</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-6-1" name="__codelineno-6-1"></a><span class="n">result</span> <span class="o">=</span> <span class="n">fs</span><span class="o">.</span><span class="n">optimize_parquet_dataset</span><span class="p">(</span><span class="s2">&quot;dataset/&quot;</span><span class="p">,</span> <span class="n">deduplicate_key_columns</span><span class="o">=</span><span class="p">[</span><span class="s2">&quot;id&quot;</span><span class="p">])</span>
+<a id="__codelineno-6-2" name="__codelineno-6-2"></a>
+<a id="__codelineno-6-3" name="__codelineno-6-3"></a><span class="k">if</span> <span class="ow">not</span> <span class="n">result</span><span class="o">.</span><span class="n">succeeded</span><span class="p">:</span>
+<a id="__codelineno-6-4" name="__codelineno-6-4"></a>    <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Maintenance failed:&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">error</span><span class="p">)</span>
+<a id="__codelineno-6-5" name="__codelineno-6-5"></a>    <span class="k">if</span> <span class="n">result</span><span class="o">.</span><span class="n">recovery</span> <span class="ow">and</span> <span class="n">result</span><span class="o">.</span><span class="n">recovery</span><span class="o">.</span><span class="n">workspace_path</span><span class="p">:</span>
+<a id="__codelineno-6-6" name="__codelineno-6-6"></a>        <span class="nb">print</span><span class="p">(</span><span class="s2">&quot;Recovery artifacts kept at:&quot;</span><span class="p">,</span> <span class="n">result</span><span class="o">.</span><span class="n">recovery</span><span class="o">.</span><span class="n">workspace_path</span><span class="p">)</span>
+<a id="__codelineno-6-7" name="__codelineno-6-7"></a><span class="k">else</span><span class="p">:</span>
+<a id="__codelineno-6-8" name="__codelineno-6-8"></a>    <span class="n">metrics</span> <span class="o">=</span> <span class="n">result</span><span class="o">.</span><span class="n">actual_metrics</span>
+<a id="__codelineno-6-9" name="__codelineno-6-9"></a>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">metrics</span><span class="o">.</span><span class="n">file_count</span><span class="si">}</span><span class="s2"> files, </span><span class="si">{</span><span class="n">metrics</span><span class="o">.</span><span class="n">row_count</span><span class="si">}</span><span class="s2"> rows, &quot;</span>
+<a id="__codelineno-6-10" name="__codelineno-6-10"></a>          <span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">metrics</span><span class="o">.</span><span class="n">total_bytes</span><span class="si">}</span><span class="s2"> bytes&quot;</span><span class="p">)</span>
+<a id="__codelineno-6-11" name="__codelineno-6-11"></a>    <span class="k">for</span> <span class="n">phase</span> <span class="ow">in</span> <span class="n">result</span><span class="o">.</span><span class="n">phase_outcomes</span><span class="p">:</span>
+<a id="__codelineno-6-12" name="__codelineno-6-12"></a>        <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;  </span><span class="si">{</span><span class="n">phase</span><span class="o">.</span><span class="n">phase</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="s1">&#39;ok&#39;</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="n">phase</span><span class="o">.</span><span class="n">succeeded</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="n">phase</span><span class="o">.</span><span class="n">error</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>
+</code></pre></div></td></tr></table></div>
+<p>Key fields:</p>
+<ul>
+<li><code>succeeded</code> / <code>error</code> - overall outcome and failure summary.</li>
+<li><code>actual_metrics</code> - published output row/file/byte counts (only on success;
+  <code>None</code> otherwise).</li>
+<li><code>phase_outcomes</code> - ordered per-phase detail (stage, write, validate, lock,
+  drift_check, publish, cleanup).</li>
+<li><code>validation</code> / <code>publication</code> - staged-output validation and atomic-rename
+  outcomes.</li>
+<li><code>recovery</code> - workspace and backup locations retained after a failure.</li>
+<li><code>plan</code> - the executed plan, including the source snapshot (use it for
+  before/after comparisons).</li>
+</ul>
+<h2 id="use-the-coordinator-directly">Use the coordinator directly<a class="headerlink" href="#use-the-coordinator-directly" title="Permanent link">&para;</a></h2>
+<p>The filesystem facade always uses the PyArrow backend. To pin DuckDB (or hold
+a coordinator across operations), construct one yourself:</p>
+<div class="highlight"><table class="highlighttable"><tr><td class="linenos"><div class="linenodiv"><pre><span></span><span class="normal"><a href="#__codelineno-7-1">1</a></span>
+<span class="normal"><a href="#__codelineno-7-2">2</a></span>
+<span class="normal"><a href="#__codelineno-7-3">3</a></span>
+<span class="normal"><a href="#__codelineno-7-4">4</a></span>
+<span class="normal"><a href="#__codelineno-7-5">5</a></span></pre></div></td><td class="code"><div><pre><span></span><code><a id="__codelineno-7-1" name="__codelineno-7-1"></a><span class="kn">from</span><span class="w"> </span><span class="nn">fsspeckit.core.maintenance</span><span class="w"> </span><span class="kn">import</span> <span class="n">DatasetMaintenanceCoordinator</span>
+<a id="__codelineno-7-2" name="__codelineno-7-2"></a>
+<a id="__codelineno-7-3" name="__codelineno-7-3"></a><span class="n">coordinator</span> <span class="o">=</span> <span class="n">DatasetMaintenanceCoordinator</span><span class="p">(</span><span class="s2">&quot;duckdb&quot;</span><span class="p">)</span>
+<a id="__codelineno-7-4" name="__codelineno-7-4"></a><span class="n">plan</span> <span class="o">=</span> <span class="n">coordinator</span><span class="o">.</span><span class="n">plan_compaction</span><span class="p">(</span><span class="s2">&quot;dataset/&quot;</span><span class="p">,</span> <span class="n">target_rows_per_file</span><span class="o">=</span><span class="mi">100_000</span><span class="p">)</span>
+<a id="__codelineno-7-5" name="__codelineno-7-5"></a><span class="n">result</span> <span class="o">=</span> <span class="n">coordinator</span><span class="o">.</span><span class="n">execute</span><span class="p">(</span><span class="n">plan</span><span class="p">)</span>  <span class="c1"># pass filesystem=... for object stores</span>
+</code></pre></div></td></tr></table></div>
+<p>The planning methods mirror the facade:
+<code>plan_compaction</code>, <code>plan_partition_local_deduplication</code>,
+<code>plan_global_repartition_deduplication</code>, <code>plan_coordinated_optimization</code>.</p>
+<h2 id="working-examples">Working examples<a class="headerlink" href="#working-examples" title="Permanent link">&para;</a></h2>
+<p>Runnable, validated examples live in the repository:</p>
+<ul>
+<li><code>examples/datasets/getting_started/06_pyarrow_maintenance.py</code> - stats,
+  compaction planning, execution, and one-call optimization.</li>
+<li><code>examples/maintenance/dataset_deduplication_example.py</code> - key-based dedup,
+  exact-duplicate removal, optimization, and multi-column keys.</li>
+</ul>
 <h2 id="related-documentation">Related documentation<a class="headerlink" href="#related-documentation" title="Permanent link">&para;</a></h2>
 <ul>
-<li><a href="../../reference/api-guide/">API Guide</a> - SQL import selection.</li>
-<li><a href="../../api/fsspeckit.sql.filters/">Generated API: fsspeckit.sql.filters</a> -
-  exact signatures.</li>
-<li><a href="../read-and-write-datasets/">Read and Write Datasets</a> - applying filters to
-  dataset reads.</li>
+<li><a href="../../migration/maintenance-api/">Coordinator-backed Maintenance migration</a> -
+  replacement table for the removed dictionary-returning helpers.</li>
+<li><a href="../../dataset-handlers/">Dataset Handlers</a> - the read/write/merge interface
+  (maintenance is no longer part of it).</li>
+<li><a href="../optimize-performance/">Optimize Performance</a> - caching, parallel reads,
+  and type optimization.</li>
+<li><a href="../../api/fsspeckit.core.maintenance/">Generated API: fsspeckit.core.maintenance</a> -
+  full plan/result type reference.</li>
 </ul>
 
 

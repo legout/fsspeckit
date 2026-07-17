@@ -2,246 +2,254 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://legout.github.io/fsspeckit/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/code_refinement_summary/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/contributing/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/dataset-handlers/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/dataset-maintenance-review-2026-07-10/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/installation/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/adr/0003-common-layer-independence/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/adr/0004-maintenance-execution-template/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/adr/0005-persisted-dataset-deduplication-export/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/adr/0006-coordinated-dataset-maintenance/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/agents/domain/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/agents/issue-tracker/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/agents/triage-labels/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.common/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.core.maintenance/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.core/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.core.merge/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.datasets.duckdb/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.datasets/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.datasets.pyarrow/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.sql.filters/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/api/fsspeckit.storage_options/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/architecture/0001-layering-rules/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/explanation/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/explanation/architecture/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/explanation/concepts/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/adaptive-key-tracking/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/configure-cloud-storage/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://legout.github.io/fsspeckit/how-to/maintain-parquet-datasets/</loc>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/memory-constrained-environments/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/merge-datasets/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/merge-operations-examples/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/multi-key-examples/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/multi-key-performance/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/optimize-memory-monitoring-performance/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/optimize-performance/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/read-and-write-datasets/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/sync-and-manage-files/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/use-sql-filters/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/how-to/work-with-filesystems/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/migration/dataset-module-refactor/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
+    </url>
+    <url>
+         <loc>https://legout.github.io/fsspeckit/migration/maintenance-api/</loc>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/migration/migrate-package-layout/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/plans/common-layer-independence-prd/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/plans/coordinated-dataset-maintenance-spec/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/plans/dataset-module-refactor-plan/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/plans/documentation-drift-audit/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/plans/information-architecture-prototype/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/plans/maintenance-execution-template-prd/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/plans/migration-historical-content-boundaries/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/plans/split-common-misc-prd/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/reference/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/reference/adaptive-key-tracking/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/reference/api-guide/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/reference/legacy-imports/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/reference/multi-key-api/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/reference/public-api-inventory/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/reference/storage-options/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/reference/utils/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/tutorials/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
     <url>
          <loc>https://legout.github.io/fsspeckit/tutorials/local-dataset-lifecycle/</loc>
-         <lastmod>2026-07-13</lastmod>
+         <lastmod>2026-07-17</lastmod>
     </url>
 </urlset>
