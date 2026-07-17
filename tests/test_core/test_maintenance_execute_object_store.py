@@ -221,6 +221,40 @@ class TestBestEffortCompactionSuccess:
             table = _read_parquet(fs, live_key)
             assert table.num_rows > 0
 
+    def test_partitioned_compaction_preserves_hive_layout(self):
+        """Best-effort compaction stays partition-local and keeps hive metadata (#54)."""
+        import pyarrow.dataset as pds
+
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        for country in ("DE", "US"):
+            for year in ("2023", "2024"):
+                partition = f"{root}/country={country}/year={year}"
+                for index in range(2):
+                    _write_parquet(
+                        fs,
+                        f"{partition}/part-{index}.parquet",
+                        pa.table({"id": [index * 2 + 1, index * 2 + 2]}),
+                    )
+
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_compaction(root, fs, target_rows_per_file=1_000)
+        result = coordinator.execute(plan, filesystem=fs)
+
+        assert result.succeeded, result.error
+        assert len(plan.compaction_groups) == 4
+        assert len(result.copied_live_keys) == 4
+        assert all(
+            "/country=" in key and "/year=" in key for key in result.copied_live_keys
+        )
+        assert not fs.glob(f"{root}/compacted-*.parquet")
+
+        hive_table = pds.dataset(
+            root, filesystem=fs, format="parquet", partitioning="hive"
+        ).to_table()
+        assert set(hive_table.column_names) == {"id", "country", "year"}
+        assert hive_table.num_rows == 16
+
     def test_total_rows_preserved(self, sample_table):
         _, fs, _, result = self._run(sample_table)
         total_source_rows = sample_table.num_rows * 2  # two files
@@ -262,7 +296,9 @@ class TestBestEffortCompactionSuccess:
             phase_names
         )
         for phase in result.phase_outcomes:
-            assert phase.succeeded is True, f"Phase {phase.phase!r} failed: {phase.error}"
+            assert phase.succeeded is True, (
+                f"Phase {phase.phase!r} failed: {phase.error}"
+            )
 
     def test_validation_outcome_populated(self, sample_table):
         _, _, _, result = self._run(sample_table)
@@ -567,7 +603,9 @@ class TestBestEffortPartitionLocalDeduplication:
         assert all(
             not fs.exists(source.absolute_path) for source in plan.source_snapshot.files
         )
-        tables = [_read_parquet(fs, path) for path in result.publication.published_files]
+        tables = [
+            _read_parquet(fs, path) for path in result.publication.published_files
+        ]
         outputs = pa.concat_tables(tables)
         assert outputs.num_rows == 4
         assert set(outputs.column("value").to_pylist()) == {
@@ -586,7 +624,9 @@ class TestBestEffortPartitionLocalDeduplication:
         plan = coordinator.plan_partition_local_deduplication(
             root, filesystem=fs, key_columns=["id"]
         )
-        _write_parquet(fs, source, pa.table({"id": [1, 1, 2], "value": ["a", "b", "c"]}))
+        _write_parquet(
+            fs, source, pa.table({"id": [1, 1, 2], "value": ["a", "b", "c"]})
+        )
 
         result = coordinator.execute(plan, filesystem=fs)
 

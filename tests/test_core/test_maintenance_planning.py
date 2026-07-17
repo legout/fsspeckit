@@ -14,6 +14,7 @@ from fsspec.implementations.memory import MemoryFileSystem
 
 from fsspeckit.core.maintenance import (
     CompactionPlan,
+    CompactionSkipReason,
     CoordinatedOptimizationPlan,
     DatasetMaintenanceCoordinator,
     GlobalRepartitionDeduplicationPlan,
@@ -75,6 +76,102 @@ class TestCoordinatorPlanning:
 
         # Planning is lock-free and leaves the dataset untouched.
         assert {p.name for p in tmp_path.iterdir()} == {"a.parquet", "b.parquet"}
+
+    def test_compaction_plan_exposes_singleton_skip_reason(
+        self, sample_table, tmp_path
+    ):
+        fs = fsspec_filesystem("file")
+        pq.write_table(sample_table, str(tmp_path / "healthy.parquet"))
+
+        plan = DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+            str(tmp_path), fs, target_rows_per_file=100
+        )
+
+        assert plan.compaction_groups == ()
+        assert len(plan.skipped_files) == 1
+        assert plan.skipped_files[0].reason == CompactionSkipReason.SINGLETON_PARTITION
+        assert plan.skipped_files[0].file.path.endswith("healthy.parquet")
+
+    def test_explicit_codec_rewrites_healthy_singleton(self, sample_table, tmp_path):
+        fs = fsspec_filesystem("file")
+        pq.write_table(
+            sample_table,
+            str(tmp_path / "gzip.parquet"),
+            compression="gzip",
+        )
+        coordinator = DatasetMaintenanceCoordinator("pyarrow")
+        plan = coordinator.plan_compaction(
+            str(tmp_path),
+            fs,
+            target_rows_per_file=100,
+            codec="zstd",
+        )
+
+        assert len(plan.compaction_groups) == 1
+        assert plan.skipped_files == ()
+        result = coordinator.execute(plan)
+        assert result.succeeded, result.error
+
+        output_files = list(tmp_path.glob("*.parquet"))
+        assert len(output_files) == 1
+        parquet_file = pq.ParquetFile(output_files[0])
+        codecs = {
+            parquet_file.metadata.row_group(row_group)
+            .column(column)
+            .compression.lower()
+            for row_group in range(parquet_file.metadata.num_row_groups)
+            for column in range(parquet_file.metadata.num_columns)
+        }
+        assert codecs == {"zstd"}
+
+    def test_derived_partition_planning_requires_unambiguous_timestamp(self, tmp_path):
+        fs = fsspec_filesystem("file")
+        table = pa.table(
+            {
+                "id": [1],
+                "event_ts": pa.array([0], type=pa.timestamp("us")),
+                "ingested_ts": pa.array([0], type=pa.timestamp("us")),
+            }
+        )
+        pq.write_table(table, str(tmp_path / "data.parquet"))
+        coordinator = DatasetMaintenanceCoordinator("pyarrow")
+
+        with pytest.raises(ValueError, match="exactly one timestamp.*candidates"):
+            coordinator.plan_global_repartition_deduplication(
+                str(tmp_path),
+                ["year"],
+                filesystem=fs,
+                derived_partition_columns={"year": ("year", "auto")},
+            )
+
+    def test_derived_partition_planning_validates_function_type_and_collision(
+        self, sample_table, tmp_path
+    ):
+        fs = fsspec_filesystem("file")
+        pq.write_table(sample_table, str(tmp_path / "data.parquet"))
+        coordinator = DatasetMaintenanceCoordinator("pyarrow")
+
+        with pytest.raises(ValueError, match="Unknown derived partition function"):
+            coordinator.plan_global_repartition_deduplication(
+                str(tmp_path),
+                ["year"],
+                filesystem=fs,
+                derived_partition_columns={"year": ("quarter", "a")},
+            )
+        with pytest.raises(ValueError, match="collides with the source schema"):
+            coordinator.plan_global_repartition_deduplication(
+                str(tmp_path),
+                ["a"],
+                filesystem=fs,
+                derived_partition_columns={"a": ("year", "a")},
+            )
+        with pytest.raises(ValueError, match="must be timestamp"):
+            coordinator.plan_global_repartition_deduplication(
+                str(tmp_path),
+                ["year"],
+                filesystem=fs,
+                derived_partition_columns={"year": ("year", "a")},
+            )
 
     def test_plan_compaction_memory_best_effort(self, sample_table):
         """Non-local fsspec filesystems receive best-effort object-store semantics."""

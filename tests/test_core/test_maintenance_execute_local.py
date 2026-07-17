@@ -1687,6 +1687,111 @@ class TestAtomicLocalGlobalRepartitionDeduplication:
         assert result.actual_metrics.row_count == 3
         assert result.actual_metrics.file_count == 3
 
+    def test_integer_partition_columns_are_path_only_and_hive_readable(self, tmp_path):
+        """Integer destination keys stay out of files and hive reads succeed (#56)."""
+        import pyarrow.dataset as pds
+
+        dataset = tmp_path / "ds"
+        _write_partitioned(
+            str(dataset),
+            {
+                "": [
+                    (
+                        "source.parquet",
+                        pa.table(
+                            {
+                                "id": [1, 2, 3],
+                                "year": pa.array([2023, 2024, 2024], type=pa.int64()),
+                            }
+                        ),
+                    )
+                ]
+            },
+        )
+
+        result, _ = self._execute(
+            dataset, partition_columns=["year"], key_columns=["id"]
+        )
+        assert result.succeeded, result.error
+
+        output_files = _partition_files(str(dataset), "year=2023")
+        output_files += _partition_files(str(dataset), "year=2024")
+        assert output_files
+        assert all("year" not in pq.read_schema(path).names for path in output_files)
+
+        hive_table = pds.dataset(
+            str(dataset), format="parquet", partitioning="hive"
+        ).to_table()
+        assert hive_table.column_names.count("year") == 1
+        assert sorted(hive_table["year"].to_pylist()) == [2023, 2024, 2024]
+
+    def test_timestamp_derived_partitions_use_explicit_timezone_and_path_only_keys(
+        self, tmp_path
+    ):
+        """Derived keys use the planned timezone and remain hive path metadata (#57)."""
+        from datetime import datetime, timedelta, timezone
+
+        import pyarrow.dataset as pds
+
+        dataset = tmp_path / "ds"
+        source_timezone = timezone(timedelta(hours=1))
+        _write_partitioned(
+            str(dataset),
+            {
+                "": [
+                    (
+                        "source.parquet",
+                        pa.table(
+                            {
+                                "id": [1, 2],
+                                "event_ts": pa.array(
+                                    [
+                                        datetime(
+                                            2024, 1, 1, 0, 30, tzinfo=source_timezone
+                                        ),
+                                        datetime(
+                                            2024, 2, 1, 0, 30, tzinfo=source_timezone
+                                        ),
+                                    ],
+                                    type=pa.timestamp("us", tz="+01:00"),
+                                ),
+                            }
+                        ),
+                    )
+                ]
+            },
+        )
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_global_repartition_deduplication(
+            str(dataset),
+            ["year", "year_month"],
+            filesystem=fs,
+            key_columns=["id"],
+            derived_partition_columns={
+                "year": ("year", "event_ts"),
+                "year_month": ("strftime", "event_ts", "%Y-%m"),
+            },
+            partition_timezone="UTC",
+        )
+        result = coordinator.execute(plan)
+
+        assert result.succeeded, result.error
+        assert plan.derived_partition_keys[0].timezone == "UTC"
+        output_files = sorted(str(path) for path in dataset.rglob("*.parquet"))
+        assert any("/year=2023/year_month=2023-12/" in path for path in output_files)
+        assert all(
+            "year" not in pq.read_schema(path).names
+            and "year_month" not in pq.read_schema(path).names
+            for path in output_files
+        )
+
+        hive_table = pds.dataset(
+            str(dataset), format="parquet", partitioning="hive"
+        ).to_table()
+        assert set(("year", "year_month")).issubset(hive_table.column_names)
+        assert sorted(hive_table["year_month"].to_pylist()) == ["2023-12", "2024-01"]
+
     def test_flat_sources_repartition_into_declared_tuples(self, tmp_path):
         """Flat (un-partitioned) sources repartition into new Hive-style dirs."""
         dataset = tmp_path / "ds"

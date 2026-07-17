@@ -85,6 +85,22 @@ class FileInfo:
             raise ValueError("num_rows must be >= 0")
 
 
+class CompactionSkipReason(str, Enum):
+    """Why a source file does not need compaction."""
+
+    AT_TARGET_SIZE = "at_target_size"
+    OVER_TARGET_SIZE = "over_target_size"
+    SINGLETON_PARTITION = "singleton_partition"
+
+
+@dataclass(frozen=True)
+class CompactionSkip:
+    """A source file intentionally excluded from a compaction plan."""
+
+    file: FileInfo
+    reason: CompactionSkipReason
+
+
 @dataclass
 class MaintenanceStats:
     """Canonical statistics structure for maintenance operations.
@@ -372,7 +388,15 @@ def plan_compaction_groups(
     large_files: list[FileInfo] = []
     for file_info in files:
         size_bytes = file_info.size_bytes
-        if size_threshold_bytes is None or size_bytes < size_threshold_bytes:
+        exceeds_row_bound = (
+            target_rows_per_file is not None
+            and file_info.num_rows > target_rows_per_file
+        )
+        if (
+            exceeds_row_bound
+            or size_threshold_bytes is None
+            or size_bytes < size_threshold_bytes
+        ):
             candidates.append(file_info)
         else:
             large_files.append(file_info)
@@ -435,6 +459,21 @@ def plan_compaction_groups(
         for file_info in candidates
         if not any(file_info in group.files for group in finalized_groups)
     ]
+    skipped_files = tuple(
+        CompactionSkip(
+            file=file_info,
+            reason=(
+                CompactionSkipReason.AT_TARGET_SIZE
+                if size_threshold_bytes is not None
+                and file_info.size_bytes == size_threshold_bytes
+                else CompactionSkipReason.OVER_TARGET_SIZE
+                if size_threshold_bytes is not None
+                and file_info.size_bytes > size_threshold_bytes
+                else CompactionSkipReason.SINGLETON_PARTITION
+            ),
+        )
+        for file_info in untouched_files
+    )
 
     after_file_count = len(untouched_files) + len(finalized_groups)
 
@@ -463,6 +502,7 @@ def plan_compaction_groups(
     return {
         "groups": finalized_groups,
         "untouched_files": untouched_files,
+        "skipped_files": skipped_files,
         "planned_stats": planned_stats,
         "planned_groups": planned_groups,
     }
@@ -1082,6 +1122,17 @@ class MaintenancePlan:
 
 
 @dataclass(frozen=True)
+class DerivedPartitionKey:
+    """A validated timestamp-derived hive partition key."""
+
+    name: str
+    function: str
+    source_column: str
+    timezone: str
+    format: str | None = None
+
+
+@dataclass(frozen=True)
 class CompactionPlan(MaintenancePlan):
     """Immutable plan for a compaction operation."""
 
@@ -1089,6 +1140,7 @@ class CompactionPlan(MaintenancePlan):
         default=MaintenanceOperation.COMPACTION, init=False
     )
     compaction_groups: tuple[CompactionGroup, ...] = ()
+    skipped_files: tuple[CompactionSkip, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -1113,6 +1165,7 @@ class GlobalRepartitionDeduplicationPlan(MaintenancePlan):
     partition_columns: tuple[str, ...] = ()
     dedup_key_columns: tuple[str, ...] | None = None
     dedup_order_by: tuple[str, ...] | None = None
+    derived_partition_keys: tuple[DerivedPartitionKey, ...] = ()
     dedup_groups: tuple[CompactionGroup, ...] = ()
 
 
@@ -1430,31 +1483,63 @@ def _plan_partition_local_deduplication_groups(
     )
 
 
+def _plan_partition_local_compaction(
+    file_stats: list[dict[str, Any]],
+    dataset_root: str,
+    target_mb_per_file: int | None,
+    target_rows_per_file: int | None,
+    force_rewrite_paths: set[str] | None = None,
+) -> tuple[tuple[CompactionGroup, ...], tuple[CompactionSkip, ...]]:
+    """Plan partition-local groups and record intentional skip decisions."""
+    partitions = _group_file_stats_by_partition(file_stats, dataset_root)
+    forced = force_rewrite_paths or set()
+
+    groups: list[CompactionGroup] = []
+    skipped: list[CompactionSkip] = []
+    for partition_dir in sorted(partitions):
+        result = plan_compaction_groups(
+            partitions[partition_dir], target_mb_per_file, target_rows_per_file
+        )
+        groups.extend(result["groups"])
+        for record in result["skipped_files"]:
+            if record.file.path in forced:
+                groups.append(CompactionGroup(files=(record.file,)))
+            else:
+                skipped.append(record)
+    return tuple(groups), tuple(skipped)
+
+
 def _plan_partition_local_compaction_groups(
     file_stats: list[dict[str, Any]],
     dataset_root: str,
     target_mb_per_file: int | None,
     target_rows_per_file: int | None,
 ) -> tuple[CompactionGroup, ...]:
-    """Plan compaction groups that never cross a partition boundary.
+    """Compatibility wrapper returning only partition-local groups."""
+    groups, _ = _plan_partition_local_compaction(
+        file_stats,
+        dataset_root,
+        target_mb_per_file,
+        target_rows_per_file,
+    )
+    return groups
 
-    Files are grouped by their partition directory (the directory containing
-    the file relative to the dataset root); each partition is planned
-    independently so a compacted output never mixes rows from two physical
-    partitions. A flat dataset (every file directly under the root) collapses
-    to a single partition and is therefore planned identically to
-    :func:`plan_compaction_groups`.
-    """
-    partitions = _group_file_stats_by_partition(file_stats, dataset_root)
 
-    groups: list[CompactionGroup] = []
-    for partition_dir in sorted(partitions):
-        partition_files = partitions[partition_dir]
-        result = plan_compaction_groups(
-            partition_files, target_mb_per_file, target_rows_per_file
+def _parquet_codecs(
+    filesystem: AbstractFileSystem,
+    path: str,
+) -> frozenset[str]:
+    """Read normalized compression codecs from a Parquet footer."""
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    with filesystem.open(path, "rb") as fh:
+        parquet_file = pq.ParquetFile(fh)
+        metadata = parquet_file.metadata
+        return frozenset(
+            metadata.row_group(row_group).column(column).compression.lower()
+            for row_group in range(metadata.num_row_groups)
+            for column in range(metadata.num_columns)
         )
-        groups.extend(result["groups"])
-    return tuple(groups)
 
 
 # --------------------------------------------------------------------------- #
@@ -2293,6 +2378,122 @@ def _hive_partition_path(columns: tuple[str, ...], values: tuple[Any, ...]) -> s
     )
 
 
+def _repartition_file_schema(
+    schema: pa.Schema | None,
+    partition_columns: tuple[str, ...],
+) -> pa.Schema | None:
+    """Return the physical file schema for a hive-partitioned rewrite."""
+    if schema is None:
+        return None
+    partition_names = set(partition_columns)
+    return pa.schema(
+        [field for field in schema if field.name not in partition_names],
+        metadata=schema.metadata,
+    )
+
+
+def _normalize_derived_partition_keys(
+    schema: pa.Schema,
+    definitions: dict[str, tuple[str, ...]] | None,
+    timezone_name: str,
+) -> tuple[DerivedPartitionKey, ...]:
+    """Validate and normalize timestamp-derived partition definitions."""
+    from zoneinfo import ZoneInfo  # noqa: PLC0415
+
+    if not definitions:
+        return ()
+    try:
+        ZoneInfo(timezone_name)
+    except Exception as exc:
+        raise ValueError(f"Unknown partition timezone: {timezone_name!r}") from exc
+
+    timestamp_columns = [
+        field.name for field in schema if pa.types.is_timestamp(field.type)
+    ]
+    allowed = {"year", "month", "day", "date", "strftime"}
+    result: list[DerivedPartitionKey] = []
+    for name, definition in definitions.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("Derived partition names must be non-empty strings")
+        if name in schema.names:
+            raise ValueError(
+                f"Derived partition column {name!r} collides with the source schema"
+            )
+        if not isinstance(definition, tuple) or len(definition) not in (2, 3):
+            raise ValueError(
+                f"Derived partition {name!r} must be (function, source) or "
+                "(strftime, source, format)"
+            )
+        function, source_column, *format_values = definition
+        if function not in allowed:
+            raise ValueError(
+                f"Unknown derived partition function {function!r}; "
+                f"expected one of {sorted(allowed)}"
+            )
+        if source_column == "auto":
+            if len(timestamp_columns) != 1:
+                raise ValueError(
+                    "Timestamp source 'auto' requires exactly one timestamp column; "
+                    f"candidates: {timestamp_columns}"
+                )
+            source_column = timestamp_columns[0]
+        if source_column not in schema.names:
+            raise ValueError(
+                f"Derived partition source column {source_column!r} does not exist"
+            )
+        if not pa.types.is_timestamp(schema.field(source_column).type):
+            raise ValueError(
+                f"Derived partition source column {source_column!r} must be timestamp"
+            )
+        format_string = format_values[0] if format_values else None
+        if function == "strftime":
+            if not isinstance(format_string, str) or not format_string:
+                raise ValueError(
+                    "strftime derived partitions require a non-empty format"
+                )
+        elif format_string is not None:
+            raise ValueError(f"{function!r} derived partitions do not accept a format")
+        result.append(
+            DerivedPartitionKey(
+                name=name,
+                function=function,
+                source_column=source_column,
+                timezone=timezone_name,
+                format=format_string,
+            )
+        )
+    return tuple(result)
+
+
+def _apply_derived_partition_keys(
+    table: pa.Table,
+    keys: tuple[DerivedPartitionKey, ...],
+) -> pa.Table:
+    """Append validated derived keys after deduplication and before partitioning."""
+    import pyarrow.compute as pc  # noqa: PLC0415
+
+    for key in keys:
+        source = table[key.source_column]
+        source_type = table.schema.field(key.source_column).type
+        target_type = pa.timestamp(source_type.unit, tz=key.timezone)
+        if source_type.tz is None:
+            localized = pc.assume_timezone(source, key.timezone)
+        else:
+            localized = pc.cast(source, target_type)
+        if key.function == "year":
+            derived = pc.year(localized)
+        elif key.function == "month":
+            derived = pc.month(localized)
+        elif key.function == "day":
+            derived = pc.day(localized)
+        elif key.function == "date":
+            derived = pc.cast(localized, pa.date32())
+        else:
+            derived = pc.strftime(localized, format=key.format)
+        table = table.append_column(key.name, derived)
+    return table
+
+
 def _validate_global_partition_placement(
     staged_files: list[str],
     staged_partition_dirs: list[str],
@@ -2300,12 +2501,11 @@ def _validate_global_partition_placement(
     staged_root: str,
     partition_columns: tuple[str, ...],
 ) -> str | None:
-    """Validate global-repartition staged files land under their declared tuple.
+    """Validate staged paths and hive-partitioned physical schemas.
 
     Each staged file must live beneath the Hive-style destination path built
-    from its declared partition values, AND every row inside it must carry
-    those exact partition values.  This is the repartitioning analogue of
-    :func:`_validate_staged_partition_placement` plus a per-row data check.
+    from its declared partition values. Destination partition columns must be
+    absent from the physical file schema because the path supplies them.
     """
     import pyarrow.parquet as pq  # noqa: PLC0415
 
@@ -2328,22 +2528,16 @@ def _validate_global_partition_placement(
                     f"Staged file {staged!r} path {actual_dir!r} does not match "
                     f"declared partition values {expected_path!r}"
                 )
-            # Per-row check: every row must carry the declared partition values.
             with open(staged, "rb") as fh:
-                staged_table = pq.read_table(fh)
-            for row_index in range(staged_table.num_rows):
-                for column, expected_value in zip(
-                    partition_columns, values, strict=True
-                ):
-                    actual_value = staged_table[column][row_index].as_py()
-                    if _canonical_deduplication_value(
-                        actual_value
-                    ) != _canonical_deduplication_value(expected_value):
-                        return (
-                            f"Destination partition mismatch in staged file "
-                            f"{staged!r}: column {column!r} expected "
-                            f"{expected_value!r}, got {actual_value!r}"
-                        )
+                staged_schema = pq.read_schema(fh)
+            duplicated_columns = [
+                column for column in partition_columns if column in staged_schema.names
+            ]
+            if duplicated_columns:
+                return (
+                    f"Staged file {staged!r} physically contains hive partition "
+                    f"columns {duplicated_columns!r}"
+                )
     except Exception as exc:
         return f"Global partition placement validation failed: {exc}"
     return None
@@ -2745,6 +2939,9 @@ def _execute_atomic_local_global_repartition_deduplication(
         expected_rows = deduplicated.num_rows
 
         # Group retained rows by their declared destination partition tuple.
+        deduplicated = _apply_derived_partition_keys(
+            deduplicated, plan.derived_partition_keys
+        )
         partition_arrays = [
             deduplicated[column].to_pylist() for column in plan.partition_columns
         ]
@@ -2766,7 +2963,13 @@ def _execute_atomic_local_global_repartition_deduplication(
         )
         for partition_index, (raw_values, row_indices) in enumerate(sorted_partitions):
             partition_dir = _hive_partition_path(plan.partition_columns, raw_values)
+            # Partition values are encoded as hive path metadata; the physical
+            # file schema must NOT duplicate them (#56) or hive reads crash on
+            # type mismatches (e.g. int64 file vs int32 path-inferred column).
             partition_table = deduplicated.take(pa.array(row_indices, type=pa.int64()))
+            partition_table = partition_table.drop_columns(
+                [c for c in plan.partition_columns if c in partition_table.column_names]
+            )
             for chunk_index, chunk in enumerate(
                 _split_table_by_rows(partition_table, plan.max_rows_per_file)
             ):
@@ -2814,7 +3017,11 @@ def _execute_atomic_local_global_repartition_deduplication(
             succeeded=False, expected_row_count=expected_rows, error=placement_error
         )
     else:
-        validation = _validate_staged_output(staged_files, plan.schema, expected_rows)
+        validation = _validate_staged_output(
+            staged_files,
+            _repartition_file_schema(plan.schema, plan.partition_columns),
+            expected_rows,
+        )
         if (
             validation.succeeded
             and plan.validation_level == ValidationLevel.FULL_DISTINCT_KEY_SCAN
@@ -3492,6 +3699,7 @@ def _execute_best_effort_compaction(
 
     try:
         for group_idx, group in enumerate(plan.compaction_groups):
+            partition_dir = _group_partition_dir(group, dataset_root)
             tables = []
             for fi in group.files:
                 with filesystem.open(fi.path, "rb") as fh:
@@ -3507,10 +3715,12 @@ def _execute_best_effort_compaction(
                     continue
                 staged_path = posixpath.join(
                     staging_prefix,
+                    partition_dir,
                     f"output-{group_idx:04d}-{chunk_idx:04d}.parquet",
                 )
                 live_path = posixpath.join(
                     dataset_root,
+                    partition_dir,
                     f"compacted-{run_id}-{group_idx:04d}-{chunk_idx:04d}.parquet",
                 )
                 buf = BytesIO()
@@ -4261,6 +4471,9 @@ def _execute_best_effort_global_repartition_deduplication(
             deduplicated = deduplicated.cast(plan.schema)
         retained_rows = deduplicated.num_rows
 
+        deduplicated = _apply_derived_partition_keys(
+            deduplicated, plan.derived_partition_keys
+        )
         partition_arrays = [
             deduplicated[column].to_pylist() for column in plan.partition_columns
         ]
@@ -4288,7 +4501,12 @@ def _execute_best_effort_global_repartition_deduplication(
                 )
             )
             destination_keys.append(partition_path)
+            # Partition values live in the hive path; drop them from the file
+            # schema so hive reads see each column exactly once (#56).
             partition_table = deduplicated.take(pa.array(row_indices, type=pa.int64()))
+            partition_table = partition_table.drop_columns(
+                [c for c in plan.partition_columns if c in partition_table.column_names]
+            )
             for chunk_index, chunk in enumerate(
                 _split_table_by_rows(partition_table, plan.max_rows_per_file)
             ):
@@ -4323,6 +4541,7 @@ def _execute_best_effort_global_repartition_deduplication(
     # ------------------------------------------------------------------ #
     total_staged_rows = 0
     validation_error: str | None = None
+    expected_file_schema = _repartition_file_schema(plan.schema, plan.partition_columns)
     try:
         for staged_path in staged_keys:
             with filesystem.open(staged_path, "rb") as fh:
@@ -4335,8 +4554,9 @@ def _execute_best_effort_global_repartition_deduplication(
                         f"got {rows}, expected {staged_rows[staged_path]}"
                     )
                     break
-                if plan.schema is not None and not parquet_file.schema_arrow.equals(
-                    plan.schema
+                if (
+                    expected_file_schema is not None
+                    and not parquet_file.schema_arrow.equals(expected_file_schema)
                 ):
                     validation_error = f"Schema mismatch in staged file {staged_path}"
                     break
@@ -4357,27 +4577,17 @@ def _execute_best_effort_global_repartition_deduplication(
                         f"got {actual_partition_path!r}"
                     )
                     break
-                if validation_error is None:
-                    expected_partition = tuple(
-                        _canonical_deduplication_value(value)
-                        for value in staged_partition_values[staged_path]
+                duplicated_columns = [
+                    column
+                    for column in plan.partition_columns
+                    if column in parquet_file.schema_arrow.names
+                ]
+                if duplicated_columns:
+                    validation_error = (
+                        f"Staged file {staged_path} physically contains hive "
+                        f"partition columns {duplicated_columns!r}"
                     )
-                    with filesystem.open(staged_path, "rb") as partition_handle:
-                        staged_table = pq.read_table(partition_handle)
-                    for row_index in range(staged_table.num_rows):
-                        actual_partition = tuple(
-                            _canonical_deduplication_value(
-                                staged_table[column][row_index].as_py()
-                            )
-                            for column in plan.partition_columns
-                        )
-                        if actual_partition != expected_partition:
-                            validation_error = (
-                                "Destination partition mismatch in staged file "
-                                f"{staged_path}: expected {expected_partition}, "
-                                f"got {actual_partition}"
-                            )
-                            break
+                    break
         if validation_error is None and total_staged_rows != retained_rows:
             validation_error = (
                 f"Staged row count mismatch: got {total_staged_rows}, "
@@ -4421,8 +4631,9 @@ def _execute_best_effort_global_repartition_deduplication(
                 parquet_file = pq.ParquetFile(fh)
                 if parquet_file.metadata.num_rows != staged_rows[staged_path]:
                     raise ValueError(f"Live key row-count mismatch for {live_path}")
-                if plan.schema is not None and not parquet_file.schema_arrow.equals(
-                    plan.schema
+                if (
+                    expected_file_schema is not None
+                    and not parquet_file.schema_arrow.equals(expected_file_schema)
                 ):
                     raise ValueError(f"Live key schema mismatch for {live_path}")
             copied_live_keys.append(live_path)
@@ -5065,24 +5276,26 @@ class DatasetMaintenanceCoordinator:
             validation_level,
             codec,
         )
-        # Partition-local planning (#38) is scoped to the atomic_local path,
-        # whose per-subtree publisher preserves partition tuples. The
-        # best_effort_object_store publisher (#39) flattens outputs and keeps
-        # its own planning policy until its partition-subtree work lands.
+        # Compaction is partition-local for every guarantee level. Cross-
+        # partition/global compaction must be an explicit future operation.
         guarantee_level = _classify_guarantee(fs)
-        if guarantee_level == GuaranteeLevel.ATOMIC_LOCAL:
-            compaction_groups = _plan_partition_local_compaction_groups(
-                file_stats,
-                snapshot.dataset_path,
-                target_mb_per_file,
-                target_rows_per_file,
-            )
-        else:
-            compaction_groups = tuple(
-                plan_compaction_groups(
-                    file_stats, target_mb_per_file, target_rows_per_file
-                )["groups"]
-            )
+        force_rewrite_paths: set[str] = set()
+        if codec is not None:
+            target_codec = selected_codec.lower()
+            if target_codec == "none":
+                target_codec = "uncompressed"
+            force_rewrite_paths = {
+                file_stat["path"]
+                for file_stat in file_stats
+                if _parquet_codecs(fs, file_stat["path"]) != {target_codec}
+            }
+        compaction_groups, skipped_files = _plan_partition_local_compaction(
+            file_stats,
+            snapshot.dataset_path,
+            target_mb_per_file,
+            target_rows_per_file,
+            force_rewrite_paths,
+        )
         return CompactionPlan(
             source_snapshot=snapshot,
             selected_backend=self.backend,
@@ -5095,6 +5308,7 @@ class DatasetMaintenanceCoordinator:
             validation_level=validation,
             schema=schema,
             compaction_groups=compaction_groups,
+            skipped_files=skipped_files,
         )
 
     def plan_partition_local_deduplication(
@@ -5168,6 +5382,8 @@ class DatasetMaintenanceCoordinator:
         target_rows_per_file: int | None = None,
         validation_level: ValidationLevel | str | None = None,
         codec: str | None = None,
+        derived_partition_columns: dict[str, tuple[str, ...]] | None = None,
+        partition_timezone: str = "UTC",
     ) -> GlobalRepartitionDeduplicationPlan:
         """Create an immutable global-repartitioning deduplication plan."""
         if target_rows_per_file is not None and target_rows_per_file <= 0:
@@ -5200,11 +5416,27 @@ class DatasetMaintenanceCoordinator:
             validation_level,
             codec,
         )
-        if schema is None or any(
-            column not in schema.names for column in partition_columns
-        ):
+        if schema is None:
+            raise ValueError("Global repartitioning requires a readable source schema")
+        derived_partition_keys = _normalize_derived_partition_keys(
+            schema, derived_partition_columns, partition_timezone
+        )
+        derived_names = {key.name for key in derived_partition_keys}
+        missing_columns = [
+            column
+            for column in partition_columns
+            if column not in schema.names and column not in derived_names
+        ]
+        if missing_columns:
             raise ValueError(
-                "partition_columns must name columns present in the source schema"
+                "partition_columns must name source or derived columns; "
+                f"missing: {missing_columns}"
+            )
+        unused_derived = derived_names - set(partition_columns)
+        if unused_derived:
+            raise ValueError(
+                "Derived partition definitions must appear in partition_columns; "
+                f"unused: {sorted(unused_derived)}"
             )
         normalized_key_columns, normalized_dedup_order_by = (
             validate_deduplication_inputs(key_columns, dedup_order_by)
@@ -5240,6 +5472,7 @@ class DatasetMaintenanceCoordinator:
             dedup_order_by=(
                 tuple(normalized_dedup_order_by) if normalized_dedup_order_by else None
             ),
+            derived_partition_keys=derived_partition_keys,
             dedup_groups=groups,
         )
 

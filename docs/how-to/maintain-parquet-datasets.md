@@ -120,6 +120,29 @@ result = fs.deduplicate_and_repartition_parquet_dataset(
 This reads the entire dataset, deduplicates globally, and writes it out under
 the given hive-style partition columns. Expect a full rewrite.
 
+Timestamp-derived destination keys can be computed during the coordinated
+rewrite instead of being stored in the source files:
+
+```python
+result = fs.deduplicate_and_repartition_parquet_dataset(
+    "events/",
+    partition_columns=["year", "year_month"],
+    key_columns=["id"],
+    derived_partition_columns={
+        "year": ("year", "event_ts"),
+        "year_month": ("strftime", "event_ts", "%Y-%m"),
+    },
+    partition_timezone="UTC",
+)
+```
+
+Supported functions are `year`, `month`, `day`, `date`, and `strftime`.
+Use a concrete timestamp column when the schema has multiple timestamp fields.
+The special source name `"auto"` is accepted only when exactly one timestamp
+column exists. The selected timezone and normalized definitions are recorded
+in the immutable plan. Derived keys are hive path metadata and are not
+duplicated in physical Parquet file schemas.
+
 ## Optimize (dedup + compaction)
 
 `optimize_parquet_dataset` runs optional key-based deduplication followed by

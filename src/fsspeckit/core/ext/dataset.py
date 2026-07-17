@@ -240,6 +240,8 @@ def plan_parquet_global_repartition_deduplication(
     target_mb_per_file: int | None = None,
     target_rows_per_file: int | None = None,
     compression: str | None = None,
+    derived_partition_columns: dict[str, tuple[str, ...]] | None = None,
+    partition_timezone: str = "UTC",
 ) -> GlobalRepartitionDeduplicationPlan:
     """Create an explicit whole-dataset repartitioning deduplication plan."""
     return _automatic_maintenance_coordinator().plan_global_repartition_deduplication(
@@ -251,6 +253,8 @@ def plan_parquet_global_repartition_deduplication(
         target_mb_per_file=target_mb_per_file,
         target_rows_per_file=target_rows_per_file,
         codec=compression,
+        derived_partition_columns=derived_partition_columns,
+        partition_timezone=partition_timezone,
     )
 
 

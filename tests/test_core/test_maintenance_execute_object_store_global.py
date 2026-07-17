@@ -142,16 +142,11 @@ class TestGlobalRepartitionSuccess:
         assert all(path.startswith(root + "/region=") for path in live_keys)
         tables = [_read(fs, path) for path in live_keys]
         output = pa.concat_tables(tables)
+        assert "region" not in output.column_names
         assert output.num_rows == 4
         assert sorted(output.column("id").to_pylist()) == [1, 2, 3, 4]
-        winner_rows = [
-            row
-            for row in output.to_pylist()
-            if row["id"] == 1
-        ]
-        assert winner_rows == [
-            {"id": 1, "region": "DE", "score": 1, "value": "winner"}
-        ]
+        winner_rows = [row for row in output.to_pylist() if row["id"] == 1]
+        assert winner_rows == [{"id": 1, "score": 1, "value": "winner"}]
         assert all(not fs.exists(source) for source in sources)
         assert result.actual_metrics is not None
         assert result.actual_metrics.row_count == 4
@@ -159,8 +154,7 @@ class TestGlobalRepartitionSuccess:
         assert result.staging_prefix
         assert not fs.exists(result.staging_prefix)
         assert all(
-            not path.startswith(root + "/existing=partition")
-            for path in live_keys
+            not path.startswith(root + "/existing=partition") for path in live_keys
         )
 
     def test_max_rows_per_file_is_hard_bound_per_destination_partition(self):
@@ -192,7 +186,9 @@ class TestGlobalRepartitionPlanningRequirements:
         "partition_columns",
         [[], ["missing"], ["region", "region"], [""]],
     )
-    def test_destination_partition_columns_are_required_and_declared(self, partition_columns):
+    def test_destination_partition_columns_are_required_and_declared(
+        self, partition_columns
+    ):
         fs = MemoryFileSystem()
         root = _root()
         _write(
@@ -341,7 +337,7 @@ class TestGlobalRepartitionKeySemantics:
             "number-first",
             "case-distinct",
         }
-    
+
     def test_destination_partition_paths_escape_ambiguous_values(self):
         fs = MemoryFileSystem()
         root = _root()
