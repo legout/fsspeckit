@@ -241,10 +241,12 @@ def write_files(
     if concat:
         if isinstance(data[0], dict):
             data = dict_to_dataframe(data)
-        # Import polars to check for LazyFrame
+        # Concatenate polars LazyFrame/DataFrame inputs into one frame.
         pl = _import_polars()
         if isinstance(data[0], pl.LazyFrame):
             data = pl.concat([d.collect() for d in data], how="diagonal_relaxed")
+        elif isinstance(data[0], pl.DataFrame):
+            data = pl.concat(data, how="diagonal_relaxed")
 
         # Check for pyarrow types
         if _PYARROW_AVAILABLE:

@@ -29,7 +29,6 @@ from fsspeckit.core.merge import (
 from fsspeckit.datasets.base import BaseDatasetHandler
 
 logger = get_logger(__name__)
-
 _sql_filter_translator: Callable[[str, Any], Any] | None = None
 
 
@@ -37,9 +36,59 @@ def _register_sql_filter_translator(
     translator: Callable[[str, Any], Any],
 ) -> None:
     """Configure SQL string filtering from the package composition root."""
-
     global _sql_filter_translator
     _sql_filter_translator = translator
+
+
+def _dnf_tuples_to_expression(filters: list | tuple) -> Any:
+    """Convert DNF filter tuples to a ``pyarrow.compute.Expression``.
+
+    Accepts the fsspec/PyArrow DNF forms:
+
+    * a list of ``(column, op, value)`` tuples, AND-ed together, and
+    * a list of such lists, OR-ed together (disjunction of conjunctions).
+
+    Supported operators: ``==``/``=``, ``!=``/``<>``, ``<``, ``<=``, ``>``,
+    ``>=``, and ``in``. Returns a symbolic expression; no schema is required.
+    """
+    import pyarrow.compute as pc  # noqa: PLC0415
+
+    _OPS: dict[str, str] = {
+        "==": "__eq__",
+        "=": "__eq__",
+        "!=": "__ne__",
+        "<>": "__ne__",
+        "<": "__lt__",
+        "<=": "__le__",
+        ">": "__gt__",
+        ">=": "__ge__",
+    }
+
+    def clause_to_expr(clause: tuple) -> Any:
+        col, op, val = clause
+        field = pc.field(col)
+        if op == "in":
+            return field.isin(list(val))
+        method = _OPS.get(op)
+        if method is None:
+            raise ValueError(f"Unsupported filter operator: {op!r}")
+        return getattr(field, method)(val)
+
+    def conjunction(conj: list[tuple]) -> Any:
+        exprs = [clause_to_expr(c) for c in conj]
+        out = exprs[0]
+        for expr in exprs[1:]:
+            out = out & expr
+        return out
+
+    # A list-of-lists is a disjunction (OR of ANDs); a list-of-tuples is one conjunction.
+    if filters and isinstance(filters[0], list):
+        disjuncts = [conjunction(conj) for conj in filters]
+        out = disjuncts[0]
+        for expr in disjuncts[1:]:
+            out = out | expr
+        return out
+    return conjunction(list(filters))
 
 
 class PyarrowDatasetIO(BaseDatasetHandler):
@@ -128,8 +177,9 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         """Normalize filters parameter to PyArrow-compatible format.
 
         Converts SQL-like string filters to PyArrow compute expressions
-        for API alignment with DuckDB backend. Passes through native
-        PyArrow expressions and DNF tuples unchanged.
+        for API alignment with the DuckDB backend. DNF filter tuples
+        (fsspec/PyArrow list form) are converted to a compute expression;
+        native ``pyarrow.compute.Expression`` values pass through unchanged.
 
         Args:
             filters: Filter specification (SQL string, PyArrow expression, or DNF tuples)
@@ -144,6 +194,10 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         """
         if filters is None:
             return None
+        # DNF filter tuples (fsspec/PyArrow list form) become a compute
+        # expression; native pa.compute.Expression passes through unchanged.
+        if isinstance(filters, (list, tuple)):
+            return _dnf_tuples_to_expression(filters)
         if not isinstance(filters, str):
             return filters
 

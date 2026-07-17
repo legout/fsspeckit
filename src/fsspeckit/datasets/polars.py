@@ -848,8 +848,7 @@ def _unique_schemas(schemas: list[pl.Schema]) -> list[pl.Schema]:
 
 def unify_schemas(dfs: list[pl.DataFrame | pl.LazyFrame]) -> pl.Schema:
     schemas = [
-        df.collect_schema() if isinstance(df, pl.LazyFrame) else df.schema
-        for df in dfs
+        df.collect_schema() if isinstance(df, pl.LazyFrame) else df.schema for df in dfs
     ]
     unique_schemas = _unique_schemas(schemas)
     if len(unique_schemas) == 1:

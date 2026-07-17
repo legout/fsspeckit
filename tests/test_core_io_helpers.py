@@ -1,8 +1,6 @@
 """Test threading behavior in JSON and CSV readers."""
 
 import json
-import tempfile
-from unittest.mock import patch
 
 import pyarrow as pa
 import pytest
@@ -39,14 +37,14 @@ class MockFileSystem:
                 return self.content.split("\n")
 
             def write(self, data):
-                # For string, just replace content. For bytes, decode? 
+                # For string, just replace content. For bytes, decode?
                 # Simplistic mock:
                 if isinstance(data, bytes):
-                    self.content = data.decode('utf-8')
+                    self.content = data.decode("utf-8")
                 else:
                     self.content = data
                 # Update the filesystem dict as well?
-                # The parent 'open' doesn't update 'files'. 
+                # The parent 'open' doesn't update 'files'.
                 # But 'files_written' should be updated.
                 # However, MockFile doesn't have reference to FS.
                 # We can't update FS from here easily without refactoring.
@@ -70,16 +68,18 @@ class MockFileSystem:
 
             def tell(self):
                 return self.position
-        
+
         # We need to handle writing differently because we need to update fs.files_written
         mock_file = MockFile(self.files.get(path, ""))
-        
+
         # Monkey patch write to update parent
         original_write = mock_file.write
+
         def side_effect_write(data):
             self.files_written.append(path)
             self.files[path] = data
             return original_write(data)
+
         mock_file.write = side_effect_write
 
         return mock_file
@@ -91,7 +91,6 @@ class TestThreadingBehavior:
     def test_json_use_threads_behavior(self, tmp_path):
         """Test that use_threads parameter works correctly in JSON reader."""
         # Import the functions directly from the module
-        from fsspeckit.core.ext.csv import _read_csv
         from fsspeckit.core.ext.json import _read_json
 
         # Create test JSON files
@@ -115,9 +114,7 @@ class TestThreadingBehavior:
         data_threaded = _read_json(fs, files, use_threads=True, as_dataframe=False)
 
         # Test with threading disabled
-        data_sequential = _read_json(
-            fs, files, use_threads=False, as_dataframe=False
-        )
+        data_sequential = _read_json(fs, files, use_threads=False, as_dataframe=False)
 
         # Both should produce the same DataFrames
         assert len(data_threaded) == len(data_sequential) == len(test_data)
@@ -135,7 +132,6 @@ class TestThreadingBehavior:
 
         # Import the functions directly from the module
         from fsspeckit.core.ext.csv import _read_csv
-        from fsspeckit.core.ext.json import _read_json
 
         # Create test CSV files
         test_data = [
@@ -446,3 +442,50 @@ def _read_dataset_table(path: str) -> pa.Table:
 
     dataset = ds.dataset(path)
     return dataset.to_table()
+
+
+class TestWriteFilesPolarsConcat:
+    """Regression: list-of-polars-DataFrame inputs concatenate under concat=True (#51)."""
+
+    def test_concat_csv(self, tmp_path):
+        import polars as pl
+        from fsspec.implementations.local import LocalFileSystem
+
+        from fsspeckit.core.ext.io import write_files
+
+        fs = LocalFileSystem()
+        df1, df2 = pl.DataFrame({"a": [1]}), pl.DataFrame({"a": [2]})
+        out = str(tmp_path / "out.csv")
+        write_files(fs, data=[df1, df2], path=out, format="csv", concat=True)
+
+        assert pl.read_csv(out)["a"].to_list() == [1, 2]
+
+    def test_concat_json(self, tmp_path):
+        import polars as pl
+        from fsspec.implementations.local import LocalFileSystem
+
+        from fsspeckit.core.ext.io import write_files
+
+        fs = LocalFileSystem()
+        df1, df2 = pl.DataFrame({"a": [1]}), pl.DataFrame({"a": [2]})
+        out = str(tmp_path / "out.json")
+        write_files(fs, data=[df1, df2], path=out, format="json", concat=True)
+
+        # Both rows concatenated into one JSON document (#51).
+        import json
+
+        with open(out) as fh:
+            assert json.loads(fh.read()) == {"a": [1, 2]}
+
+    def test_concat_parquet(self, tmp_path):
+        import polars as pl
+        from fsspec.implementations.local import LocalFileSystem
+
+        from fsspeckit.core.ext.io import write_files
+
+        fs = LocalFileSystem()
+        df1, df2 = pl.DataFrame({"a": [1]}), pl.DataFrame({"a": [2]})
+        out = str(tmp_path / "out.parquet")
+        write_files(fs, data=[df1, df2], path=out, format="parquet", concat=True)
+
+        assert pl.read_parquet(out)["a"].to_list() == [1, 2]

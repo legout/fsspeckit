@@ -44,7 +44,6 @@ except ImportError:
     pl = None
 
 
-
 def create_sample_data() -> pa.Table:
     """Create sample data for conversion testing."""
 

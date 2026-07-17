@@ -104,6 +104,47 @@ class TestPyarrowDatasetIOReadWrite:
         assert result.num_columns == 2
         assert result.column_names == ["id", "name"]
 
+    def test_read_parquet_dnf_tuple_filters(self, sample_table, temp_dir):
+        """DNF tuple filters convert to an expression on a dataset directory (#48)."""
+        dataset_dir = temp_dir / "dataset"
+        io = PyarrowDatasetIO()
+        io.write_dataset(sample_table, str(dataset_dir))
+
+        result = io.read_parquet(str(dataset_dir), filters=[("id", ">", 2)])
+        assert result["id"].to_pylist() == [3, 4, 5]
+
+    def test_read_parquet_dnf_conjunction_and_disjunction(self, sample_table, temp_dir):
+        """DNF conjunctions AND; list-of-lists OR (#48)."""
+        dataset_dir = temp_dir / "dataset"
+        io = PyarrowDatasetIO()
+        io.write_dataset(sample_table, str(dataset_dir))
+
+        conj = io.read_parquet(
+            str(dataset_dir), filters=[("id", ">", 1), ("id", "<", 4)]
+        )
+        assert conj["id"].to_pylist() == [2, 3]
+
+        disj = io.read_parquet(
+            str(dataset_dir), filters=[[("id", "<", 2)], [("id", ">", 4)]]
+        )
+        assert disj["id"].to_pylist() == [1, 5]
+
+    def test_read_parquet_sql_string_and_expression_filters(
+        self, sample_table, temp_dir
+    ):
+        """SQL string and native Expression filters still apply (#50)."""
+        dataset_dir = temp_dir / "dataset"
+        io = PyarrowDatasetIO()
+        io.write_dataset(sample_table, str(dataset_dir))
+
+        import pyarrow.compute as pc
+
+        sql_result = io.read_parquet(str(dataset_dir), filters="id > 2")
+        assert sql_result["id"].to_pylist() == [3, 4, 5]
+
+        expr_result = io.read_parquet(str(dataset_dir), filters=pc.field("id") < 3)
+        assert expr_result["id"].to_pylist() == [1, 2]
+
 
 class TestPyarrowDatasetIOMaintenance:
     """Tests for maintenance operations."""
