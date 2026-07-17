@@ -72,6 +72,10 @@ the plan or result signals that the layout changed.
   ADR-0006).
 - No change to staging-prefix layout, validation, or drift-check phases
   beyond what the live-key placement requires.
+- No changes to goal-aware file eligibility (skip logic). Planning already
+  drops singleton groups and bypasses at-target files; surfacing skip
+  reasons in plans and honoring codec-change intent is tracked separately
+  in issue [#55](https://github.com/legout/fsspeckit/issues/55).
 
 ## Proposed Interface
 
@@ -178,6 +182,9 @@ recovery handling more uniform, not less.
 
 - GitHub issue [#54](https://github.com/legout/fsspeckit/issues/54) —
   reproductions and root-cause analysis.
+- GitHub issue [#55](https://github.com/legout/fsspeckit/issues/55) —
+  follow-up: skip-reason observability and codec-migration intent in
+  compaction planning.
 - [Coordinated dataset maintenance spec](coordinated-dataset-maintenance-spec.md) —
   user story #11 (partition-subtree compaction).
 - [ADR-0006: Coordinated dataset maintenance guarantees](../adr/0006-coordinated-dataset-maintenance.md) —
