@@ -1507,6 +1507,38 @@ class TestAtomicLocalPartitionLocalDeduplication:
             2: "2024-01-02",
         }
 
+    def test_dedup_order_by_plus_prefixed_column_stays_literal(self, tmp_path):
+        # Standards follow-up to #52: a leading "+" is NOT a sigil. "+ts" must
+        # address a literal column named "+ts" (ascending), and must NOT be
+        # rewritten to the bare "ts" column. Only a leading "-" is special.
+        import fsspec
+
+        rows = pa.table(
+            {
+                "id": [1, 1, 2, 2],
+                "+ts": [
+                    "2024-01-01",
+                    "2024-01-03",
+                    "2024-01-02",
+                    "2024-01-05",
+                ],
+            }
+        )
+        fs = fsspec.filesystem("file")
+
+        # "+ts" is a literal ascending column => keep-first keeps the earliest.
+        dataset = tmp_path / "plus_literal"
+        _write_partitioned(str(dataset), {"part=x": [("a.parquet", rows)]})
+        result = fs.deduplicate_parquet_dataset(
+            str(dataset), key_columns=["id"], dedup_order_by=["+ts"]
+        )
+        assert result.succeeded, result.error
+        output = _read_parquet(_partition_files(str(dataset), "part=x")[0]).to_pydict()
+        assert dict(zip(output["id"], output["+ts"])) == {
+            1: "2024-01-01",
+            2: "2024-01-02",
+        }
+
 
 # --------------------------------------------------------------------------- #
 # Global-repartitioning deduplication — atomic local lane (#42)

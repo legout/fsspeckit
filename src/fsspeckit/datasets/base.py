@@ -182,17 +182,20 @@ class BaseDatasetHandler(ABC):
     ) -> dict[str, Any]:
         """Compact a parquet dataset by combining small files.
 
-        Args:
-            path: Dataset path
-            target_mb_per_file: Target size per file in MB
-            target_rows_per_file: Target rows per file
-            partition_filter: Optional partition filters
-            compression: Compression codec for output
-            dry_run: Whether to perform a dry run
-            verbose: Print progress information
+        .. deprecated:: 0.25.0
 
-        Returns:
-            Dictionary containing compaction statistics
+            Removed compatibility stub. Maintenance moved to the filesystem
+            facade in 0.25.0; calling this method performs no work and
+            unconditionally raises. Use ``fs.compact_parquet_dataset(path,
+            ...)`` on the fsspec extension instead, or
+            ``DatasetMaintenanceCoordinator.plan_compaction`` followed by
+            ``execute`` for an explicit plan. See
+            ``docs/migration/maintenance-api.md`` for the full migration.
+
+        Raises:
+            NotImplementedError: Always. The method is retained only to keep
+                the ``DatasetHandler`` protocol stable across the 0.25.0
+                removal of the dictionary-returning maintenance API.
         """
         raise NotImplementedError(
             "compact_parquet_dataset was removed from dataset handlers in 0.25.0. "
@@ -214,18 +217,20 @@ class BaseDatasetHandler(ABC):
     ) -> dict[str, Any]:
         """Optimize a parquet dataset through compaction and maintenance.
 
-        Args:
-            path: Dataset path
-            target_mb_per_file: Target size per file in MB
-            target_rows_per_file: Target rows per file
-            partition_filter: Optional partition filters
-            compression: Compression codec for output
-            deduplicate_key_columns: Optional key columns for deduplication before optimization
-            dedup_order_by: Columns to order by for deduplication
-            verbose: Print progress information
+        .. deprecated:: 0.25.0
 
-        Returns:
-            Dictionary containing optimization statistics
+            Removed compatibility stub. Maintenance moved to the filesystem
+            facade in 0.25.0; calling this method performs no work and
+            unconditionally raises. Use ``fs.optimize_parquet_dataset(path,
+            ...)`` on the fsspec extension instead, or
+            ``DatasetMaintenanceCoordinator.plan_coordinated_optimization``
+            followed by ``execute`` for an explicit plan. See
+            ``docs/migration/maintenance-api.md`` for the full migration.
+
+        Raises:
+            NotImplementedError: Always. The method is retained only to keep
+                the ``DatasetHandler`` protocol stable across the 0.25.0
+                removal of the dictionary-returning maintenance API.
         """
         raise NotImplementedError(
             "optimize_parquet_dataset was removed from dataset handlers in 0.25.0. "

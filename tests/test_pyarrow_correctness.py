@@ -299,3 +299,12 @@ class TestPyArrowEdgeCaseCorrectness:
 
         assert result.num_rows == 2
         assert set(result.column("x").to_pylist()) == {2, 3}
+
+    def test_read_parquet_sql_string_filter_dataset_directory(self, tmp_path):
+        """Apply a SQL-string filter when reading a dataset directory."""
+        pq.write_table(pa.table({"x": [1, 2, 3]}), tmp_path / "part-0.parquet")
+
+        result = PyarrowDatasetIO().read_parquet(str(tmp_path), filters="x > 1")
+
+        assert result.num_rows == 2
+        assert set(result.column("x").to_pylist()) == {2, 3}

@@ -66,10 +66,11 @@ observed execution details.
 
 ## Semantic changes
 
-- `dedup_order_by` no longer accepts the legacy `-column` descending prefix.
-  Ordering is always ascending and the first row per key wins (physical order
-  breaks ties). To keep the latest record per key, ensure it sorts first or
-  rely on ingest order.
+- `dedup_order_by` accepts the legacy `-column` descending prefix: a leading
+  `-` sorts that column descending so the keep-first-wins rule selects the
+  most recent row per key. Bare column names sort ascending. Physical order
+  breaks ties. For example, `dedup_order_by=["-event_timestamp"]` keeps the
+  latest record per key.
 - Byte-size targets (`target_mb_per_file`) are advisory;
   `max_rows_per_file` is a hard upper bound on output rows per file.
 - Rewrites without an explicit codec target use Snappy.

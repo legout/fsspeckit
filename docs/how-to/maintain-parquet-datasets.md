@@ -91,19 +91,20 @@ result = fs.deduplicate_parquet_dataset(
 
 Key semantics:
 
-- One row survives per key combination. With `dedup_order_by`, rows are
-  ordered **ascending** and the **first** row per key wins (ties fall back to
-  physical order). Without it, physical order
+- One row survives per key combination. With `dedup_order_by`, the **first**
+  row per key wins after sorting: a bare column name sorts **ascending**, and
+  a leading `-` (for example `-event_timestamp`) sorts **descending** so
+  keep-first selects the most recent row per key. Ties fall back to physical
+  order. Without `dedup_order_by`, physical order
   `(partition path, file path, row offset)` decides.
 - Omit `key_columns` to remove rows that are identical across **all** columns
   (exact duplicates).
 - Null and `NaN` key components compare equal; strings compare by exact
   stored value.
-- The legacy `-column` descending prefix from the pre-0.25 helpers is not
-  supported. Ordering is always ascending and the first row per key wins, so
-  to keep the *latest* record, ensure it sorts first (for example with an
-  inverted ordering column), or omit `dedup_order_by` and rely on ingest
-  order placing the preferred row first.
+- To keep the *latest* record per key, prefix the ordering column with `-`,
+  e.g. `dedup_order_by=["-event_timestamp"]`. Only a leading `-` is special;
+  every other column name (including one that starts with `+`) is used
+  literally as an ascending column.
 
 ## Repartition globally
 

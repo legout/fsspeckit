@@ -3840,6 +3840,42 @@ def _canonical_deduplication_value(value: Any) -> Any:
     return (type(value).__qualname__, value)
 
 
+@dataclass(frozen=True)
+class DedupSortKey:
+    """One parsed deduplication ordering column and its sort direction.
+
+    Only a leading ``-`` in the raw name is special: it marks the column
+    descending so that the keep-first-wins rule selects the most recent row
+    (the legacy ``-column`` pattern). Every other name — including one with a
+    leading ``+`` or any other character — is a literal ascending column, so
+    a column actually named e.g. ``+ts`` stays addressable.
+    """
+
+    column: str
+    descending: bool = False
+
+
+def parse_dedup_order_by(
+    order_by: tuple[str, ...] | list[str] | None,
+) -> tuple[DedupSortKey, ...]:
+    """Parse raw ``dedup_order_by`` names into typed sort keys.
+
+    This is the single place that interprets column-name ordering sigils: a
+    leading ``-`` yields a descending ``DedupSortKey``; every other name is
+    returned verbatim as an ascending key. Returns an empty tuple when no
+    ordering is requested.
+    """
+    if not order_by:
+        return ()
+    parsed: list[DedupSortKey] = []
+    for name in order_by:
+        if name.startswith("-"):
+            parsed.append(DedupSortKey(column=name[1:], descending=True))
+        else:
+            parsed.append(DedupSortKey(column=name, descending=False))
+    return tuple(parsed)
+
+
 def _deduplicate_partition_table(
     table: pa.Table,
     key_columns: tuple[str, ...] | None,
@@ -3853,24 +3889,21 @@ def _deduplicate_partition_table(
     """
     keys = key_columns or tuple(table.column_names)
     physical_indices = list(range(table.num_rows))
-    if order_by:
+    sort_keys = parse_dedup_order_by(order_by)
+    if sort_keys:
         import pyarrow.compute as pc  # noqa: PLC0415
 
-        # Legacy-compatible per-column ordering: a leading "-" sorts descending
-        # (so keep-first selects the most recent row); "+" or bare = ascending.
-        parsed_order: list[tuple[str, str]] = []
-        for column in order_by:
-            if column.startswith("-"):
-                parsed_order.append((column[1:], "descending"))
-            elif column.startswith("+"):
-                parsed_order.append((column[1:], "ascending"))
-            else:
-                parsed_order.append((column, "ascending"))
-        order_columns = [column for column, _ in parsed_order]
+        # PyArrow adaptation stays local: the typed ``DedupSortKey`` values are
+        # the single source of truth for column and direction.
+        arrow_sort_keys = [
+            (key.column, "descending" if key.descending else "ascending")
+            for key in sort_keys
+        ]
+        order_columns = [key.column for key in sort_keys]
 
         sorted_indices = pc.sort_indices(
             table,
-            sort_keys=parsed_order,
+            sort_keys=arrow_sort_keys,
         ).to_pylist()
         ordered: list[int] = []
         start = 0
