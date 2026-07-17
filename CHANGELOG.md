@@ -5,10 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.26.0] - 2026-07-17
+
+### Added
+- Coordinated global repartitioning can derive timestamp-based hive partition keys with explicit timezone and validation rules.
 
 ### Changed
 - Python 3.12 is now the minimum supported version; CI covers Python 3.12, 3.13, and 3.14.
+- Compaction plans expose singleton skip reasons and honor explicit codec-change intent.
+
+### Fixed
+- Global repartitioning keeps destination partition columns as path-only metadata, including integer-valued hive partitions.
+- Best-effort object-store compaction preserves hive partition subtrees.
+- PyArrow reads accept DNF tuple filters, including conjunctions and disjunctions.
+- Multi-file writes concatenate Polars DataFrame inputs for CSV, JSON, and Parquet outputs.
 
 ## [0.25.0] - 2026-07-15
 
