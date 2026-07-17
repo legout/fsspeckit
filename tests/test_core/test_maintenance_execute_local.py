@@ -1459,6 +1459,54 @@ class TestAtomicLocalPartitionLocalDeduplication:
             os.path.join(str(dataset), "part=x", "a.parquet")
         ]
 
+    def test_dedup_order_by_dash_column_keeps_latest_per_key(self, tmp_path):
+        # Regression for #52: "-column" must sort descending so keep-first
+        # selects the most recent row per key, and bare "column" stays ascending.
+        import fsspec
+
+        rows = pa.table(
+            {
+                "id": [1, 1, 2, 2],
+                "ts": [
+                    "2024-01-01",
+                    "2024-01-03",
+                    "2024-01-02",
+                    "2024-01-05",
+                ],
+            }
+        )
+        fs = fsspec.filesystem("file")
+
+        # Descending ("-ts") => keep-first selects the latest ts per key.
+        dataset_desc = tmp_path / "desc"
+        _write_partitioned(str(dataset_desc), {"part=x": [("a.parquet", rows)]})
+        result_desc = fs.deduplicate_parquet_dataset(
+            str(dataset_desc), key_columns=["id"], dedup_order_by=["-ts"]
+        )
+        assert result_desc.succeeded, result_desc.error
+        output_desc = _read_parquet(
+            _partition_files(str(dataset_desc), "part=x")[0]
+        ).to_pydict()
+        assert dict(zip(output_desc["id"], output_desc["ts"])) == {
+            1: "2024-01-03",
+            2: "2024-01-05",
+        }
+
+        # Bare name is ascending => the inverse: keep the earliest ts per key.
+        dataset_asc = tmp_path / "asc"
+        _write_partitioned(str(dataset_asc), {"part=x": [("a.parquet", rows)]})
+        result_asc = fs.deduplicate_parquet_dataset(
+            str(dataset_asc), key_columns=["id"], dedup_order_by=["ts"]
+        )
+        assert result_asc.succeeded, result_asc.error
+        output_asc = _read_parquet(
+            _partition_files(str(dataset_asc), "part=x")[0]
+        ).to_pydict()
+        assert dict(zip(output_asc["id"], output_asc["ts"])) == {
+            1: "2024-01-01",
+            2: "2024-01-02",
+        }
+
 
 # --------------------------------------------------------------------------- #
 # Global-repartitioning deduplication — atomic local lane (#42)

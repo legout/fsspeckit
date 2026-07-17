@@ -2332,7 +2332,9 @@ def _validate_global_partition_placement(
             with open(staged, "rb") as fh:
                 staged_table = pq.read_table(fh)
             for row_index in range(staged_table.num_rows):
-                for column, expected_value in zip(partition_columns, values, strict=True):
+                for column, expected_value in zip(
+                    partition_columns, values, strict=True
+                ):
                     actual_value = staged_table[column][row_index].as_py()
                     if _canonical_deduplication_value(
                         actual_value
@@ -3854,9 +3856,21 @@ def _deduplicate_partition_table(
     if order_by:
         import pyarrow.compute as pc  # noqa: PLC0415
 
+        # Legacy-compatible per-column ordering: a leading "-" sorts descending
+        # (so keep-first selects the most recent row); "+" or bare = ascending.
+        parsed_order: list[tuple[str, str]] = []
+        for column in order_by:
+            if column.startswith("-"):
+                parsed_order.append((column[1:], "descending"))
+            elif column.startswith("+"):
+                parsed_order.append((column[1:], "ascending"))
+            else:
+                parsed_order.append((column, "ascending"))
+        order_columns = [column for column, _ in parsed_order]
+
         sorted_indices = pc.sort_indices(
             table,
-            sort_keys=[(column, "ascending") for column in order_by],
+            sort_keys=parsed_order,
         ).to_pylist()
         ordered: list[int] = []
         start = 0
@@ -3865,13 +3879,13 @@ def _deduplicate_partition_table(
             first = sorted_indices[start]
             first_values = tuple(
                 _canonical_deduplication_value(table[column][first].as_py())
-                for column in order_by
+                for column in order_columns
             )
             while end < len(sorted_indices):
                 candidate = sorted_indices[end]
                 candidate_values = tuple(
                     _canonical_deduplication_value(table[column][candidate].as_py())
-                    for column in order_by
+                    for column in order_columns
                 )
                 if candidate_values != first_values:
                     break
@@ -4236,7 +4250,9 @@ def _execute_best_effort_global_repartition_deduplication(
         for partition_index, (raw_values, row_indices) in enumerate(sorted_partitions):
             partition_path = "/".join(
                 f"{quote(column, safe='')}={partition_component(value)}"
-                for column, value in zip(plan.partition_columns, raw_values, strict=True)
+                for column, value in zip(
+                    plan.partition_columns, raw_values, strict=True
+                )
             )
             destination_keys.append(partition_path)
             partition_table = deduplicated.take(pa.array(row_indices, type=pa.int64()))
@@ -4293,7 +4309,11 @@ def _execute_best_effort_global_repartition_deduplication(
                     break
                 expected_partition_path = "/".join(
                     f"{quote(column, safe='')}={partition_component(value)}"
-                    for column, value in zip(plan.partition_columns, staged_partition_values[staged_path], strict=True)
+                    for column, value in zip(
+                        plan.partition_columns,
+                        staged_partition_values[staged_path],
+                        strict=True,
+                    )
                 )
                 staged_relative = posixpath.relpath(staged_path, staging_prefix)
                 actual_partition_path = posixpath.dirname(staged_relative)
