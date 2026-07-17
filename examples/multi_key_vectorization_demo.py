@@ -14,10 +14,17 @@ import time
 
 import pyarrow as pa
 
-from fsspeckit.datasets.pyarrow import (
-    PyarrowDatasetIO,
-    deduplicate_parquet_dataset_pyarrow,
-)
+import fsspec
+
+import fsspeckit  # noqa: F401  (registers the filesystem maintenance facades)
+from fsspeckit.datasets.pyarrow import PyarrowDatasetIO
+
+
+def _rows_removed(result) -> int:
+    """Rows removed by a maintenance operation, from its typed result."""
+    before = result.plan.source_snapshot.total_rows
+    after = result.actual_metrics.row_count if result.actual_metrics else before
+    return before - after
 
 
 def demo_basic_composite_key_deduplication():
@@ -52,8 +59,8 @@ def demo_basic_composite_key_deduplication():
         io = PyarrowDatasetIO()
         io.write_dataset(table, dataset_path, mode="overwrite")
 
-        stats = deduplicate_parquet_dataset_pyarrow(
-            path=dataset_path,
+        result = fsspec.filesystem("file").deduplicate_parquet_dataset(
+            dataset_path,
             key_columns=["tenant_id", "user_id", "record_id"],
             dedup_order_by=["timestamp"],
         )
@@ -61,7 +68,7 @@ def demo_basic_composite_key_deduplication():
         unique_table = io.read_parquet(dataset_path)
 
     print(f"\nAfter deduplication: {unique_table.num_rows} rows")
-    print(f"Removed {stats['deduplicated_rows']} duplicate rows")
+    print(f"Removed {_rows_removed(result)} duplicate rows")
     print("Unique rows:")
     print(unique_table.to_pandas().sort_values(["tenant_id", "user_id", "record_id"]))
     print()
@@ -151,8 +158,8 @@ def demo_performance_comparison():
 
             start_time = time.time()
 
-            stats = deduplicate_parquet_dataset_pyarrow(
-                path=dataset_path,
+            result = fsspec.filesystem("file").deduplicate_parquet_dataset(
+                dataset_path,
                 key_columns=key_columns,
                 dedup_order_by=["timestamp"],
             )
@@ -161,7 +168,7 @@ def demo_performance_comparison():
             duration = end_time - start_time
 
             result_table = io.read_parquet(dataset_path)
-            rows_removed = stats["deduplicated_rows"]
+            rows_removed = _rows_removed(result)
 
             results[scenario_name] = {
                 "duration": duration,
@@ -218,8 +225,8 @@ def demo_mixed_type_keys():
         io.write_dataset(table, dataset_path, mode="overwrite")
 
         try:
-            stats = deduplicate_parquet_dataset_pyarrow(
-                path=dataset_path,
+            result = fsspec.filesystem("file").deduplicate_parquet_dataset(
+                dataset_path,
                 key_columns=["tenant_id", "record_id", "event_timestamp"],
                 dedup_order_by=["event_timestamp"],
             )
@@ -229,7 +236,7 @@ def demo_mixed_type_keys():
             print(
                 f"\nSuccessfully processed mixed-type keys: "
                 f"{unique_records.num_rows} unique records "
-                f"({stats['deduplicated_rows']} removed)"
+                f"({_rows_removed(result)} removed)"
             )
             print("Results:")
             print(unique_records.to_pandas())

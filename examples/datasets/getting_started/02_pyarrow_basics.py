@@ -33,10 +33,9 @@ except ModuleNotFoundError as exc:
     ) from exc
 
 try:
-    from fsspeckit.datasets import (
-        optimize_parquet_dataset_pyarrow,
-        compact_parquet_dataset_pyarrow,
-    )
+    import fsspec
+
+    import fsspeckit  # noqa: F401  (registers the filesystem maintenance facades)
 except ModuleNotFoundError as exc:
     raise SystemExit(
         "Missing fsspeckit dataset dependencies. Install with: pip install -e \".[datasets]\" "
@@ -287,7 +286,7 @@ def demonstrate_pyarrow_compaction():
 
         try:
             start_time = time.time()
-            compact_parquet_dataset_pyarrow(str(dataset_path), target_mb_per_file=1)
+            fsspec.filesystem("file").compact_parquet_dataset(str(dataset_path), target_mb_per_file=1)
             compaction_time = time.time() - start_time
         except Exception as e:
             print(f"  ⚠️  Compaction skipped due to: {e}")
@@ -368,7 +367,7 @@ def demonstrate_pyarrow_optimization():
 
         try:
             start_time = time.time()
-            optimize_parquet_dataset_pyarrow(
+            fsspec.filesystem("file").optimize_parquet_dataset(
                 str(unoptimized_path), target_mb_per_file=2
             )
             optimization_time = time.time() - start_time

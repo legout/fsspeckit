@@ -23,18 +23,12 @@ import time
 import psutil
 from datetime import datetime, timedelta
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 
 import pyarrow as pa
 import pyarrow.compute as pc
-import pyarrow.dataset as ds
 import pyarrow.parquet as pq
 
-from fsspeckit.datasets import (
-    DuckDBParquetHandler,
-    optimize_parquet_dataset_pyarrow,
-    compact_parquet_dataset_pyarrow,
-)
+from fsspeckit.datasets.duckdb import create_duckdb_connection
 from fsspeckit.common.parallel import run_parallel
 
 
@@ -237,9 +231,9 @@ def demonstrate_query_optimization():
         data_file = temp_dir / "analytics.parquet"
         pq.write_table(analytics_data, data_file)
 
-        with DuckDBParquetHandler() as handler:
+        with create_duckdb_connection() as conn:
             # Register the parquet file directly in DuckDB using SQL
-            handler.execute_sql(f"""
+            conn.execute_sql(f"""
                 CREATE TABLE sales AS 
                 SELECT * FROM read_parquet('{data_file}')
             """)
@@ -250,12 +244,12 @@ def demonstrate_query_optimization():
             print("\n1. Column Projection:")
             print("   a) Full table scan (all columns):")
             full_results = profile_operation(
-                lambda: handler.execute_sql("SELECT * FROM sales"), "Full table scan", 2
+                lambda: conn.execute_sql("SELECT * FROM sales"), "Full table scan", 2
             )
 
             print("   b) Selective column projection:")
             selective_results = profile_operation(
-                lambda: handler.execute_sql(
+                lambda: conn.execute_sql(
                     "SELECT transaction_id, net_amount FROM sales"
                 ),
                 "Selective projection",
@@ -266,7 +260,7 @@ def demonstrate_query_optimization():
             print("\n2. Early Filtering:")
             print("   a) Filter after loading:")
             late_filter_results = profile_operation(
-                lambda: handler.execute_sql(
+                lambda: conn.execute_sql(
                     "SELECT * FROM sales WHERE net_amount > 1000"
                 ),
                 "Late filtering",
@@ -275,7 +269,7 @@ def demonstrate_query_optimization():
 
             print("   b) Optimized filter with index simulation:")
             early_filter_results = profile_operation(
-                lambda: handler.execute_sql("""
+                lambda: conn.execute_sql("""
                     SELECT transaction_id, net_amount, product
                     FROM sales
                     WHERE net_amount > 1000
@@ -289,7 +283,7 @@ def demonstrate_query_optimization():
             print("\n3. Aggregation Optimization:")
             print("   a) Simple aggregation:")
             simple_agg_results = profile_operation(
-                lambda: handler.execute_sql("""
+                lambda: conn.execute_sql("""
                     SELECT region, COUNT(*) as count, SUM(net_amount) as total
                     FROM sales
                     GROUP BY region
@@ -300,7 +294,7 @@ def demonstrate_query_optimization():
 
             print("   b) Optimized aggregation with filters:")
             optimized_agg_results = profile_operation(
-                lambda: handler.execute_sql("""
+                lambda: conn.execute_sql("""
                     SELECT region, COUNT(*) as count, SUM(net_amount) as total
                     FROM sales
                     WHERE net_amount > 100
@@ -316,7 +310,7 @@ def demonstrate_query_optimization():
             print("\n4. Query Batching:")
             print("   a) Large single query:")
             single_query_results = profile_operation(
-                lambda: handler.execute_sql("""
+                lambda: conn.execute_sql("""
                     SELECT
                         region,
                         channel,
@@ -337,7 +331,7 @@ def demonstrate_query_optimization():
             print("   b) Batched smaller queries:")
             batched_results = profile_operation(
                 lambda: [
-                    handler.execute_sql(f"""
+                    conn.execute_sql(f"""
                         SELECT region, channel, customer_segment,
                                COUNT(*) as count, SUM(net_amount) as total
                         FROM sales
@@ -393,7 +387,7 @@ def demonstrate_memory_optimization():
         large_data = create_large_analytics_dataset()
         original_memory = large_data.nbytes / 1024 / 1024
 
-        print(f"\n📊 Original Dataset:")
+        print("\n📊 Original Dataset:")
         print(f"   Records: {len(large_data):,}")
         print(f"   Memory: {original_memory:.2f} MB")
 
@@ -487,7 +481,7 @@ def demonstrate_memory_optimization():
 
         filtered_memory = filtered_data.nbytes / 1024 / 1024
 
-        print(f"   Filtered for net_amount > $1000")
+        print("   Filtered for net_amount > $1000")
         print(
             f"   Records reduced: {len(selected_data):,} -> {len(filtered_data):,} ({filter_reduction:.1f}%)"
         )
@@ -517,7 +511,7 @@ def demonstrate_memory_optimization():
         print(f"   Average chunk time: {chunked_time / len(chunk_results):.4f}s")
 
         # Memory efficiency summary
-        print(f"\n💡 Memory Efficiency Summary:")
+        print("\n💡 Memory Efficiency Summary:")
         print(f"   Original dataset: {original_memory:.2f} MB")
         print(
             f"   Type optimized:  {optimized_memory:.2f} MB ({((original_memory - optimized_memory) / original_memory) * 100:.1f}% reduction)"
@@ -630,7 +624,7 @@ def demonstrate_parallel_processing():
             speedup_4_workers = results[1]["time"] / results[4]["time"]
             speedup_8_workers = results[1]["time"] / results[8]["time"]
 
-            print(f"\n📊 Parallel Processing Results:")
+            print("\n📊 Parallel Processing Results:")
             print(f"   4 workers speedup: {speedup_4_workers:.2f}x")
             print(f"   8 workers speedup: {speedup_8_workers:.2f}x")
 
@@ -772,8 +766,10 @@ def demonstrate_io_optimization():
         print(f"   Created {len(partition_files)} partitioned files")
 
         # Test selective read performance
+        # partitioning=None: quarter/region are physical columns in the files;
+        # hive inference from the key=value path segments would conflict.
         start_time = time.time()
-        partitioned_tables = [pq.read_table(f) for f in partition_files]
+        partitioned_tables = [pq.read_table(f, partitioning=None) for f in partition_files]
         partitioned_combined = pa.concat_tables(partitioned_tables)
         partitioned_read_time = time.time() - start_time
 
@@ -782,7 +778,7 @@ def demonstrate_io_optimization():
         # Test selective partition reading (simulating pruning)
         start_time = time.time()
         target_files = list(partitioned_path.glob("quarter=Q22024/**/*.parquet"))
-        selective_tables = [pq.read_table(f) for f in target_files]
+        selective_tables = [pq.read_table(f, partitioning=None) for f in target_files]
         selective_combined = pa.concat_tables(selective_tables)
         selective_read_time = time.time() - start_time
 
@@ -795,7 +791,7 @@ def demonstrate_io_optimization():
         )
 
         # I/O Optimization Summary
-        print(f"\n💡 I/O Optimization Summary:")
+        print("\n💡 I/O Optimization Summary:")
 
         best_codec = min(
             compression_results.items(), key=lambda x: x[1]["compression_ratio"]
@@ -810,7 +806,7 @@ def demonstrate_io_optimization():
             ) * 100
             print(f"   Partitioning improvement: {partition_improvement:.1f}%")
 
-        print(f"\n🎯 I/O Optimization Recommendations:")
+        print("\n🎯 I/O Optimization Recommendations:")
         print("   • Use snappy for best balance of speed vs compression")
         print("   • Partition by frequently filtered columns")
         print("   • Choose appropriate file sizes (100MB-500MB per file)")
@@ -836,7 +832,7 @@ def demonstrate_monitoring():
         # Monitor system resources
         process = psutil.Process()
 
-        print(f"\n🖥️  System Resource Monitoring:")
+        print("\n🖥️  System Resource Monitoring:")
         print(f"   CPU Cores: {psutil.cpu_count()}")
         print(f"   Memory Total: {psutil.virtual_memory().total / 1024 / 1024:.1f} MB")
         print(
@@ -938,7 +934,7 @@ def demonstrate_monitoring():
         )
 
         # Performance comparison
-        print(f"\n📊 Performance Comparison:")
+        print("\n📊 Performance Comparison:")
         operations = [
             ("Read", read_results),
             ("Filter", filter_results),
@@ -959,7 +955,7 @@ def demonstrate_monitoring():
 
         shutil.rmtree(temp_dir)
 
-        print(f"\n💡 Monitoring Best Practices:")
+        print("\n💡 Monitoring Best Practices:")
         print("   • Monitor memory usage to detect leaks")
         print("   • Track CPU usage for optimization opportunities")
         print("   • Profile with realistic data sizes")

@@ -149,7 +149,9 @@ summary = fs.compact_parquet_dataset("dataset/", target_mb_per_file=128)
 ```
 
 See [Coordinator-backed Maintenance](../migration/maintenance-api.md) for the
-planning workflow and guarantee levels.
+planning workflow and guarantee levels, and
+[Maintain Parquet Datasets](maintain-parquet-datasets.md) for the full task
+guide including deduplication, repartitioning, and optimization.
 
 ## Related documentation
 

@@ -2,48 +2,47 @@
 """
 Dataset Deduplication Maintenance Example
 
-This example demonstrates the new dataset deduplication maintenance API,
-showing how to deduplicate existing parquet datasets both independently
-and as part of optimization workflows.
+This example demonstrates the coordinator-backed dataset deduplication API
+(introduced in 0.24.0 / 0.25.0), showing how to deduplicate existing parquet
+datasets both independently and as part of optimization workflows.
 
 Key features demonstrated:
-1. Key-based deduplication with custom ordering
-2. Exact duplicate removal
-3. Integration with dataset optimization
-4. Dry-run mode for planning
+1. Key-based deduplication with ordering (plan-then-execute)
+2. Exact duplicate removal (no key columns)
+3. One-call optimization with integrated deduplication
+4. Multi-column keys
+
+The maintenance facades are registered on every fsspec ``AbstractFileSystem``
+when ``fsspeckit`` is imported. All operations return a typed
+``MaintenanceResult`` instead of a dictionary, and the removed ``dry_run``
+mode is replaced by creating a plan and inspecting it before executing.
+
+Ordering semantics: ``dedup_order_by`` sorts ascending and keeps the FIRST
+row per key (ties are broken by original row order). The legacy ``-column``
+descending prefix from the pre-0.25 helpers is not supported - see
+``docs/migration/maintenance-api.md``.
 """
 
 import tempfile
 from pathlib import Path
+
+import fsspec
+
+import fsspeckit  # noqa: F401  (registers the filesystem maintenance facades)
 
 # Example data with duplicates for demonstration
 SAMPLE_DATA_WITH_DUPLICATES = [
     # Some unique records
     {"id": 1, "name": "Alice", "timestamp": "2024-01-01", "value": 100},
     {"id": 2, "name": "Bob", "timestamp": "2024-01-02", "value": 200},
-    # Duplicate records with different timestamps (keep most recent)
-    {
-        "id": 1,
-        "name": "Alice",
-        "timestamp": "2024-01-03",
-        "value": 150,
-    },  # Should keep this
-    {
-        "id": 1,
-        "name": "Alice",
-        "timestamp": "2024-01-02",
-        "value": 120,
-    },  # Should remove this
+    # Duplicate records with different timestamps
+    {"id": 1, "name": "Alice", "timestamp": "2024-01-03", "value": 150},
+    {"id": 1, "name": "Alice", "timestamp": "2024-01-02", "value": 120},
     # More unique records
     {"id": 3, "name": "Charlie", "timestamp": "2024-01-01", "value": 300},
     # Exact duplicates (same in all columns)
     {"id": 4, "name": "David", "timestamp": "2024-01-01", "value": 400},
-    {
-        "id": 4,
-        "name": "David",
-        "timestamp": "2024-01-01",
-        "value": 400,
-    },  # Exact duplicate
+    {"id": 4, "name": "David", "timestamp": "2024-01-01", "value": 400},
 ]
 
 
@@ -52,58 +51,64 @@ def create_sample_dataset(dataset_path: str):
     import pyarrow as pa
     import pyarrow.parquet as pq
 
-    # Convert sample data to PyArrow table
     table = pa.Table.from_pylist(SAMPLE_DATA_WITH_DUPLICATES)
 
-    # Write to dataset directory
-    pq.write_table(table, dataset_path)
+    # Write two files so this is a real multi-file dataset
+    root = Path(dataset_path)
+    root.mkdir(parents=True, exist_ok=True)
+    for stale in root.glob("*.parquet"):
+        stale.unlink()
+    half = table.num_rows // 2
+    pq.write_table(table.slice(0, half), root / "batch_0.parquet")
+    pq.write_table(table.slice(half), root / "batch_1.parquet")
 
     print(f"✓ Created sample dataset at: {dataset_path}")
-    print(f"  Original records: {table.num_rows}")
+    print(f"  Original records: {table.num_rows} (2 files)")
+
+
+def read_dataset_rows(dataset_path: str) -> list[dict]:
+    """Read the full dataset back as a list of row dicts."""
+    import pyarrow.dataset as pds
+
+    rows: list[dict] = pds.dataset(dataset_path).to_table().to_pylist()
+    return rows
 
 
 def demonstrate_key_based_deduplication(dataset_path: str):
-    """Demonstrate key-based deduplication with custom ordering."""
+    """Demonstrate key-based deduplication with plan-then-execute."""
     print("\n🗝️  Key-Based Deduplication Example")
     print("=" * 50)
 
-    try:
-        # Import the deduplication function
-        from fsspeckit.datasets.pyarrow.dataset import (
-            deduplicate_parquet_dataset_pyarrow,
-        )
+    fs = fsspec.filesystem("file")
 
-        print("\n1. First, let's see the plan with dry_run=True:")
-        plan = deduplicate_parquet_dataset_pyarrow(
-            path=dataset_path,
-            key_columns=["id"],  # Deduplicate based on 'id' column
-            dedup_order_by=["-timestamp"],  # Keep most recent record
-            dry_run=True,
-            verbose=True,
-        )
+    print("\n1. Create a plan and inspect it (replaces dry_run=True):")
+    plan = fs.plan_parquet_partition_local_deduplication(
+        dataset_path,
+        key_columns=["id"],  # Deduplicate based on 'id' column
+        dedup_order_by=["timestamp"],  # Ascending: earliest row per id wins
+    )
+    print(f"   Plan type: {type(plan).__name__}")
+    print(f"   Guarantee level: {plan.guarantee_level.value}")
+    print(f"   Source files: {len(plan.source_snapshot.files)}")
+    print(f"   Key columns: {plan.dedup_key_columns}")
+    print(f"   Order by: {plan.dedup_order_by}")
 
+    print("\n2. Execute the plan:")
+    result = fs.execute_maintenance_plan(plan)
+    print(f"   ✓ Succeeded: {result.succeeded}")
+    if result.actual_metrics is not None:
         print(
-            f"   Plan: {plan['before_file_count']} files -> {plan['after_file_count']} files"
+            f"   Files: {len(plan.source_snapshot.files)} -> "
+            f"{result.actual_metrics.file_count}"
         )
-        print(f"   Key columns: {plan.get('key_columns', 'None')}")
-        print(f"   Order by: {plan.get('dedup_order_by', 'None')}")
-
-        print("\n2. Now let's execute the deduplication:")
-        result = deduplicate_parquet_dataset_pyarrow(
-            path=dataset_path,
-            key_columns=["id"],
-            dedup_order_by=["-timestamp"],
-            verbose=True,
-        )
-
-        print(f"   ✓ Deduplication complete!")
         print(
-            f"   Files: {result['before_file_count']} -> {result['after_file_count']}"
+            f"   Rows: {plan.source_snapshot.total_rows} -> "
+            f"{result.actual_metrics.row_count}"
         )
-        print(f"   Rows deduplicated: {result.get('deduplicated_rows', 0)}")
 
-    except ImportError as e:
-        print(f"   ⚠️  PyArrow backend not available: {e}")
+    rows = read_dataset_rows(dataset_path)
+    kept = sorted((r["id"], r["timestamp"]) for r in rows)
+    print(f"   Kept (id, timestamp): {kept}")
 
 
 def demonstrate_exact_duplicate_removal(dataset_path: str):
@@ -111,26 +116,17 @@ def demonstrate_exact_duplicate_removal(dataset_path: str):
     print("\n🔍 Exact Duplicate Removal Example")
     print("=" * 50)
 
-    try:
-        from fsspeckit.datasets.pyarrow.dataset import (
-            deduplicate_parquet_dataset_pyarrow,
-        )
+    fs = fsspec.filesystem("file")
 
-        print("\nRemoving exact duplicates across all columns...")
-        result = deduplicate_parquet_dataset_pyarrow(
-            path=dataset_path,
-            # No key_columns = exact duplicate removal
-            verbose=True,
-        )
+    print("\nRemoving exact duplicates across all columns (one call)...")
+    result = fs.deduplicate_parquet_dataset(dataset_path)
 
-        print(f"   ✓ Exact deduplication complete!")
+    print(f"   ✓ Succeeded: {result.succeeded}")
+    if result.actual_metrics is not None:
         print(
-            f"   Files: {result['before_file_count']} -> {result['after_file_count']}"
+            f"   Rows: {result.plan.source_snapshot.total_rows} -> "
+            f"{result.actual_metrics.row_count}"
         )
-        print(f"   Rows deduplicated: {result.get('deduplicated_rows', 0)}")
-
-    except ImportError as e:
-        print(f"   ⚠️  PyArrow backend not available: {e}")
 
 
 def demonstrate_optimization_with_deduplication(dataset_path: str):
@@ -138,55 +134,44 @@ def demonstrate_optimization_with_deduplication(dataset_path: str):
     print("\n🚀 Optimization with Deduplication Example")
     print("=" * 50)
 
-    try:
-        from fsspeckit.datasets.pyarrow.dataset import optimize_parquet_dataset_pyarrow
+    fs = fsspec.filesystem("file")
 
-        print("\nOptimizing dataset with deduplication...")
-        result = optimize_parquet_dataset_pyarrow(
-            path=dataset_path,
-            target_mb_per_file=1,  # Target file size
-            deduplicate_key_columns=["id"],  # Deduplicate before optimization
-            dedup_order_by=["-timestamp"],
-            verbose=True,
-        )
+    print("\nOptimizing dataset with deduplication (one call)...")
+    result = fs.optimize_parquet_dataset(
+        dataset_path,
+        deduplicate_key_columns=["id"],  # Deduplicate before compaction
+        target_mb_per_file=1,  # Target file size
+    )
 
-        print(f"   ✓ Optimization with deduplication complete!")
+    print(f"   ✓ Succeeded: {result.succeeded}")
+    if result.actual_metrics is not None:
         print(
-            f"   Files: {result['before_file_count']} -> {result['after_file_count']}"
+            f"   Files: {result.plan.source_snapshot.total_rows} rows -> "
+            f"{result.actual_metrics.row_count} rows in "
+            f"{result.actual_metrics.file_count} file(s) "
+            f"({result.actual_metrics.total_bytes} bytes)"
         )
-        print(
-            f"   Size: {result['before_total_bytes']} -> {result['after_total_bytes']} bytes"
-        )
-
-    except ImportError as e:
-        print(f"   ⚠️  PyArrow backend not available: {e}")
 
 
-def demonstrate_filesystem_level_api(dataset_path: str):
-    """Demonstrate the filesystem-level deduplication API."""
-    print("\n💾 Filesystem-Level API Example")
+def demonstrate_multi_column_key(dataset_path: str):
+    """Demonstrate deduplication on a multi-column key."""
+    print("\n💾 Multi-Column Key Example")
     print("=" * 50)
 
-    try:
-        from fsspec import LocalFileSystem
+    fs = fsspec.filesystem("file")
 
-        fs = LocalFileSystem()
+    print("\nDeduplicating on key_columns=['id', 'name']...")
+    result = fs.deduplicate_parquet_dataset(
+        dataset_path,
+        key_columns=["id", "name"],
+    )
 
-        print("\nUsing filesystem-level deduplication API...")
-        result = fs.deduplicate_parquet_dataset(
-            path=dataset_path,
-            key_columns=["id", "name"],  # Multi-column deduplication
-            verbose=True,
-        )
-
-        print(f"   ✓ Filesystem-level deduplication complete!")
+    print(f"   ✓ Succeeded: {result.succeeded}")
+    if result.actual_metrics is not None:
         print(
-            f"   Files: {result['before_file_count']} -> {result['after_file_count']}"
+            f"   Rows: {result.plan.source_snapshot.total_rows} -> "
+            f"{result.actual_metrics.row_count}"
         )
-        print(f"   Rows deduplicated: {result.get('deduplicated_rows', 0)}")
-
-    except ImportError as e:
-        print(f"   ⚠️  Filesystem API not available: {e}")
 
 
 def main():
@@ -196,7 +181,7 @@ def main():
 
     # Create a temporary dataset for testing
     with tempfile.TemporaryDirectory() as temp_dir:
-        dataset_path = Path(temp_dir) / "sample_dataset.parquet"
+        dataset_path = Path(temp_dir) / "sample_dataset"
 
         try:
             # Create sample dataset
@@ -213,18 +198,19 @@ def main():
             create_sample_dataset(str(dataset_path))
             demonstrate_optimization_with_deduplication(str(dataset_path))
 
-            # Reset dataset for filesystem API example
+            # Reset dataset for multi-column key example
             create_sample_dataset(str(dataset_path))
-            demonstrate_filesystem_level_api(str(dataset_path))
+            demonstrate_multi_column_key(str(dataset_path))
 
             print("\n✅ All examples completed successfully!")
             print("\n📖 Key Takeaways:")
             print("   • Use key_columns for targeted deduplication")
-            print("   • Use dedup_order_by to control which records are kept")
+            print("   • dedup_order_by sorts ascending; the first row per key wins")
             print("   • Omit key_columns for exact duplicate removal")
-            print("   • Use dry_run=True to plan before executing")
+            print("   • Create a plan first to inspect what would happen")
+            print("     (this replaces the removed dry_run=True mode)")
             print(
-                "   • Integration with optimize_parquet_dataset for comprehensive maintenance"
+                "   • Use optimize_parquet_dataset for dedup + compaction in one call"
             )
 
         except Exception as e:

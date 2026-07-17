@@ -7,6 +7,9 @@ a typed `MaintenanceResult` for execution.
 
 ## Direct coordinator workflow
 
+For a task-oriented walkthrough with examples, see
+[Maintain Parquet Datasets](../how-to/maintain-parquet-datasets.md).
+
 Direct callers select their backend, create a plan without mutating the dataset,
 and execute that accepted plan through the single generic entry point.
 
@@ -60,3 +63,13 @@ Global deduplication is deliberately explicit through
 `MaintenanceResult` replaces dictionary indexing. Its `plan`, `phase_outcomes`,
 `validation`, `publication`, `recovery`, and `actual_metrics` fields provide the
 observed execution details.
+
+## Semantic changes
+
+- `dedup_order_by` no longer accepts the legacy `-column` descending prefix.
+  Ordering is always ascending and the first row per key wins (physical order
+  breaks ties). To keep the latest record per key, ensure it sorts first or
+  rely on ingest order.
+- Byte-size targets (`target_mb_per_file`) are advisory;
+  `max_rows_per_file` is a hard upper bound on output rows per file.
+- Rewrites without an explicit codec target use Snappy.

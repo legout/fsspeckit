@@ -69,9 +69,9 @@ To set up your development environment, follow these steps:
 3.  **Install Development Dependencies**:
     The project uses `uv` to manage dependencies. Install the `dev` dependency group which includes tools for testing, linting, and documentation generation.
     ```bash
-    uv pip install -e ".[dev]"
+    uv sync --dev
     ```
-    This command installs the project in editable mode (`-e`) and includes all development-related dependencies specified in `pyproject.toml` under the `[project.optional-dependencies] dev` section.
+    This command creates the project virtual environment, installs the project in editable mode, and includes all development-related dependencies specified in `pyproject.toml` under the `[dependency-groups] dev` section.
 
 ## Best Practices for Contributions
 
@@ -137,7 +137,7 @@ The project uses `mypy` for static type checking. Type annotations help catch bu
 uv run mypy src/fsspeckit
 
 # Check specific modules
-uv run mypy src/fsspeckit/datasets/pyarrow_dataset.py
+uv run mypy src/fsspeckit/datasets/pyarrow/
 ```
 
 **Common Type Patterns:**
@@ -175,7 +175,7 @@ uv run pytest
 uv run pytest --cov=fsspeckit --cov-report=term-missing
 
 # Run specific test file
-uv run pytest tests/test_utils/test_pyarrow_dataset_merge.py
+uv run pytest tests/test_utils/test_pyarrow_merge_method.py
 
 # Run tests matching pattern
 uv run pytest -k "test_merge"
@@ -201,10 +201,10 @@ Example: If splitting `large_module.py` into `submodule_a.py` and `submodule_b.p
 **High-Risk Changes:**
 
 Changes to the following modules REQUIRE both type checking AND comprehensive tests:
-- `core/filesystem.py` and core submodules
-- `core/ext*.py` and core submodules
-- `datasets/pyarrow*.py` and dataset submodules
-- `datasets/duckdb*.py` and dataset submodules
+- `core/filesystem/` and core submodules
+- `core/ext/` and core submodules
+- `datasets/pyarrow/` and dataset submodules
+- `datasets/duckdb/` and dataset submodules
 
 For these changes:
 ```bash

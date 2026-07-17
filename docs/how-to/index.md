@@ -17,6 +17,9 @@ recipe. Each guide uses canonical imports and links to the
   CSV, and Parquet files, plus dataset handlers for partitioned parquet.
 - [Merge Datasets](merge-datasets.md) - incremental `insert`, `update`, and
   `upsert` merges across the DuckDB and PyArrow backends.
+- [Maintain Parquet Datasets](maintain-parquet-datasets.md) - compaction,
+  deduplication, repartitioning, and optimization with typed plans and
+  results.
 - [Merge Operations Examples](merge-operations-examples.md) - end-to-end merge
   scenarios and result interpretation.
 

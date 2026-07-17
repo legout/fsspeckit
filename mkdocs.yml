@@ -24,6 +24,7 @@ nav:
       - Multi-Key Examples: how-to/multi-key-examples.md
       - Multi-Key Performance: how-to/multi-key-performance.md
       - Merge Operations Examples: how-to/merge-operations-examples.md
+      - Maintain Parquet Datasets: how-to/maintain-parquet-datasets.md
   - Reference:
       - Overview: reference/index.md
       - Installation and Optional Extras: installation.md

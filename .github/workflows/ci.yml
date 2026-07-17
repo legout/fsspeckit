@@ -35,6 +35,13 @@ jobs:
           echo "Checking import layering rules..."
           uv run python scripts/check_layering.py
 
+      - name: Build documentation (strict)
+        if: matrix.python-version == '3.12'
+        run: |
+          # Fails on dead mkdocstrings references, broken nav entries, and
+          # unresolved links - keeps docs/ from drifting away from src/.
+          uv run mkdocs build --strict
+
       - name: Run type checking with mypy
         run: |
           # Start with lenient checking, will be progressively stricter
@@ -47,6 +54,11 @@ jobs:
       - name: Run merge example smoke test
         run: |
           uv run python examples/datasets/getting_started/04_pyarrow_merges.py
+
+      - name: Validate example imports
+        run: |
+          # Imports every example module; catches examples referencing removed APIs.
+          uv run python examples/run_examples.py --validate
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12'

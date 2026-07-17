@@ -56,35 +56,51 @@ filtered = df.filter(pl_filter)
 The same SQL string works for both frameworks against their respective schemas:
 
 ```python
-sql = "category IN ('A', 'B') AND value > 100.0 AND timestamp >= '2023-01-01'"
+sql = "(category = 'A' OR category = 'B') AND value > 100.0 AND timestamp >= '2023-01-01'"
 
 pa_filter = sql2pyarrow_filter(sql, arrow_schema)
 pl_filter = sql2polars_filter(sql, polars_schema)
 ```
+
+Note the `OR` chain instead of `IN`: `IN (...)` is only supported by the
+PyArrow translator (see the support matrix below).
 
 This lets you keep filtering logic in one place (for example, in configuration)
 and apply it to whichever engine processes the data.
 
 ## Supported SQL
 
-The translator covers the common predicate surface. Each example below is a
-valid input string:
+The translator covers a deliberately small predicate surface. Unsupported
+constructs raise `ValueError` at translation time instead of silently
+mis-filtering. The matrix below is verified against the shipped translators:
 
-- **Comparison**: `=`, `!=`, `>`, `>=`, `<`, `<=`, `BETWEEN`
-- **Logical**: `AND`, `OR`, `NOT`, with parentheses
-- **String**: `LIKE` (with `%` wildcards), `IN (...)`, `NOT IN (...)`
-- **Nulls**: `IS NULL`, `IS NOT NULL`
-- **Date and time**: comparison against timestamp literals, plus `YEAR()`,
-  `MONTH()`, `DAY()`, `DATE()` functions
+| Construct | PyArrow | Polars |
+| --- | --- | --- |
+| `=`, `!=`, `>`, `>=`, `<`, `<=` | ✅ | ✅ |
+| `AND`, `OR`, `NOT`, parentheses | ✅ | ✅ |
+| `IS NULL`, `IS NOT NULL` | ✅ | ✅ |
+| Timestamp literals (`timestamp >= '2023-01-01'`) | ✅ | ✅ |
+| `IN (...)`, `NOT IN (...)` | ✅ | ❌ |
+| Boolean literals (`active = TRUE`) | ✅ | ❌ |
+| `BETWEEN`, `LIKE` | ❌ | ❌ |
+| Function calls (`YEAR()`, `DATE()`, `UPPER()`, ...) | ❌ | ❌ |
+| Arithmetic (`value * 1.1 > 100`) | ❌ | ❌ |
 
 ```python
 filters = [
-    "value BETWEEN 10 AND 100 OR category = 'SPECIAL'",
-    "(name LIKE 'test%' OR name LIKE 'demo%') AND value > 50",
+    "value >= 10 AND value <= 100 OR category = 'SPECIAL'",  # BETWEEN rewritten
     "timestamp >= '2023-01-01' AND timestamp <= '2023-12-31'",
-    "YEAR(timestamp) = 2023 AND MONTH(timestamp) = 6",
+    "category IN ('a', 'b') AND value > 50",                  # PyArrow only
 ]
 ```
+
+Rewrite unsupported constructs in terms of supported ones:
+
+- `value BETWEEN 10 AND 100` -> `value >= 10 AND value <= 100`
+- `category IN ('a', 'b')` -> `category = 'a' OR category = 'b'` (for Polars)
+- `YEAR(ts) = 2023` -> `ts >= '2023-01-01' AND ts < '2024-01-01'`
+- `name LIKE 'test%'` has no translator equivalent; filter natively in the
+  engine after the scan.
 
 ## Type-aware conversion
 

@@ -17,9 +17,15 @@ All dataset handlers implement the `DatasetHandler` protocol
   dataset, returning a `WriteDatasetResult` with per-file metadata.
 - `merge(data, path, strategy, key_columns, ...)` - incrementally merge data
   into an existing dataset, returning a `MergeResult` with row and file counts.
-- `compact_parquet_dataset(path, ...)` - combine small files.
-- `optimize_parquet_dataset(path, ...)` - compaction plus optional deduplication.
 - `read_parquet(path, ...)` - read parquet files into a PyArrow table.
+
+Dataset maintenance (compaction, deduplication, repartitioning, optimization)
+is no longer part of the handler interface. Since 0.25.0 it lives on the
+filesystem via coordinator-backed facades such as
+`fs.compact_parquet_dataset(...)` and `fs.plan_parquet_compaction(...)` -
+see [Maintain Parquet Datasets](how-to/maintain-parquet-datasets.md) for the
+task guide and [Coordinator-backed Maintenance](migration/maintenance-api.md)
+for the migration mapping.
 
 For the authoritative signatures and parameter lists, see
 [fsspeckit.datasets.duckdb](api/fsspeckit.datasets.duckdb.md) and
