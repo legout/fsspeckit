@@ -32,6 +32,11 @@ from .storage_options import (
     StorageOptions,
 )
 
+from .datasets.pyarrow.io import _register_sql_filter_translator
+from .sql.filters import sql2pyarrow_filter
+
+_register_sql_filter_translator(sql2pyarrow_filter)
+
 # Configure logging when package is imported
 # setup_logging()
 

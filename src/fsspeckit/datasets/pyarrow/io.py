@@ -30,6 +30,17 @@ from fsspeckit.datasets.base import BaseDatasetHandler
 
 logger = get_logger(__name__)
 
+_sql_filter_translator: Callable[[str, Any], Any] | None = None
+
+
+def _register_sql_filter_translator(
+    translator: Callable[[str, Any], Any],
+) -> None:
+    """Configure SQL string filtering from the package composition root."""
+
+    global _sql_filter_translator
+    _sql_filter_translator = translator
+
 
 class PyarrowDatasetIO(BaseDatasetHandler):
     """PyArrow-based dataset I/O operations.
@@ -129,6 +140,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
 
         Raises:
             ValueError: If SQL string parsing fails
+            RuntimeError: If SQL string filtering is not configured
         """
         if filters is None:
             return None
@@ -148,9 +160,12 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             )
             schema = dataset.schema
 
-        from fsspeckit.common.sql_filters import sql2pyarrow_filter
+        if _sql_filter_translator is None:
+            raise RuntimeError(
+                "SQL string filter translation has not been configured by fsspeckit"
+            )
 
-        return sql2pyarrow_filter(filters, schema)
+        return _sql_filter_translator(filters, schema)
 
     def read_parquet(
         self,

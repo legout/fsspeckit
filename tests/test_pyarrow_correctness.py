@@ -283,3 +283,19 @@ class TestPyArrowMergeCorrectness:
 
 class TestPyArrowEdgeCaseCorrectness:
     """Correctness tests for edge cases and error scenarios."""
+
+    def test_read_parquet_sql_string_filter(self, tmp_path):
+        """read_parquet with a SQL-string filter resolves via fsspeckit.sql.filters.
+
+        Regression test for issue #50: a dangling import of the removed
+        ``fsspeckit.common.sql_filters`` module raised ModuleNotFoundError whenever
+        a SQL string was passed as ``filters`` to ``read_parquet``.
+        """
+        table = pa.table({"x": [1, 2, 3]})
+        path = tmp_path / "data.parquet"
+        pq.write_table(table, path)
+
+        result = PyarrowDatasetIO().read_parquet(str(path), filters="x > 1")
+
+        assert result.num_rows == 2
+        assert set(result.column("x").to_pylist()) == {2, 3}
