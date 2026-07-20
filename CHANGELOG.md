@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-07-20
+
+### Added
+- Partition-ordered compaction (`OrderedCompactionPlan`, `SortKey`, `plan_ordered_compaction`) producing one globally ordered output sequence per physical partition, split into contiguous `max_rows_per_file`-bounded chunks, with an external merge sort bounded by `memory_budget_mb` and an optional spill directory. Adjacent output files form a single sorted run; ordinary compaction remains explicitly unordered. (#61)
+- Caller-directed schema rewrite (`SchemaRewritePlan`, `CastPolicy`, `plan_schema_rewrite`) that publishes an explicitly supplied target schema under a typed cast policy (STRICT/SAFE/LOOSE), validates every cast across the full rewrite scope before publication, and never invokes dtype inference. `opt_dtype` helpers remain proposal-only. (#62)
+
+
 ## [0.26.0] - 2026-07-17
 
 ### Added
