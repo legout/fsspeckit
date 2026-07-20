@@ -46,8 +46,6 @@ from fsspeckit.core.maintenance import (
 # --------------------------------------------------------------------------- #
 
 
-def _write_parquet(path: str, table: pa.Table) -> None:
-    pq.write_table(table, path)
 
 
 def _list_parquet(directory: str) -> list[str]:
@@ -214,6 +212,66 @@ class TestAtomicLocalSchemaRewritePlanning:
 
         plan = _make_plan(dataset, target, cast_policy=CastPolicy.STRICT)
         assert plan.changed_fields == ("id",)
+
+    def test_strict_rejects_equal_width_unsigned_to_signed(self, tmp_path):
+        """uint8→int8 is NOT a safe promotion: values 128-255 don't fit."""
+        dataset = tmp_path / "ds"
+        _write_parquet(
+            str(dataset / "a.parquet"),
+            pa.table({"id": pa.array([1, 2], pa.uint8())}),
+        )
+        target = pa.schema([("id", pa.int8())])
+
+        with pytest.raises(ValueError, match="STRICT.*promotion"):
+            _make_plan(dataset, target, cast_policy=CastPolicy.STRICT)
+
+    def test_strict_allows_unsigned_to_wider_signed(self, tmp_path):
+        """uint8→int16 IS a value-preserving promotion."""
+        dataset = tmp_path / "ds"
+        _write_parquet(
+            str(dataset / "a.parquet"),
+            pa.table({"id": pa.array([1, 2], pa.uint8())}),
+        )
+        target = pa.schema([("id", pa.int16())])
+
+        plan = _make_plan(dataset, target, cast_policy=CastPolicy.STRICT)
+        assert plan.changed_fields == ("id",)
+
+    def test_strict_defaults_to_full_distinct_key_scan(self, tmp_path):
+        """STRICT mandatory default: validation_level coerced to FULL_DISTINCT_KEY_SCAN."""
+        dataset = tmp_path / "ds"
+        _write_parquet(
+            str(dataset / "a.parquet"),
+            pa.table({"id": pa.array([1, 2], pa.int32())}),
+        )
+        target = pa.schema([("id", pa.int64())])
+
+        plan = _make_plan(dataset, target, cast_policy=CastPolicy.STRICT)
+        assert plan.validation_level == ValidationLevel.FULL_DISTINCT_KEY_SCAN
+
+    def test_loose_defaults_to_full_distinct_key_scan(self, tmp_path):
+        """LOOSE default: validation_level coerced to FULL_DISTINCT_KEY_SCAN."""
+        dataset = tmp_path / "ds"
+        _write_parquet(
+            str(dataset / "a.parquet"),
+            pa.table({"id": pa.array([1, 2], pa.int64())}),
+        )
+        target = pa.schema([("id", pa.int32())])
+
+        plan = _make_plan(dataset, target, cast_policy=CastPolicy.LOOSE)
+        assert plan.validation_level == ValidationLevel.FULL_DISTINCT_KEY_SCAN
+
+    def test_safe_does_not_default_to_full_distinct_key_scan(self, tmp_path):
+        """SAFE is opt-in only; DEFAULT validation_level is preserved."""
+        dataset = tmp_path / "ds"
+        _write_parquet(
+            str(dataset / "a.parquet"),
+            pa.table({"id": pa.array([1, 2], pa.int64())}),
+        )
+        target = pa.schema([("id", pa.int32())])
+
+        plan = _make_plan(dataset, target, cast_policy=CastPolicy.SAFE)
+        assert plan.validation_level == ValidationLevel.DEFAULT
 
     def test_target_schema_field_names_must_match_source(self, tmp_path):
         dataset = tmp_path / "ds"

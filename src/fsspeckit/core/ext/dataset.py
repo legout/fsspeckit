@@ -19,6 +19,7 @@ import pyarrow.dataset as pds
 from fsspec import AbstractFileSystem
 
 from fsspeckit.core.maintenance import (
+    CastPolicy,
     CompactionPlan,
     CoordinatedOptimizationPlan,
     DatasetMaintenanceCoordinator,
@@ -348,7 +349,7 @@ def plan_parquet_schema_rewrite(
     path: str,
     *,
     target_schema: pa.Schema,
-    cast_policy: str = "safe",
+    cast_policy: CastPolicy | str = CastPolicy.SAFE,
     target_mb_per_file: int | None = None,
     target_rows_per_file: int | None = None,
     partition_filter: list[str] | None = None,
@@ -376,7 +377,7 @@ def plan_parquet_schema_rewrite(
 
 def schema_rewrite_parquet_dataset(
     self: AbstractFileSystem, path: str, **kwargs: Any
-):
+) -> MaintenanceResult:
     """Plan then execute a caller-directed schema rewrite (#62)."""
     return execute_maintenance_plan(
         self, plan_parquet_schema_rewrite(self, path, **kwargs)

@@ -1247,8 +1247,8 @@ class SchemaRewritePlan(MaintenancePlan):
     operation: MaintenanceOperation = field(
         default=MaintenanceOperation.SCHEMA_REWRITE, init=False
     )
-    target_schema: Any = None  # pa.Schema
-    source_schema: Any = None  # pa.Schema
+    target_schema: pa.Schema | None = None
+    source_schema: pa.Schema | None = None
     cast_policy: CastPolicy = CastPolicy.SAFE
     changed_fields: tuple[str, ...] = ()
     schema_rewrite_groups: tuple[CompactionGroup, ...] = ()
@@ -4010,9 +4010,10 @@ def _is_type_promotion(
             return bool(target_type.bit_width > source_type.bit_width)
         if not source_signed and not target_signed:
             return bool(target_type.bit_width > source_type.bit_width)
-        # unsigned → signed of equal-or-greater width.
+        # unsigned → signed must be strictly wider (e.g. uint8→int16, not
+        # uint8→int8, because uint8 values 128–255 are not int8-representable).
         if not source_signed and target_signed:
-            return bool(target_type.bit_width >= source_type.bit_width)
+            return bool(target_type.bit_width > source_type.bit_width)
         return False
     # Float widening.
     if pa.types.is_floating(source_type) and pa.types.is_floating(target_type):
@@ -7521,7 +7522,7 @@ class DatasetMaintenanceCoordinator:
     def plan_schema_rewrite(
         self,
         dataset_path: str,
-        target_schema: Any,
+        target_schema: pa.Schema,
         cast_policy: CastPolicy | str = CastPolicy.SAFE,
         filesystem: AbstractFileSystem | None = None,
         target_mb_per_file: int | None = None,
@@ -7555,6 +7556,14 @@ class DatasetMaintenanceCoordinator:
             raise ValueError("target_rows_per_file must be > 0")
         coerced_policy = _coerce_cast_policy(cast_policy)
         coerced_validation = _coerce_validation_level(validation_level)
+        # FULL_DISTINCT_KEY_SCAN (full-scope cast validation) is mandatory for
+        # STRICT and the default for LOOSE per the PRD validation table. SAFE
+        # is opt-in only when the caller explicitly requests it.
+        if coerced_validation == ValidationLevel.DEFAULT and coerced_policy in (
+            CastPolicy.STRICT,
+            CastPolicy.LOOSE,
+        ):
+            coerced_validation = ValidationLevel.FULL_DISTINCT_KEY_SCAN
         (
             fs,
             file_stats,
@@ -7611,7 +7620,7 @@ class DatasetMaintenanceCoordinator:
             selected_codec=selected_codec,
             max_rows_per_file=target_rows_per_file,
             target_byte_size=target_byte_size,
-            validation_level=validation,
+            validation_level=coerced_validation,
             schema=source_schema,
             target_schema=target_schema,
             source_schema=source_schema,
