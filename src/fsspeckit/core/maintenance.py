@@ -995,6 +995,7 @@ class MaintenanceOperation(str, Enum):
     PARTITION_LOCAL_DEDUPLICATION = "partition_local_deduplication"
     GLOBAL_REPARTITION_DEDUPLICATION = "global_repartition_deduplication"
     REPARTITION = "repartition"
+    ORDERED_COMPACTION = "ordered_compaction"
     COORDINATED_OPTIMIZATION = "coordinated_optimization"
 
 
@@ -1197,6 +1198,68 @@ class RepartitionPlan(MaintenancePlan):
     derived_partition_keys: tuple[DerivedPartitionKey, ...] = ()
     repartition_memory_budget_mb: int | None = None
     repartition_groups: tuple[CompactionGroup, ...] = ()
+
+
+# --------------------------------------------------------------------------- #
+# Partition-ordered compaction (#61)
+# --------------------------------------------------------------------------- #
+
+
+@dataclass(frozen=True)
+class SortKey:
+    """One sort column for partition-ordered compaction (#61).
+
+    A typed sort key carries the column name, sort direction, and explicit
+    null placement. The literal field default is ``nulls_first=False`` (nulls
+    sort last); callers that want SQL-standard null placement on a descending
+    key (nulls first) must pass ``nulls_first=True`` explicitly or use the
+    string ``-col`` convention, which the planner normalizes to
+    ``SortKey(column, descending=True, nulls_first=True)``.
+
+    Attributes:
+        column: Source column name sorted by this key.
+        descending: Sort this column descending when True (ascending default).
+        nulls_first: Place nulls (and NaN) before non-null values when True.
+    """
+
+    column: str
+    descending: bool = False
+    nulls_first: bool = False
+
+
+@dataclass(frozen=True)
+class OrderedCompactionPlan(MaintenancePlan):
+    """Immutable plan for partition-ordered compaction (#61).
+
+    Output chunks are contiguous slices of one partition-level sorted
+    sequence per affected physical partition. Adjacent output files form a
+    single sorted run; the result does not claim global business ordering
+    across partitions.
+
+    Sorting is stable and deterministic for equal caller sort keys. The
+    physical tie-breaker is the ADR-0006 tuple ``(partition path, file path,
+    row offset)`` captured in the source snapshot, applied only after the
+    caller-supplied sort keys tie.
+
+    ``sort_memory_budget_mb`` records the bounded-memory strategy selected at
+    plan time. When it is ``None`` the operation sorts each affected physical
+    partition in memory and is partition-bounded; the planner rejects a
+    partition whose estimated decoded size exceeds the default budget unless a
+    spill directory is supplied. When it is set and a partition exceeds the
+    budget, each source file is sorted in memory and written as a sorted run
+    under ``sort_spill_directory``; runs are merged through a k-way merge that
+    streams output into ``max_rows_per_file`` chunks. For ``atomic_local``
+    the spill directory must be on the same filesystem as the dataset root so
+    rename-into-place stays atomic.
+    """
+
+    operation: MaintenanceOperation = field(
+        default=MaintenanceOperation.ORDERED_COMPACTION, init=False
+    )
+    sort_keys: tuple[SortKey, ...] = ()
+    ordered_groups: tuple[CompactionGroup, ...] = ()
+    sort_memory_budget_mb: int | None = None
+    sort_spill_directory: str | None = None
 
 
 @dataclass(frozen=True)
@@ -3601,6 +3664,321 @@ def _execute_atomic_local_repartition(
     )
 
 
+def _execute_atomic_local_ordered_compaction(
+    plan: OrderedCompactionPlan,
+    lock_timeout_s: float = 30.0,
+    lock_retry_interval_s: float = 0.05,
+) -> OrderedCompactionResult:
+    """Execute partition-ordered compaction with atomic local publication (#61).
+
+    Each physical partition in ``plan.ordered_groups`` is sorted by the plan's
+    sort keys (plus the ADR-0006 physical tie-breaker), split into contiguous
+    ``max_rows_per_file``-bounded chunks, and published through the same
+    partition-subtree backup-then-rename protocol as compaction. Validation
+    checks per-file sort order, sort order across adjacent output-file
+    boundaries within each partition, partition placement, schema, and the
+    row-count invariant before publication.
+
+    When ``plan.sort_memory_budget_mb`` is set and a partition's materialized
+    size exceeds the budget, each source file is sorted in memory and written
+    as a sorted run under ``plan.sort_spill_directory``; runs are merged
+    through a streaming k-way merge. When the budget is ``None`` the partition
+    is sorted in memory (the planner has already rejected partitions that
+    exceed the default budget without a spill directory).
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+
+    if plan.validation_level == ValidationLevel.FULL_DISTINCT_KEY_SCAN:
+        # Defense-in-depth: the planner rejects this too.
+        raise ValueError(
+            "FULL_DISTINCT_KEY_SCAN is not applicable to ordered compaction: "
+            "the operation has no key semantics."
+        )
+
+    dataset_root = plan.source_snapshot.dataset_path
+    phase_outcomes: list[PhaseOutcome] = []
+    workspace: str | None = None
+    staged_dir = ""
+    backup_dir = ""
+    validation: ValidationOutcome | None = None
+    publication: PublicationOutcome | None = None
+
+    if not plan.ordered_groups:
+        return OrderedCompactionResult(
+            plan=plan,
+            succeeded=True,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=(PhaseOutcome(phase="write", succeeded=True),),
+            actual_metrics=ActualMetrics(row_count=0, file_count=0, total_bytes=0),
+        )
+
+    try:
+        workspace, staged_dir, backup_dir = _make_workspace(dataset_root)
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=True))
+    except Exception as exc:
+        phase_outcomes.append(
+            PhaseOutcome(phase="stage", succeeded=False, error=str(exc))
+        )
+        return OrderedCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Stage phase failed: {exc}",
+        )
+
+    source_files_in_groups: list[str] = []
+    staged_files: list[str] = []
+    staged_partition_dirs: list[str] = []
+    expected_rows = 0
+    run_id = uuid.uuid4().hex[:16]
+
+    try:
+        for group_index, group in enumerate(plan.ordered_groups):
+            partition_dir = _group_partition_dir(group, dataset_root)
+            # Read source files in physical (snapshot-relative) order so the
+            # stable sort's tie-break reproduces (partition path, file path,
+            # row offset). Sort the group's files by their relative path.
+            sorted_files = sorted(
+                group.files,
+                key=lambda fi: _relative_file_path(fi.path, dataset_root),
+            )
+            source_files_in_groups.extend(fi.path for fi in sorted_files)
+            source_tables: list[pa.Table] = []
+            for fi in sorted_files:
+                with open(fi.path, "rb") as fh:
+                    source_tables.append(pq.read_table(fh))
+            expected_rows += sum(t.num_rows for t in source_tables)
+            combined = (
+                pa.concat_tables(source_tables)
+                if len(source_tables) > 1
+                else source_tables[0]
+            )
+            if plan.schema is not None:
+                combined = combined.cast(plan.schema)
+
+            spill_required = _ordered_compaction_spill_required(
+                combined.nbytes, plan.sort_memory_budget_mb
+            )
+            if not spill_required:
+                chunks = _ordered_compaction_in_memory_chunks(
+                    combined, plan.sort_keys, plan.max_rows_per_file
+                )
+            else:
+                chunks = _ordered_compaction_local_spill_chunks(
+                    source_tables,
+                    plan.sort_keys,
+                    plan.max_rows_per_file,
+                    plan.sort_spill_directory,
+                    run_id,
+                    group_index,
+                    plan.selected_codec,
+                )
+            for chunk_index, chunk in enumerate(chunks):
+                if chunk.num_rows == 0:
+                    continue
+                filename = (
+                    f"ordered-{run_id}-{group_index:04d}-"
+                    f"{chunk_index:04d}.parquet"
+                )
+                output_dir = os.path.join(staged_dir, partition_dir)
+                os.makedirs(output_dir, exist_ok=True)
+                output_path = os.path.join(output_dir, filename)
+                pq.write_table(chunk, output_path, compression=plan.selected_codec)
+                staged_files.append(output_path)
+                staged_partition_dirs.append(partition_dir)
+        phase_outcomes.append(PhaseOutcome(phase="write", succeeded=True))
+    except Exception as exc:
+        phase_outcomes.append(
+            PhaseOutcome(phase="write", succeeded=False, error=str(exc))
+        )
+        return OrderedCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Write phase failed: {exc}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: validate — partition placement, schema, row count, and the
+    # per-file + adjacent-file sort order invariant. Ordered compaction has
+    # no key semantics; FULL_DISTINCT_KEY_SCAN is rejected above.
+    # ------------------------------------------------------------------ #
+    placement_error = _validate_staged_partition_placement(
+        staged_files, staged_partition_dirs, staged_dir
+    )
+    if placement_error is not None:
+        validation = ValidationOutcome(
+            succeeded=False, expected_row_count=expected_rows, error=placement_error
+        )
+    else:
+        order_error = _validate_ordered_compaction_order(
+            staged_files,
+            staged_partition_dirs,
+            plan.sort_keys,
+            lambda path: pq.ParquetFile(path).read(),
+        )
+        if order_error is not None:
+            validation = ValidationOutcome(
+                succeeded=False,
+                expected_row_count=expected_rows,
+                error=order_error,
+            )
+        else:
+            validation = _validate_staged_output(
+                staged_files, plan.schema, expected_rows
+            )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="validate", succeeded=validation.succeeded, error=validation.error
+        )
+    )
+    if not validation.succeeded:
+        return OrderedCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Validation failed: {validation.error}",
+        )
+
+    lock_path = os.path.join(dataset_root, ".fsspeckit_maintenance.lock")
+    lock = _BoundedAdvisoryLock(
+        lock_path,
+        exclusive=True,
+        timeout_s=lock_timeout_s,
+        retry_interval_s=lock_retry_interval_s,
+    )
+    if not lock.acquire():
+        error = (
+            f"Could not acquire exclusive lock on {lock_path!r} "
+            f"within {lock_timeout_s}s"
+        )
+        phase_outcomes.append(PhaseOutcome(phase="lock", succeeded=False, error=error))
+        return OrderedCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error="Lock acquisition timed out",
+        )
+    phase_outcomes.append(PhaseOutcome(phase="lock", succeeded=True))
+    try:
+        drift_error = _check_source_drift(plan.source_snapshot)
+        if drift_error is not None:
+            phase_outcomes.append(
+                PhaseOutcome(phase="drift_check", succeeded=False, error=drift_error)
+            )
+            return OrderedCompactionResult(
+                plan=plan,
+                succeeded=False,
+                guarantee_level=plan.guarantee_level,
+                phase_outcomes=tuple(phase_outcomes),
+                validation=validation,
+                recovery=RecoveryArtifacts(workspace_path=workspace),
+                error=f"Source drift detected: {drift_error}",
+            )
+        phase_outcomes.append(PhaseOutcome(phase="drift_check", succeeded=True))
+        publication = _publish_atomic_local(
+            source_files=source_files_in_groups,
+            staged_files=staged_files,
+            dataset_root=dataset_root,
+            backup_dir=backup_dir,
+            staged_partition_dirs=staged_partition_dirs,
+        )
+        phase_outcomes.append(
+            PhaseOutcome(
+                phase="publish",
+                succeeded=publication.succeeded,
+                error=publication.error,
+            )
+        )
+    finally:
+        lock.release()
+
+    if publication is None or not publication.succeeded:
+        error = (
+            publication.error if publication is not None else None
+        ) or "Publication did not run"
+        return OrderedCompactionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            publication=publication,
+            recovery=RecoveryArtifacts(
+                workspace_path=workspace,
+                backup_paths=tuple(
+                    path
+                    for path in (
+                        os.path.join(backup_dir, _relative_file_path(p, dataset_root))
+                        for p in source_files_in_groups
+                    )
+                    if os.path.exists(path)
+                ),
+                recovered=publication.rollback_succeeded is True if publication else False,
+                error=publication.rollback_error if publication else None,
+            ),
+            error=f"Publication failed: {error}",
+        )
+
+    cleanup_error: str | None = None
+    try:
+        shutil.rmtree(workspace)
+        workspace = None
+        phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=True))
+    except Exception as exc:
+        cleanup_error = str(exc)
+        phase_outcomes.append(
+            PhaseOutcome(phase="cleanup", succeeded=False, error=cleanup_error)
+        )
+    retained_backup_paths = (
+        tuple(
+            path
+            for path in (
+                os.path.join(backup_dir, _relative_file_path(p, dataset_root))
+                for p in source_files_in_groups
+            )
+            if os.path.exists(path)
+        )
+        if workspace is not None
+        else ()
+    )
+
+    total_bytes = sum(
+        os.path.getsize(path)
+        for path in publication.published_files
+        if os.path.exists(path)
+    )
+    return OrderedCompactionResult(
+        plan=plan,
+        succeeded=True,
+        guarantee_level=plan.guarantee_level,
+        phase_outcomes=tuple(phase_outcomes),
+        validation=validation,
+        publication=publication,
+        recovery=RecoveryArtifacts(
+            workspace_path=workspace,
+            backup_paths=retained_backup_paths,
+            error=cleanup_error,
+        ),
+        actual_metrics=ActualMetrics(
+            row_count=expected_rows,
+            file_count=len(publication.published_files),
+            total_bytes=total_bytes,
+        ),
+    )
+
+
 def _execute_atomic_local_coordinated_optimization(
     plan: CoordinatedOptimizationPlan,
     lock_timeout_s: float = 30.0,
@@ -4002,6 +4380,31 @@ class BestEffortRepartitionResult(BestEffortCompactionResult, RepartitionResult)
 
 
 @dataclass(frozen=True)
+class OrderedCompactionResult(MaintenanceResult):
+    """Typed result of executing an :class:`OrderedCompactionPlan` (#61).
+
+    Partition-ordered compaction carries no key semantics. The per-file and
+    adjacent-file sort-order invariants are enforced by
+    :func:`_validate_ordered_compaction_order` before publication, in addition
+    to the standard readable/schema/row-count/placement validation.
+    """
+
+
+@dataclass(frozen=True)
+class BestEffortOrderedCompactionResult(
+    BestEffortCompactionResult, OrderedCompactionResult
+):
+    """Ordered compaction result with object-store recovery details (#61).
+
+    Carries the standard best-effort recovery fields (staging prefix,
+    staged keys, copied live keys, failed copies, untouched sources,
+    drift flag, concurrency disclaimer) inherited from
+    :class:`BestEffortCompactionResult`. Per-partition sort order is
+    validated on staged output before any live key is copied.
+    """
+
+
+@dataclass(frozen=True)
 class CoordinatedOptimizationResult(MaintenanceResult):
     """Typed result for coordinated optimization.
 
@@ -4051,6 +4454,539 @@ def _split_table_by_rows(table: pa.Table, max_rows: int | None) -> list[pa.Table
         chunks.append(table.slice(offset, end - offset))
         offset = end
     return chunks
+
+
+# --------------------------------------------------------------------------- #
+# Partition-ordered compaction sort helpers (#61)
+# --------------------------------------------------------------------------- #
+#
+# The ordered-compaction sort contract (PRD §2, ADR-0007) is:
+#
+# - Ordering scope is the complete affected physical partition.
+# - Output chunks are contiguous slices of one partition-level sorted run.
+# - Sorting is stable; the physical tie-breaker
+#   ``(partition path, file path, row offset)`` from the source snapshot is
+#   applied only after caller sort keys tie. Because source files are read in
+#   physical order and concatenated in that order, a stable sort over caller
+#   keys preserves the physical tie-breaker for free.
+# - Nulls (and NaN) are placed per ``SortKey.nulls_first``; the string
+#   ``+col`` / ``-col`` convention is normalized into typed keys with the
+#   SQL-standard null placement (nulls last for ascending, nulls first for
+#   descending).
+
+
+# Default in-memory budget (MB) when ``sort_memory_budget_mb`` is None. A
+# partition whose estimated decoded size exceeds this without a configured
+# spill directory is rejected at plan time.
+_DEFAULT_ORDERED_COMPACTION_MEMORY_BUDGET_MB = 512
+
+
+def _normalize_sort_keys(
+    sort_keys: list[SortKey | str],
+) -> tuple[SortKey, ...]:
+    """Normalize raw sort-key arguments into typed :class:`SortKey` values.
+
+    String items accept the existing ``+col`` / ``-col`` convention used by
+    :func:`parse_dedup_order_by`: a leading ``-`` marks the column descending,
+    every other name (including a leading ``+``) is ascending. String keys
+    also receive the SQL-standard null placement: ``nulls_last`` for ascending
+    and ``nulls_first`` for descending. A typed :class:`SortKey` overrides
+    direction and supplies explicit null placement verbatim.
+    """
+    if not sort_keys:
+        raise ValueError("sort_keys must be a non-empty list")
+    normalized: list[SortKey] = []
+    seen: set[str] = set()
+    for item in sort_keys:
+        if isinstance(item, SortKey):
+            key = item
+        elif isinstance(item, str) and item:
+            if item.startswith("-"):
+                column = item[1:]
+                if not column:
+                    raise ValueError(
+                        "sort_keys string items must name a column after the "
+                        "leading direction sigil"
+                    )
+                # SQL standard: descending keys place nulls first.
+                key = SortKey(column=column, descending=True, nulls_first=True)
+            elif item.startswith("+"):
+                column = item[1:]
+                if not column:
+                    raise ValueError(
+                        "sort_keys string items must name a column after the "
+                        "leading direction sigil"
+                    )
+                key = SortKey(column=column, descending=False, nulls_first=False)
+            else:
+                key = SortKey(column=item, descending=False, nulls_first=False)
+        else:
+            raise ValueError(
+                "sort_keys items must be SortKey instances or non-empty strings; "
+                f"got {item!r}"
+            )
+        if not key.column:
+            raise ValueError("sort_keys columns must be non-empty strings")
+        if key.column in seen:
+            raise ValueError(
+                f"sort_keys must not repeat columns; duplicate: {key.column!r}"
+            )
+        seen.add(key.column)
+        normalized.append(key)
+    return tuple(normalized)
+
+
+def _sort_value_is_null(value: Any) -> bool:
+    """Return True for SQL null or float NaN (treated as null by ordering)."""
+    if value is None:
+        return True
+    # NaN compares unequal to itself; treat it as null for ordering so that
+    # null placement governs both None and NaN uniformly.
+    return isinstance(value, float) and value != value
+
+
+def _compare_sort_values(
+    a: Any,
+    b: Any,
+    key: SortKey,
+) -> int:
+    """Compare two scalar sort-key values under one :class:`SortKey`.
+
+    Returns -1/0/1. Null (and NaN) placement honors ``key.nulls_first``;
+    non-null values compare ascending or descending per ``key.descending``.
+    """
+    a_null = _sort_value_is_null(a)
+    b_null = _sort_value_is_null(b)
+    if a_null and b_null:
+        return 0
+    if a_null:
+        return -1 if key.nulls_first else 1
+    if b_null:
+        return 1 if key.nulls_first else -1
+    try:
+        if a < b:
+            base = -1
+        elif b < a:
+            base = 1
+        else:
+            base = 0
+    except TypeError:
+        sa, sb = str(a), str(b)
+        base = -1 if sa < sb else (1 if sb < sa else 0)
+    return -base if key.descending else base
+
+
+def _compare_ordered_rows(
+    a_values: tuple[Any, ...],
+    b_values: tuple[Any, ...],
+    sort_keys: tuple[SortKey, ...],
+) -> int:
+    """Compare two rows by sort keys only (no physical tie-break).
+
+    Returns -1/0/1. Equal caller sort keys return 0 so callers can apply the
+    physical tie-breaker separately.
+    """
+    for key, a, b in zip(sort_keys, a_values, b_values, strict=True):
+        cmp = _compare_sort_values(a, b, key)
+        if cmp != 0:
+            return cmp
+    return 0
+
+
+def _sort_table_ordered(
+    table: pa.Table,
+    sort_keys: tuple[SortKey, ...],
+) -> pa.Table:
+    """Stable sort *table* by caller sort keys with the physical tie-break.
+
+    The physical tie-breaker ``(partition path, file path, row offset)`` is
+    preserved automatically: callers pass a table whose rows are already in
+    physical order (source files concatenated in snapshot-physical order), and
+    Python's stable sort keeps equal-key rows in that input order.
+    """
+    from functools import cmp_to_key  # noqa: PLC0415
+
+    if not sort_keys or table.num_rows == 0:
+        return table
+    columns = [table.column(key.column).to_pylist() for key in sort_keys]
+
+    def compare(i: int, j: int) -> int:
+        for col, key in zip(columns, sort_keys, strict=True):
+            cmp = _compare_sort_values(col[i], col[j], key)
+            if cmp != 0:
+                return cmp
+        return 0
+
+    indices = sorted(range(table.num_rows), key=cmp_to_key(compare))
+    return table.take(pa.array(indices, type=pa.int64()))
+
+
+
+def _ordered_merge_key(
+    sort_keys: tuple[SortKey, ...],
+) -> Any:
+    """Build a comparison key function for ``heapq.merge`` over sort keys.
+
+    Returns a callable mapping ``(values, physical_index)`` to a wrapper whose
+    ``__lt__`` encodes the per-key direction and null placement, then breaks
+    ties by ``physical_index`` (a ``(run_index, row_offset)`` tuple assigned in
+    snapshot order). The physical tie-break makes the comparison a *total*
+    order: ``heapq.merge``'s ``key=`` argument is **not** stable across input
+    iterables for equal keys, so folding the physical tuple into the comparator
+    (rather than relying on stream order) is what reproduces the ADR-0006
+    ``(partition path, file path, row offset)`` ordering exactly.
+    """
+
+    class _Key:
+        __slots__ = ("values", "physical")
+
+        def __init__(
+            self, values: tuple[Any, ...], physical: tuple[int, int]
+        ) -> None:
+            self.values = values
+            self.physical = physical
+
+        def __lt__(self, other: _Key) -> bool:
+            cmp = _compare_ordered_rows(self.values, other.values, sort_keys)
+            if cmp != 0:
+                return cmp < 0
+            return self.physical < other.physical
+
+    return _Key
+
+
+def _row_sort_values(
+    row: dict[str, Any],
+    sort_keys: tuple[SortKey, ...],
+) -> tuple[Any, ...]:
+    """Extract the comparable sort-key value tuple from a pylist row."""
+    return tuple(row[key.column] for key in sort_keys)
+
+
+def _stream_merge_runs(
+    run_row_generators: list[Iterator[tuple[Any, dict[str, Any]]]],
+    max_rows: int | None,
+    column_names: list[str],
+) -> Iterator[pa.Table]:
+    """k-way merge of sorted run row-generators into ``max_rows`` chunks.
+
+    Each generator yields ``(key, row_dict)`` pairs in sorted order, where
+    ``key`` is a wrapper whose ``__lt__`` encodes the per-key direction and
+    null placement. ``heapq.merge`` is stable across iterables, so equal-key
+    ties fall back to generator order — runs must be passed in physical
+    (snapshot) order so the tie-break reproduces the ADR-0006 tuple. Generators
+    are expected to read their run lazily (batched) so peak memory is bounded
+    by one batch per run plus the output chunk.
+    """
+    import heapq  # noqa: PLC0415
+    import operator  # noqa: PLC0415
+
+    chunk_size = max_rows if (max_rows is not None and max_rows > 0) else 1 << 15
+    merged = heapq.merge(*run_row_generators, key=operator.itemgetter(0))
+    buffer: list[dict[str, Any]] = []
+    for _, row in merged:
+        buffer.append(row)
+        if len(buffer) >= chunk_size:
+            yield _rows_to_table(buffer, column_names)
+            buffer = []
+    if buffer:
+        yield _rows_to_table(buffer, column_names)
+
+
+def _rows_to_table(
+    rows: list[dict[str, Any]],
+    column_names: list[str],
+) -> pa.Table:
+    """Build a PyArrow table from pylist rows preserving column order."""
+    return pa.table({name: [row[name] for row in rows] for name in column_names})
+
+
+def _run_row_generator(
+    iter_batches: Iterator[pa.RecordBatch],
+    sort_keys: tuple[SortKey, ...],
+    run_index: int = 0,
+) -> Iterator[tuple[Any, dict[str, Any]]]:
+    """Yield ``(key, row_dict)`` per row of a sorted run, batched.
+
+    Reads the run through *iter_batches* so only one record batch is
+    materialized at a time. Each row's sort-key values are wrapped by the
+    comparator returned from :func:`_ordered_merge_key`, together with a
+    ``(run_index, row_offset)`` physical index that makes the comparator a
+    total order and reproduces the ADR-0006 tie-breaker.
+    """
+    key_fn = _ordered_merge_key(sort_keys)
+    offset = 0
+    for batch in iter_batches:
+        names = batch.schema.names
+        key_columns = [batch.column(k.column).to_pylist() for k in sort_keys]
+        all_columns = [batch.column(name).to_pylist() for name in names]
+        for r in range(batch.num_rows):
+            yield (
+                key_fn(
+                    tuple(col[r] for col in key_columns),
+                    (run_index, offset),
+                ),
+                {name: col[r] for name, col in zip(names, all_columns)},
+            )
+            offset += 1
+
+
+def _ordered_compaction_in_memory_chunks(
+    combined: pa.Table,
+    sort_keys: tuple[SortKey, ...],
+    max_rows: int | None,
+) -> list[pa.Table]:
+    """Sort the partition in memory and slice into ``max_rows`` chunks."""
+    return _split_table_by_rows(
+        _sort_table_ordered(combined, sort_keys), max_rows
+    )
+
+
+def _ordered_compaction_spill_required(
+    materialized_bytes: int,
+    memory_budget_mb: int | None,
+) -> bool:
+    """Return True when a partition's materialized size exceeds the budget.
+
+    When ``memory_budget_mb`` is ``None`` the partition is in-memory-bounded
+    (the planner has already rejected partitions exceeding the default budget
+    without a spill directory), so this returns False.
+    """
+    if memory_budget_mb is None:
+        return False
+    return materialized_bytes > memory_budget_mb * 1024 * 1024
+
+
+def _ordered_compaction_local_spill_chunks(
+    source_tables: list[pa.Table],
+    sort_keys: tuple[SortKey, ...],
+    max_rows: int | None,
+    spill_directory: str | None,
+    run_id: str,
+    group_index: int,
+    codec: str,
+) -> list[pa.Table]:
+    """External merge sort for one partition on the local filesystem.
+
+    Each source table is sorted in memory and written as a sorted run file
+    under *spill_directory*; runs are streamed back through a k-way merge that
+    respects the physical tie-breaker (runs are passed in physical order).
+    Run files are removed after the merge completes.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    if spill_directory is None:
+        raise ValueError(
+            "Ordered compaction spill is required but no spill_directory is "
+            "configured; the planner should have rejected this plan."
+        )
+    os.makedirs(spill_directory, exist_ok=True)
+    run_paths: list[str] = []
+    column_names: list[str] = []
+    try:
+        for file_index, table in enumerate(source_tables):
+            if table.num_rows == 0:
+                continue
+            if not column_names:
+                column_names = list(table.column_names)
+            sorted_run = _sort_table_ordered(table, sort_keys)
+            run_path = os.path.join(
+                spill_directory,
+                f"ordered-run-{run_id}-{group_index:04d}-{file_index:04d}.parquet",
+            )
+            pq.write_table(sorted_run, run_path, compression=codec)
+            run_paths.append(run_path)
+        generators = [
+            _run_row_generator(
+                pq.ParquetFile(path).iter_batches(), sort_keys, run_index
+            )
+            for run_index, path in enumerate(run_paths)
+        ]
+        return list(
+            _stream_merge_runs(generators, max_rows, column_names)
+        )
+    finally:
+        for path in run_paths:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+
+def _ordered_compaction_object_store_spill_chunks(
+    filesystem: AbstractFileSystem,
+    source_tables: list[pa.Table],
+    sort_keys: tuple[SortKey, ...],
+    max_rows: int | None,
+    spill_prefix: str,
+    run_id: str,
+    group_index: int,
+    codec: str,
+) -> list[pa.Table]:
+    """External merge sort for one partition on an object-store filesystem.
+
+    Each source table is sorted in memory and written as a sorted run object
+    under *spill_prefix*; runs are streamed back through a k-way merge. The
+    spill prefix is caller-managed and is not part of recovery artifacts; run
+    objects are removed after the merge completes.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    run_paths: list[str] = []
+    column_names: list[str] = []
+    try:
+        for file_index, table in enumerate(source_tables):
+            if table.num_rows == 0:
+                continue
+            if not column_names:
+                column_names = list(table.column_names)
+            sorted_run = _sort_table_ordered(table, sort_keys)
+            run_path = posixpath.join(
+                spill_prefix,
+                f"ordered-run-{run_id}-{group_index:04d}-{file_index:04d}.parquet",
+            )
+            buffer = BytesIO()
+            pq.write_table(sorted_run, buffer, compression=codec)
+            filesystem.pipe(run_path, buffer.getvalue())
+            run_paths.append(run_path)
+
+        def _read_run_batches(path: str) -> Iterator[pa.RecordBatch]:
+            with filesystem.open(path, "rb") as handle:
+                parquet_file = pq.ParquetFile(handle)
+                yield from parquet_file.iter_batches()
+        generators = [
+            _run_row_generator(
+                _read_run_batches(path), sort_keys, run_index
+            )
+            for run_index, path in enumerate(run_paths)
+        ]
+        return list(_stream_merge_runs(generators, max_rows, column_names))
+    finally:
+        for path in run_paths:
+            try:
+                filesystem.rm(path)
+            except Exception:
+                pass
+
+
+def _validate_ordered_compaction_order(
+    staged_files: list[str],
+    staged_partition_dirs: list[str],
+    sort_keys: tuple[SortKey, ...],
+    read_table: Any,
+) -> str | None:
+    """Validate per-file and adjacent-file sort order within each partition.
+
+    *staged_files* and *staged_partition_dirs* are parallel and already in
+    publication order within each partition. *read_table* is a callable that
+    reads a staged file path into a ``pa.Table`` (local path handle or
+    fsspec filesystem, depending on the lane).
+    """
+    if not sort_keys:
+        return None
+    # Group staged files by partition, preserving publication order.
+    by_partition: dict[str, list[str]] = {}
+    for path, partition in zip(staged_files, staged_partition_dirs, strict=True):
+        by_partition.setdefault(partition, []).append(path)
+    for partition, files in by_partition.items():
+        prev_values: tuple[Any, ...] | None = None
+        for path in files:
+            try:
+                table = read_table(path)
+            except Exception as exc:
+                return (
+                    f"Could not read staged file for order validation "
+                    f"{path!r}: {exc}"
+                )
+            columns = [table.column(k.column).to_pylist() for k in sort_keys]
+            for r in range(table.num_rows):
+                values = tuple(col[r] for col in columns)
+                if prev_values is not None:
+                    if _compare_ordered_rows(prev_values, values, sort_keys) > 0:
+                        return (
+                            f"Sort order violation in partition {partition!r}: "
+                            f"{prev_values!r} precedes {values!r}"
+                        )
+                prev_values = values
+        # Reset between partitions: cross-partition order is not claimed.
+    return None
+
+
+def _first_existing_ancestor_device(path: str) -> int:
+    """Return the device id of the longest existing ancestor of *path*.
+
+    Used to verify a caller-supplied spill directory lives on the same
+    filesystem as the dataset root without creating it (planning is
+    metadata-only). Walks up until an existing ancestor is found.
+    """
+    current = os.path.abspath(path)
+    while True:
+        try:
+            return os.stat(current).st_dev
+        except OSError:
+            parent = os.path.dirname(current)
+            if parent == current:
+                # Reached the root without a stat-able ancestor; fall back to
+                # a stat of the original path so the error surfaces clearly.
+                return os.stat(path).st_dev
+            current = parent
+
+
+def _ordered_spill_same_filesystem(spill_directory: str, dataset_root: str) -> bool:
+    """Return True if *spill_directory* is on the same device as *dataset_root*.
+
+    For ``atomic_local`` ordered compaction the spill directory must share the
+    dataset root's filesystem so rename-into-place publication stays atomic.
+    """
+    try:
+        return (
+            _first_existing_ancestor_device(spill_directory)
+            == os.stat(dataset_root).st_dev
+        )
+    except OSError:
+        return False
+
+
+def _validate_ordered_compaction_spill_contract(
+    groups: tuple[CompactionGroup, ...],
+    memory_budget_mb: int | None,
+    spill_directory: str | None,
+    guarantee_level: GuaranteeLevel,
+    dataset_root: str,
+) -> None:
+    """Enforce the ordered-compaction memory/spill contract at plan time.
+
+    When a partition's estimated size exceeds the effective budget (the
+    declared ``memory_budget_mb`` or the default when ``None``) a spill
+    directory is required. For ``atomic_local`` the spill directory must be on
+    the same filesystem as the dataset root so rename-into-place stays atomic.
+    """
+    effective_budget_mb = (
+        memory_budget_mb
+        if memory_budget_mb is not None
+        else _DEFAULT_ORDERED_COMPACTION_MEMORY_BUDGET_MB
+    )
+    budget_bytes = effective_budget_mb * 1024 * 1024
+    for group in groups:
+        estimated = group.total_size_bytes
+        if estimated > budget_bytes and spill_directory is None:
+            label = "default " if memory_budget_mb is None else ""
+            raise ValueError(
+                f"Physical partition (estimated {estimated} bytes) exceeds the "
+                f"{label}memory budget ({effective_budget_mb} MB) for ordered "
+                "compaction; supply spill_directory to enable the external "
+                "merge sort path."
+            )
+    if (
+        spill_directory is not None
+        and guarantee_level == GuaranteeLevel.ATOMIC_LOCAL
+        and not _ordered_spill_same_filesystem(spill_directory, dataset_root)
+    ):
+        raise ValueError(
+            "For atomic_local ordered compaction the spill directory must be "
+            "on the same filesystem as the dataset root so rename-into-place "
+            "publication stays atomic."
+        )
 
 
 def _revalidate_source_token(
@@ -5660,6 +6596,388 @@ def _execute_best_effort_repartition(
     )
 
 
+def _execute_best_effort_ordered_compaction(
+    plan: OrderedCompactionPlan,
+    filesystem: AbstractFileSystem,
+) -> BestEffortOrderedCompactionResult:
+    """Execute partition-ordered compaction through best-effort publication (#61).
+
+    Mirrors :func:`_execute_best_effort_compaction` with two additions required
+    by the ordered-compaction contract: each partition's output is a globally
+    sorted run split into contiguous ``max_rows_per_file`` chunks, and the
+    validate phase checks per-file and adjacent-file sort order within each
+    partition in addition to readability, schema, row count, and placement.
+
+    When ``plan.sort_memory_budget_mb`` is set and a partition's materialized
+    size exceeds the budget, sorted runs are written under a caller-managed
+    spill prefix (``plan.sort_spill_directory``) and merged through a streaming
+    k-way merge. The spill prefix is caller-managed and is not part of
+    recovery artifacts.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    if plan.validation_level == ValidationLevel.FULL_DISTINCT_KEY_SCAN:
+        raise ValueError(
+            "FULL_DISTINCT_KEY_SCAN is not applicable to ordered compaction: "
+            "the operation has no key semantics."
+        )
+
+    run_id = uuid.uuid4().hex[:16]
+    dataset_root = plan.source_snapshot.dataset_path
+    staging_prefix = posixpath.join(dataset_root, "_maintenance_staging", run_id)
+    source_keys = tuple(
+        fi.absolute_path for fi in plan.source_snapshot.files
+    )
+    phase_outcomes: list[PhaseOutcome] = []
+    staged_keys: list[str] = []
+    staged_to_live: dict[str, str] = {}
+    staged_rows: dict[str, int] = {}
+    staged_partition_dirs: dict[str, str] = {}
+    expected_rows = 0
+
+    def result(
+        *,
+        succeeded: bool,
+        validation: ValidationOutcome | None = None,
+        publication: PublicationOutcome | None = None,
+        recovery: RecoveryArtifacts | None = None,
+        actual_metrics: ActualMetrics | None = None,
+        copied_live_keys: tuple[str, ...] = (),
+        failed_copies: tuple[str, ...] = (),
+        untouched_source_keys: tuple[str, ...] = source_keys,
+        drift_detected: bool = False,
+        error: str | None = None,
+    ) -> BestEffortOrderedCompactionResult:
+        return BestEffortOrderedCompactionResult(
+            plan=plan,
+            succeeded=succeeded,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            publication=publication,
+            recovery=recovery,
+            actual_metrics=actual_metrics,
+            error=error,
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            copied_live_keys=copied_live_keys,
+            failed_copies=failed_copies,
+            untouched_source_keys=untouched_source_keys,
+            drift_detected=drift_detected,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: stage — sort each partition and write chunks under staging.
+    # ------------------------------------------------------------------ #
+    try:
+        for group_index, group in enumerate(plan.ordered_groups):
+            partition_dir = _group_partition_dir(group, dataset_root)
+            sorted_files = sorted(
+                group.files,
+                key=lambda fi: _relative_file_path(fi.path, dataset_root),
+            )
+            source_tables: list[pa.Table] = []
+            for fi in sorted_files:
+                with filesystem.open(fi.path, "rb") as handle:
+                    source_tables.append(pq.read_table(handle))
+            expected_rows += sum(t.num_rows for t in source_tables)
+            combined = (
+                pa.concat_tables(source_tables)
+                if len(source_tables) > 1
+                else source_tables[0]
+            )
+            if plan.schema is not None:
+                combined = combined.cast(plan.schema)
+
+            spill_required = _ordered_compaction_spill_required(
+                combined.nbytes, plan.sort_memory_budget_mb
+            )
+            if not spill_required:
+                chunks = _ordered_compaction_in_memory_chunks(
+                    combined, plan.sort_keys, plan.max_rows_per_file
+                )
+            else:
+                spill_prefix = plan.sort_spill_directory or posixpath.join(
+                    staging_prefix, "_sort_spill"
+                )
+                chunks = _ordered_compaction_object_store_spill_chunks(
+                    filesystem,
+                    source_tables,
+                    plan.sort_keys,
+                    plan.max_rows_per_file,
+                    spill_prefix,
+                    run_id,
+                    group_index,
+                    plan.selected_codec,
+                )
+            for chunk_index, chunk in enumerate(chunks):
+                if chunk.num_rows == 0:
+                    continue
+                filename = (
+                    f"ordered-{run_id}-{group_index:04d}-"
+                    f"{chunk_index:04d}.parquet"
+                )
+                staged_path = posixpath.join(
+                    staging_prefix, partition_dir, filename
+                )
+                live_path = posixpath.join(
+                    dataset_root, partition_dir, filename
+                )
+                buffer = BytesIO()
+                pq.write_table(chunk, buffer, compression=plan.selected_codec)
+                filesystem.pipe(staged_path, buffer.getvalue())
+                staged_keys.append(staged_path)
+                staged_to_live[staged_path] = live_path
+                staged_rows[staged_path] = chunk.num_rows
+                staged_partition_dirs[staged_path] = partition_dir
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=True))
+    except Exception as exc:
+        error = f"Stage phase failed: {exc}"
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=False, error=error))
+        return result(
+            succeeded=False,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            error=error,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: validate — readability, schema, row count, partition placement,
+    # and per-file + adjacent-file sort order within each partition.
+    # ------------------------------------------------------------------ #
+    total_staged_rows = 0
+    validation_error: str | None = None
+    staged_in_order = list(staged_keys)
+    staged_partition_dir_list = [staged_partition_dirs[p] for p in staged_in_order]
+    try:
+        for staged_path in staged_keys:
+            with filesystem.open(staged_path, "rb") as handle:
+                parquet_file = pq.ParquetFile(handle)
+                rows = parquet_file.metadata.num_rows
+                total_staged_rows += rows
+                if rows != staged_rows[staged_path]:
+                    validation_error = (
+                        f"Row count mismatch in staged file {staged_path}: "
+                        f"got {rows}, expected {staged_rows[staged_path]}"
+                    )
+                    break
+                if plan.schema is not None and not parquet_file.schema_arrow.equals(
+                    plan.schema
+                ):
+                    validation_error = f"Schema mismatch in staged file {staged_path}"
+                    break
+        if validation_error is None and total_staged_rows != expected_rows:
+            validation_error = (
+                f"Staged row count mismatch: got {total_staged_rows}, "
+                f"expected {expected_rows}"
+            )
+        if validation_error is None:
+            validation_error = _validate_staged_partition_placement(
+                staged_in_order,
+                staged_partition_dir_list,
+                staging_prefix,
+            )
+        if validation_error is None:
+            validation_error = _validate_ordered_compaction_order(
+                staged_in_order,
+                staged_partition_dir_list,
+                plan.sort_keys,
+                lambda path: pq.ParquetFile(filesystem.open(path, "rb")).read(),
+            )
+    except Exception as exc:
+        validation_error = f"Staged validation error: {exc}"
+    validation = ValidationOutcome(
+        succeeded=validation_error is None,
+        staged_row_count=total_staged_rows,
+        expected_row_count=expected_rows,
+        error=validation_error,
+    )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="validate",
+            succeeded=validation_error is None,
+            error=validation_error,
+        )
+    )
+    if validation_error is not None:
+        return result(
+            succeeded=False,
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            error=f"Staged validation failed: {validation_error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: publish — copy and validate each planned live key.
+    # ------------------------------------------------------------------ #
+    copied_live_keys: list[str] = []
+    failed_copies: list[str] = []
+    for staged_path, live_path in staged_to_live.items():
+        try:
+            content = filesystem.cat(staged_path)
+            filesystem.pipe(live_path, content)
+            if filesystem.cat(live_path) != content:
+                raise ValueError(f"Live key content mismatch for {live_path}")
+            with filesystem.open(live_path, "rb") as handle:
+                parquet_file = pq.ParquetFile(handle)
+                if parquet_file.metadata.num_rows != staged_rows[staged_path]:
+                    raise ValueError(f"Live key row-count mismatch for {live_path}")
+                if plan.schema is not None and not parquet_file.schema_arrow.equals(
+                    plan.schema
+                ):
+                    raise ValueError(f"Live key schema mismatch for {live_path}")
+            copied_live_keys.append(live_path)
+        except Exception as exc:
+            logger.warning(
+                "Failed to copy/validate staged key %s → %s: %s",
+                staged_path,
+                live_path,
+                exc,
+            )
+            failed_copies.append(live_path)
+    copy_error = (
+        f"Failed to copy or validate live keys: {failed_copies}"
+        if failed_copies
+        else None
+    )
+    phase_outcomes.append(
+        PhaseOutcome(phase="publish", succeeded=not failed_copies, error=copy_error)
+    )
+    if failed_copies:
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                error=copy_error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            failed_copies=tuple(failed_copies),
+            error=(
+                "Copy or live-key validation failed; staging and partial live "
+                "outputs retained as recovery artifacts."
+            ),
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: drift_check — revalidate every source before any deletion.
+    # ------------------------------------------------------------------ #
+    drift_error: str | None = None
+    for source in plan.source_snapshot.files:
+        drift_error = _revalidate_source_token(filesystem, source)
+        if drift_error is not None:
+            break
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="drift_check",
+            succeeded=drift_error is None,
+            error=drift_error,
+        )
+    )
+    if drift_error is not None:
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                error=f"Source drift detected; no sources deleted: {drift_error}",
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            drift_detected=True,
+            error=f"Source drift detected, no sources deleted: {drift_error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: cleanup — remove sources only after the preceding gates pass.
+    # ------------------------------------------------------------------ #
+    deleted_sources: list[str] = []
+    delete_failures: list[str] = []
+    for source_path in source_keys:
+        try:
+            filesystem.rm(source_path)
+            deleted_sources.append(source_path)
+        except Exception as exc:
+            logger.warning("Failed to delete source %s: %s", source_path, exc)
+            delete_failures.append(source_path)
+            delete_failures.extend(
+                path
+                for path in source_keys
+                if path not in deleted_sources and path != source_path
+            )
+            break
+    if delete_failures:
+        error = f"Failed to delete sources: {delete_failures}"
+        phase_outcomes.append(
+            PhaseOutcome(phase="cleanup", succeeded=False, error=error)
+        )
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                removed_source_files=tuple(deleted_sources),
+                error=error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            untouched_source_keys=tuple(
+                path for path in source_keys if path not in deleted_sources
+            ),
+            error=error,
+        )
+
+    try:
+        if filesystem.exists(staging_prefix):
+            filesystem.rm(staging_prefix, recursive=True)
+    except Exception as exc:
+        error = f"Failed to remove staging prefix: {exc}"
+        phase_outcomes.append(
+            PhaseOutcome(phase="cleanup", succeeded=False, error=error)
+        )
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                removed_source_files=tuple(deleted_sources),
+                error=error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            untouched_source_keys=(),
+            error=error,
+        )
+
+    phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=True))
+    total_bytes = 0
+    for live_path in copied_live_keys:
+        try:
+            total_bytes += int(filesystem.info(live_path).get("size", 0))
+        except Exception:
+            pass
+    return result(
+        succeeded=True,
+        validation=validation,
+        publication=PublicationOutcome(
+            succeeded=True,
+            published_files=tuple(copied_live_keys),
+            removed_source_files=tuple(deleted_sources),
+        ),
+        actual_metrics=ActualMetrics(
+            row_count=expected_rows,
+            file_count=len(copied_live_keys),
+            total_bytes=total_bytes,
+        ),
+        copied_live_keys=tuple(copied_live_keys),
+        untouched_source_keys=(),
+    )
+
+
 def _repartition_spill_bucket_object_store(
     filesystem: AbstractFileSystem,
     bucket_table: pa.Table,
@@ -6511,6 +7829,120 @@ class DatasetMaintenanceCoordinator:
             repartition_groups=groups,
         )
 
+    def plan_ordered_compaction(
+        self,
+        dataset_path: str,
+        sort_keys: list[SortKey | str],
+        filesystem: AbstractFileSystem | None = None,
+        target_mb_per_file: int | None = None,
+        target_rows_per_file: int | None = None,
+        partition_filter: list[str] | None = None,
+        validation_level: ValidationLevel | str | None = None,
+        codec: str | None = None,
+        memory_budget_mb: int | None = None,
+        spill_directory: str | None = None,
+    ) -> OrderedCompactionPlan:
+        """Create an immutable partition-ordered compaction plan (#61).
+
+        Ordered compaction produces one globally ordered output sequence per
+        affected physical partition, split into contiguous
+        ``max_rows_per_file``-bounded chunks. Adjacent output files form a
+        single sorted run; the result does not claim global business ordering
+        across partitions. Ordinary :class:`CompactionPlan` remains unordered;
+        no sort flag is added to :meth:`plan_compaction` or
+        :meth:`plan_coordinated_optimization`.
+
+        *sort_keys* accepts typed :class:`SortKey` values or strings using the
+        existing ``+col`` / ``-col`` convention. String keys receive the
+        SQL-standard null placement (``nulls_last`` for ascending,
+        ``nulls_first`` for descending); typed ``SortKey`` values supply
+        direction and null placement verbatim.
+
+        *partition_filter* restricts which physical partitions are in scope;
+        ordering stays partition-complete within each selected partition.
+
+        Sorting is bounded by *memory_budget_mb* (external merge sort per
+        physical partition). When ``memory_budget_mb`` is ``None`` the
+        operation sorts each partition in memory and is partition-bounded; the
+        planner rejects a partition whose estimated size exceeds the default
+        budget unless a *spill_directory* is supplied. For ``atomic_local``
+        the spill directory must be on the same filesystem as the dataset
+        root.
+
+        ``FULL_DISTINCT_KEY_SCAN`` is rejected: ordered compaction has no key
+        semantics.
+        """
+        if target_rows_per_file is not None and target_rows_per_file <= 0:
+            raise ValueError("target_rows_per_file must be > 0")
+        coerced_validation = _coerce_validation_level(validation_level)
+        if coerced_validation == ValidationLevel.FULL_DISTINCT_KEY_SCAN:
+            raise ValueError(
+                "FULL_DISTINCT_KEY_SCAN is not applicable to ordered "
+                "compaction: the operation has no key semantics."
+            )
+        normalized_sort_keys = _normalize_sort_keys(sort_keys)
+        (
+            fs,
+            file_stats,
+            snapshot,
+            scope,
+            schema_outcome,
+            schema,
+            selected_codec,
+            target_byte_size,
+            validation,
+        ) = self._common_plan_inputs(
+            MaintenanceOperation.ORDERED_COMPACTION,
+            dataset_path,
+            filesystem,
+            partition_filter,
+            target_mb_per_file,
+            validation_level,
+            codec,
+        )
+        if schema is None:
+            raise ValueError(
+                "Ordered compaction requires a readable source schema"
+            )
+        missing_sort_columns = [
+            key.column
+            for key in normalized_sort_keys
+            if key.column not in schema.names
+        ]
+        if missing_sort_columns:
+            raise ValueError(
+                "sort_keys must name source columns; missing: "
+                f"{missing_sort_columns}"
+            )
+        # One group per physical partition: ordering is partition-complete.
+        groups = _plan_partition_local_deduplication_groups(
+            file_stats, snapshot.dataset_path
+        )
+        guarantee_level = _classify_guarantee(fs)
+        _validate_ordered_compaction_spill_contract(
+            groups,
+            memory_budget_mb,
+            spill_directory,
+            guarantee_level,
+            snapshot.dataset_path,
+        )
+        return OrderedCompactionPlan(
+            source_snapshot=snapshot,
+            selected_backend=self.backend,
+            guarantee_level=guarantee_level,
+            partition_scope=scope,
+            schema_outcome=schema_outcome,
+            selected_codec=selected_codec,
+            max_rows_per_file=target_rows_per_file,
+            target_byte_size=target_byte_size,
+            validation_level=validation,
+            schema=schema,
+            sort_keys=normalized_sort_keys,
+            ordered_groups=groups,
+            sort_memory_budget_mb=memory_budget_mb,
+            sort_spill_directory=spill_directory,
+        )
+
     def plan_coordinated_optimization(
         self,
         dataset_path: str,
@@ -6611,6 +8043,10 @@ class DatasetMaintenanceCoordinator:
         - ``atomic_local`` :class:`RepartitionPlan` — pure full-dataset
           staged-rename repartition with rollback; preserves every source
           row, including exact duplicates (#60).
+        - ``atomic_local`` :class:`OrderedCompactionPlan` — partition-ordered
+          staged-rename compaction with rollback; output is one globally
+          sorted run per physical partition split into contiguous
+          ``max_rows_per_file`` chunks (#61).
         - ``best_effort_object_store`` :class:`CompactionPlan` — staged-copy
           lifecycle with per-key validation, source-drift revalidation, and
           recovery artifact reporting.  *filesystem* is **required** for this
@@ -6623,6 +8059,9 @@ class DatasetMaintenanceCoordinator:
         - ``best_effort_object_store`` :class:`RepartitionPlan` — staged-copy
           pure full-dataset repartition; preserves every source row, including
           exact duplicates (#60).
+        - ``best_effort_object_store`` :class:`OrderedCompactionPlan` —
+          staged-copy partition-ordered compaction; per-file and adjacent-file
+          sort order validated on staged output (#61).
         - ``atomic_local`` :class:`CoordinatedOptimizationPlan` — optional
           partition-local deduplication followed by compaction through one
           staged, validated, locked, and rollback-capable publication.
@@ -6673,6 +8112,15 @@ class DatasetMaintenanceCoordinator:
             plan, RepartitionPlan
         ):
             return _execute_atomic_local_repartition(
+                plan,
+                lock_timeout_s=lock_timeout_s,
+                lock_retry_interval_s=lock_retry_interval_s,
+            )
+
+        if plan.guarantee_level == GuaranteeLevel.ATOMIC_LOCAL and isinstance(
+            plan, OrderedCompactionPlan
+        ):
+            return _execute_atomic_local_ordered_compaction(
                 plan,
                 lock_timeout_s=lock_timeout_s,
                 lock_retry_interval_s=lock_retry_interval_s,
@@ -6748,6 +8196,17 @@ class DatasetMaintenanceCoordinator:
                     "used to create the plan."
                 )
             return _execute_best_effort_repartition(plan, filesystem)
+
+        if (
+            plan.guarantee_level == GuaranteeLevel.BEST_EFFORT_OBJECT_STORE
+            and isinstance(plan, OrderedCompactionPlan)
+        ):
+            if filesystem is None:
+                raise ValueError(
+                    "best_effort_object_store ordered compaction requires the "
+                    "filesystem used to create the plan."
+                )
+            return _execute_best_effort_ordered_compaction(plan, filesystem)
 
         # ---------------------------------------------------------- #
         # best_effort_object_store coordinated optimization (#45)

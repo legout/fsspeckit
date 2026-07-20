@@ -55,6 +55,12 @@ source row including exact duplicates) is available through
 it accepts the same destination partition columns and derived-key vocabulary
 as global deduplication but carries no `key_columns` or `dedup_order_by`.
 
+Partition-ordered compaction (compact *and* sort each physical partition into
+one contiguous sorted run, distinct from unordered compaction and from dedup
+winner ordering) is available through `plan_parquet_ordered_compaction` and
+`ordered_compact_parquet_dataset` since #61; it accepts typed `SortKey` values
+or the `+col` / `-col` string convention and carries no dedup fields.
+
 ## Replacements
 
 | Removed dictionary API | Replacement |

@@ -20,8 +20,10 @@ from fsspeckit.core.ext.dataset import (
     deduplicate_parquet_dataset,
     execute_maintenance_plan,
     optimize_parquet_dataset,
+    ordered_compact_parquet_dataset,
     plan_parquet_compaction,
     plan_parquet_global_repartition_deduplication,
+    plan_parquet_ordered_compaction,
     plan_parquet_optimization,
     plan_parquet_partition_local_deduplication,
     plan_parquet_repartition,
@@ -84,6 +86,7 @@ _FILESYSTEM_METHODS = {
     "plan_parquet_global_repartition_deduplication": (
         plan_parquet_global_repartition_deduplication
     ),
+    "plan_parquet_ordered_compaction": plan_parquet_ordered_compaction,
     "plan_parquet_repartition": plan_parquet_repartition,
     "plan_parquet_optimization": plan_parquet_optimization,
     "execute_maintenance_plan": execute_maintenance_plan,
@@ -94,6 +97,7 @@ _FILESYSTEM_METHODS = {
     ),
     "repartition_parquet_dataset": repartition_parquet_dataset,
     "optimize_parquet_dataset": optimize_parquet_dataset,
+    "ordered_compact_parquet_dataset": ordered_compact_parquet_dataset,
     "write_parquet": write_parquet,
     "write_json": write_json,
     "write_csv": write_csv,

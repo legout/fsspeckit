@@ -25,8 +25,10 @@ from fsspeckit.core.maintenance import (
     GlobalRepartitionDeduplicationPlan,
     MaintenancePlan,
     MaintenanceResult,
+    OrderedCompactionPlan,
     PartitionLocalDeduplicationPlan,
     RepartitionPlan,
+    SortKey,
 )
 
 
@@ -290,6 +292,38 @@ def plan_parquet_repartition(
     )
 
 
+def plan_parquet_ordered_compaction(
+    self: AbstractFileSystem,
+    path: str,
+    *,
+    sort_keys: list[SortKey | str],
+    target_mb_per_file: int | None = None,
+    target_rows_per_file: int | None = None,
+    partition_filter: list[str] | None = None,
+    compression: str | None = None,
+    memory_budget_mb: int | None = None,
+    spill_directory: str | None = None,
+) -> OrderedCompactionPlan:
+    """Create an explicit partition-ordered compaction plan (#61).
+
+    Unlike :func:`plan_parquet_compaction`, this plan produces one globally
+    ordered output sequence per physical partition, split into contiguous
+    ``max_rows_per_file``-bounded chunks. It carries typed sort keys and adds
+    no sort flag to ordinary compaction.
+    """
+    return _automatic_maintenance_coordinator().plan_ordered_compaction(
+        path,
+        sort_keys=sort_keys,
+        filesystem=self,
+        target_mb_per_file=target_mb_per_file,
+        target_rows_per_file=target_rows_per_file,
+        partition_filter=partition_filter,
+        codec=compression,
+        memory_budget_mb=memory_budget_mb,
+        spill_directory=spill_directory,
+    )
+
+
 def plan_parquet_optimization(
     self: AbstractFileSystem,
     path: str,
@@ -339,6 +373,15 @@ def repartition_parquet_dataset(self: AbstractFileSystem, path: str, **kwargs: A
     """Plan then execute pure full-dataset repartition (#60)."""
     return execute_maintenance_plan(
         self, plan_parquet_repartition(self, path, **kwargs)
+    )
+
+
+def ordered_compact_parquet_dataset(
+    self: AbstractFileSystem, path: str, **kwargs: Any
+):
+    """Plan then execute partition-ordered compaction (#61)."""
+    return execute_maintenance_plan(
+        self, plan_parquet_ordered_compaction(self, path, **kwargs)
     )
 
 
