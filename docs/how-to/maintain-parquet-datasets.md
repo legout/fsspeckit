@@ -72,12 +72,16 @@ approval, then execute.
 | Combine small files | `compact_parquet_dataset` | `plan_parquet_compaction` |
 | Remove duplicate rows, keep partitions | `deduplicate_parquet_dataset` | `plan_parquet_partition_local_deduplication` |
 | Remove duplicates *and* change partitioning | `deduplicate_and_repartition_parquet_dataset` | `plan_parquet_global_repartition_deduplication` |
+| Change partitioning only (keep all rows) | `repartition_parquet_dataset` | `plan_parquet_repartition` |
 | Deduplicate + compact in one pass | `optimize_parquet_dataset` | `plan_parquet_optimization` |
 
 Partition-local deduplication is the default: it only rewrites files within
 each physical partition, never moving rows across partition boundaries.
 Global repartitioning is deliberately explicit - it rewrites the whole dataset
 into a new partition layout, which is why it requires `partition_columns`.
+Pure full-dataset repartitioning (`repartition_parquet_dataset`) changes the
+deduplicating; `deduplicate_and_repartition_parquet_dataset` also selects one
+winner per key.
 
 ## Deduplicate by key
 
@@ -142,6 +146,53 @@ The special source name `"auto"` is accepted only when exactly one timestamp
 column exists. The selected timezone and normalized definitions are recorded
 in the immutable plan. Derived keys are hive path metadata and are not
 duplicated in physical Parquet file schemas.
+
+
+## Pure full-dataset repartitioning
+
+When you only want a new partition layout and need to preserve **every**
+source row (including exact duplicates), use pure full-dataset repartitioning.
+It performs no winner selection and carries no deduplication fields:
+
+```python
+result = fs.repartition_parquet_dataset(
+    "dataset/",
+    partition_columns=["year", "month"],  # required: new output layout
+)
+```
+
+Every source row appears exactly once in the output. Destination partition
+columns may be source columns or timestamp-derived keys (same derived-key
+vocabulary as global repartitioning). `max_rows_per_file` is a hard
+per-destination-partition bound. The operation is full-dataset scope:
+`partition_filter` is not accepted because every source file is in scope.
+
+### Bounded-memory repartitioning
+
+Pure full-dataset repartitioning hash-buckets rows by their destination
+partition tuple, then writes each bucket as one or more
+`max_rows_per_file`-bounded files. Pass `memory_budget_mb` to spill
+destination buckets whose materialized size exceeds the maintenance memory
+budget to a per-bucket temporary file under the maintenance workspace,
+re-read through a row-batch reader during output writing:
+
+```python
+plan = fs.plan_parquet_repartition(
+    "events/",
+    partition_columns=["region"],
+    memory_budget_mb=512,
+)
+print(plan.repartition_memory_budget_mb)  # 512
+```
+
+When `memory_budget_mb` is `None` (the default), the operation is
+group-bounded and materializes each destination-partition bucket in memory,
+matching `plan_parquet_global_repartition_deduplication`'s behavior. The
+selected budget is recorded on the plan as `repartition_memory_budget_mb`
+so a result without spill can be audited against the plan.
+
+`FULL_DISTINCT_KEY_SCAN` validation is rejected at planning time: pure
+full-dataset repartitioning has no key semantics.
 
 ## Optimize (dedup + compaction)
 
@@ -240,7 +291,8 @@ result = coordinator.execute(plan)  # pass filesystem=... for object stores
 
 The planning methods mirror the facade:
 `plan_compaction`, `plan_partition_local_deduplication`,
-`plan_global_repartition_deduplication`, `plan_coordinated_optimization`.
+`plan_global_repartition_deduplication`, `plan_repartition`,
+`plan_coordinated_optimization`.
 
 ## Working examples
 

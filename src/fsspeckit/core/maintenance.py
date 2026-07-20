@@ -38,7 +38,7 @@ from __future__ import annotations
 import os
 import posixpath
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
@@ -994,6 +994,7 @@ class MaintenanceOperation(str, Enum):
     COMPACTION = "compaction"
     PARTITION_LOCAL_DEDUPLICATION = "partition_local_deduplication"
     GLOBAL_REPARTITION_DEDUPLICATION = "global_repartition_deduplication"
+    REPARTITION = "repartition"
     COORDINATED_OPTIMIZATION = "coordinated_optimization"
 
 
@@ -1170,6 +1171,35 @@ class GlobalRepartitionDeduplicationPlan(MaintenancePlan):
 
 
 @dataclass(frozen=True)
+class RepartitionPlan(MaintenancePlan):
+    """Immutable plan for a pure full-dataset repartition (#60).
+
+    A pure physical rewrite that preserves every source row, including exact
+    duplicates. Performs no winner selection and carries no deduplication
+    fields. Destination partition columns may be source columns or validated
+    :class:`DerivedPartitionKey` values; partition columns are path metadata
+    only and are not stored in physical file schemas.
+
+    ``repartition_memory_budget_mb`` records the bounded-memory strategy
+    selected at plan time. When it is ``None`` the operation is group-bounded
+    like :class:`GlobalRepartitionDeduplicationPlan`: source files are read
+    into one snapshot-local table and destination-partition buckets are
+    written directly. When it is set, destination-partition buckets whose
+    materialized size exceeds the budget spill to a per-bucket temporary file
+    under the maintenance workspace and are re-read through a row-batch
+    reader during output writing.
+    """
+
+    operation: MaintenanceOperation = field(
+        default=MaintenanceOperation.REPARTITION, init=False
+    )
+    partition_columns: tuple[str, ...] = ()
+    derived_partition_keys: tuple[DerivedPartitionKey, ...] = ()
+    repartition_memory_budget_mb: int | None = None
+    repartition_groups: tuple[CompactionGroup, ...] = ()
+
+
+@dataclass(frozen=True)
 class CoordinatedOptimizationPlan(MaintenancePlan):
     """Immutable plan for coordinated optimization (optional dedup + compaction)."""
 
@@ -1318,7 +1348,10 @@ def _partition_scope(
     partition_paths: tuple[str, ...] | None = None,
 ) -> PartitionScope:
     """Build a partition scope descriptor for a plan."""
-    if operation == MaintenanceOperation.GLOBAL_REPARTITION_DEDUPLICATION:
+    if operation in (
+        MaintenanceOperation.GLOBAL_REPARTITION_DEDUPLICATION,
+        MaintenanceOperation.REPARTITION,
+    ):
         return PartitionScope(
             scope_type=PartitionScopeType.REPARTITION,
             partition_columns=tuple(partition_columns) if partition_columns else None,
@@ -3183,6 +3216,391 @@ def _execute_atomic_local_global_repartition_deduplication(
     )
 
 
+def _repartition_spill_bucket(
+    bucket_table: pa.Table,
+    bucket_index: int,
+    run_id: str,
+    spill_dir: str,
+    memory_budget_mb: int | None,
+    codec: str,
+) -> tuple[pa.Table | None, str | None]:
+    """Spill a destination-partition bucket when it exceeds the memory budget.
+
+    Returns ``(bucket_table, None)`` when the bucket stays in memory — either
+    because no budget was declared (group-bounded behavior) or because the
+    bucket fits the declared budget — and ``(None, spill_path)`` when the
+    bucket is written to a per-bucket temporary file under *spill_dir* so the
+    caller can stream it back through a row-batch reader.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    if memory_budget_mb is None:
+        return bucket_table, None
+    budget_bytes = memory_budget_mb * 1024 * 1024
+    if bucket_table.nbytes <= budget_bytes:
+        return bucket_table, None
+    os.makedirs(spill_dir, exist_ok=True)
+    spill_path = os.path.join(
+        spill_dir, f"repartition-bucket-{run_id}-{bucket_index:04d}.parquet"
+    )
+    pq.write_table(bucket_table, spill_path, compression=codec)
+    return None, spill_path
+
+
+def _stream_spilled_chunks(
+    spill_path: str,
+    max_rows: int | None,
+) -> Iterator[pa.Table]:
+    """Yield row-bounded table chunks from a spilled parquet bucket file."""
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    parquet_file = pq.ParquetFile(spill_path)
+    batch_size = max_rows if (max_rows is not None and max_rows > 0) else 1 << 15
+    for batch in parquet_file.iter_batches(batch_size=batch_size):
+        if batch.num_rows == 0:
+            continue
+        yield pa.Table.from_batches([batch])
+
+
+def _execute_atomic_local_repartition(
+    plan: RepartitionPlan,
+    lock_timeout_s: float = 30.0,
+    lock_retry_interval_s: float = 0.05,
+) -> RepartitionResult:
+    """Execute a pure full-dataset repartition with atomic local publication (#60).
+
+    Unlike global-repartitioning deduplication, this operation preserves every
+    source row, including exact duplicates. It reads every source file into
+    one snapshot-local table, applies any declared derived partition keys,
+    hashes rows into destination-partition buckets, and writes each bucket
+    under its Hive-style destination path with ``max_rows_per_file`` honored
+    as a hard per-file bound.
+
+    When ``plan.repartition_memory_budget_mb`` is set and a destination
+    bucket's materialized size exceeds the budget, the bucket is spilled to
+    a per-bucket temporary file under the maintenance workspace and re-read
+    through a row-batch reader during output writing. When the budget is
+    ``None`` the operation is group-bounded and writes each bucket directly,
+    matching :class:`GlobalRepartitionDeduplicationPlan`.
+
+    Full validation (schema, partition placement, row count) runs before
+    publication. On any failure the workspace and backups are retained as
+    recovery artifacts and every swapped subtree is rolled back under one
+    caller-held exclusive lock.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+
+    if plan.validation_level == ValidationLevel.FULL_DISTINCT_KEY_SCAN:
+        # Defense-in-depth: plan_repartition already rejects this. Keep the
+        # check so an externally constructed plan cannot bypass the invariant.
+        raise ValueError(
+            "FULL_DISTINCT_KEY_SCAN is not applicable to pure repartition: "
+            "the operation has no key semantics."
+        )
+
+    dataset_root = plan.source_snapshot.dataset_path
+    phase_outcomes: list[PhaseOutcome] = []
+    workspace: str | None = None
+    staged_dir = ""
+    backup_dir = ""
+    validation: ValidationOutcome | None = None
+    publication: PublicationOutcome | None = None
+
+    if not plan.source_snapshot.files:
+        return RepartitionResult(
+            plan=plan,
+            succeeded=True,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=(PhaseOutcome(phase="write", succeeded=True),),
+            actual_metrics=ActualMetrics(row_count=0, file_count=0, total_bytes=0),
+        )
+
+    try:
+        workspace, staged_dir, backup_dir = _make_workspace(dataset_root)
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=True))
+    except Exception as exc:
+        phase_outcomes.append(
+            PhaseOutcome(phase="stage", succeeded=False, error=str(exc))
+        )
+        return RepartitionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Stage phase failed: {exc}",
+        )
+
+    spill_dir = os.path.join(workspace, "spill")
+    source_files: list[str] = []
+    staged_files: list[str] = []
+    staged_partition_dirs: list[str] = []
+    staged_partition_values: list[tuple[Any, ...]] = []
+    staged_rows: list[int] = []
+    run_id = uuid.uuid4().hex[:16]
+    expected_rows = 0
+
+    try:
+        # Read every source row; pure repartition performs no winner selection.
+        # The physical fallback order is partition path, file path, row offset
+        # — sort the snapshot by relative_path before reading so output is
+        # deterministic, matching the object-store lane.
+        sorted_sources = sorted(
+            plan.source_snapshot.files, key=lambda source: source.relative_path
+        )
+        source_files.extend(source.absolute_path for source in sorted_sources)
+        tables: list[pa.Table] = []
+        for source in sorted_sources:
+            with open(source.absolute_path, "rb") as fh:
+                tables.append(pq.read_table(fh))
+        combined = pa.concat_tables(tables) if len(tables) > 1 else tables[0]
+        if plan.schema is not None:
+            combined = combined.cast(plan.schema)
+        # No deduplication: apply derived keys directly to the concatenated
+        # source table before partitioning.
+        combined = _apply_derived_partition_keys(combined, plan.derived_partition_keys)
+        expected_rows = combined.num_rows
+
+        partition_arrays = [
+            combined[column].to_pylist() for column in plan.partition_columns
+        ]
+        partition_groups: dict[tuple[Any, ...], tuple[tuple[Any, ...], list[int]]] = {}
+        for row_index in range(expected_rows):
+            raw_values = tuple(values[row_index] for values in partition_arrays)
+            canonical_values = tuple(
+                _canonical_deduplication_value(value) for value in raw_values
+            )
+            entry = partition_groups.get(canonical_values)
+            if entry is None:
+                entry = (raw_values, [])
+                partition_groups[canonical_values] = entry
+            entry[1].append(row_index)
+
+        sorted_partitions = sorted(
+            partition_groups.values(),
+            key=lambda item: tuple(_hive_partition_component(v) for v in item[0]),
+        )
+        for partition_index, (raw_values, row_indices) in enumerate(sorted_partitions):
+            partition_dir = _hive_partition_path(plan.partition_columns, raw_values)
+            # Partition values are encoded as hive path metadata; the physical
+            # file schema must NOT duplicate them (#56) or hive reads crash on
+            # type mismatches (e.g. int64 file vs int32 path-inferred column).
+            bucket_table = combined.take(pa.array(row_indices, type=pa.int64()))
+            bucket_table = bucket_table.drop_columns(
+                [c for c in plan.partition_columns if c in bucket_table.column_names]
+            )
+            in_memory_bucket, spill_path = _repartition_spill_bucket(
+                bucket_table,
+                partition_index,
+                run_id,
+                spill_dir,
+                plan.repartition_memory_budget_mb,
+                plan.selected_codec,
+            )
+            if in_memory_bucket is not None:
+                chunks = _split_table_by_rows(in_memory_bucket, plan.max_rows_per_file)
+            else:
+                chunks = _stream_spilled_chunks(spill_path, plan.max_rows_per_file)
+            for chunk_index, chunk in enumerate(chunks):
+                if chunk.num_rows == 0:
+                    continue
+                filename = (
+                    f"repartitioned-{run_id}-{partition_index:04d}-"
+                    f"{chunk_index:04d}.parquet"
+                )
+                output_dir = os.path.join(staged_dir, partition_dir)
+                os.makedirs(output_dir, exist_ok=True)
+                output_path = os.path.join(output_dir, filename)
+                pq.write_table(chunk, output_path, compression=plan.selected_codec)
+                staged_files.append(output_path)
+                staged_partition_dirs.append(partition_dir)
+                staged_partition_values.append(raw_values)
+                staged_rows.append(chunk.num_rows)
+        phase_outcomes.append(PhaseOutcome(phase="write", succeeded=True))
+    except Exception as exc:
+        phase_outcomes.append(
+            PhaseOutcome(phase="write", succeeded=False, error=str(exc))
+        )
+        return RepartitionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Write phase failed: {exc}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: validate — partition placement, schema, and the per-source
+    # and per-destination row-count invariant (every source row appears
+    # exactly once in the output). Pure repartition has no key semantics;
+    # FULL_DISTINCT_KEY_SCAN is rejected above.
+    # ------------------------------------------------------------------ #
+    placement_error = _validate_global_partition_placement(
+        staged_files,
+        staged_partition_dirs,
+        staged_partition_values,
+        staged_dir,
+        plan.partition_columns,
+    )
+    if placement_error is not None:
+        validation = ValidationOutcome(
+            succeeded=False, expected_row_count=expected_rows, error=placement_error
+        )
+    else:
+        validation = _validate_staged_output(
+            staged_files,
+            _repartition_file_schema(plan.schema, plan.partition_columns),
+            expected_rows,
+        )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="validate", succeeded=validation.succeeded, error=validation.error
+        )
+    )
+    if not validation.succeeded:
+        return RepartitionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Validation failed: {validation.error}",
+        )
+
+    lock_path = os.path.join(dataset_root, ".fsspeckit_maintenance.lock")
+    lock = _BoundedAdvisoryLock(
+        lock_path,
+        exclusive=True,
+        timeout_s=lock_timeout_s,
+        retry_interval_s=lock_retry_interval_s,
+    )
+    if not lock.acquire():
+        error = (
+            f"Could not acquire exclusive lock on {lock_path!r} "
+            f"within {lock_timeout_s}s"
+        )
+        phase_outcomes.append(PhaseOutcome(phase="lock", succeeded=False, error=error))
+        return RepartitionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error="Lock acquisition timed out",
+        )
+    phase_outcomes.append(PhaseOutcome(phase="lock", succeeded=True))
+    try:
+        drift_error = _check_source_drift(plan.source_snapshot)
+        if drift_error is not None:
+            phase_outcomes.append(
+                PhaseOutcome(phase="drift_check", succeeded=False, error=drift_error)
+            )
+            return RepartitionResult(
+                plan=plan,
+                succeeded=False,
+                guarantee_level=plan.guarantee_level,
+                phase_outcomes=tuple(phase_outcomes),
+                validation=validation,
+                recovery=RecoveryArtifacts(workspace_path=workspace),
+                error=f"Source drift detected: {drift_error}",
+            )
+        phase_outcomes.append(PhaseOutcome(phase="drift_check", succeeded=True))
+        publication = _publish_atomic_local(
+            source_files,
+            staged_files,
+            dataset_root,
+            backup_dir,
+            staged_partition_dirs,
+        )
+        phase_outcomes.append(
+            PhaseOutcome(
+                phase="publish",
+                succeeded=publication.succeeded,
+                error=publication.error,
+            )
+        )
+    finally:
+        lock.release()
+
+    if publication is None or not publication.succeeded:
+        error = (
+            publication.error if publication is not None else None
+        ) or "Publication did not run"
+        return RepartitionResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            publication=publication,
+            recovery=RecoveryArtifacts(
+                workspace_path=workspace,
+                backup_paths=tuple(
+                    path
+                    for path in (
+                        os.path.join(backup_dir, source.relative_path)
+                        for source in plan.source_snapshot.files
+                    )
+                    if os.path.exists(path)
+                ),
+                recovered=publication.rollback_succeeded is True,
+                error=publication.rollback_error,
+            ),
+            error=f"Publication failed: {error}",
+        )
+
+    cleanup_error: str | None = None
+    try:
+        shutil.rmtree(workspace)
+        workspace = None
+        phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=True))
+    except Exception as exc:
+        cleanup_error = str(exc)
+        phase_outcomes.append(
+            PhaseOutcome(phase="cleanup", succeeded=False, error=cleanup_error)
+        )
+    retained_backup_paths = (
+        tuple(
+            path
+            for path in (
+                os.path.join(backup_dir, source.relative_path)
+                for source in plan.source_snapshot.files
+            )
+            if os.path.exists(path)
+        )
+        if workspace is not None
+        else ()
+    )
+
+    total_bytes = sum(
+        os.path.getsize(path)
+        for path in publication.published_files
+        if os.path.exists(path)
+    )
+    return RepartitionResult(
+        plan=plan,
+        succeeded=True,
+        guarantee_level=plan.guarantee_level,
+        phase_outcomes=tuple(phase_outcomes),
+        validation=validation,
+        publication=publication,
+        recovery=RecoveryArtifacts(
+            workspace_path=workspace,
+            backup_paths=retained_backup_paths,
+            error=cleanup_error,
+        ),
+        actual_metrics=ActualMetrics(
+            row_count=expected_rows,
+            file_count=len(publication.published_files),
+            total_bytes=total_bytes,
+        ),
+    )
+
+
 def _execute_atomic_local_coordinated_optimization(
     plan: CoordinatedOptimizationPlan,
     lock_timeout_s: float = 30.0,
@@ -3555,6 +3973,32 @@ class BestEffortGlobalRepartitionDeduplicationResult(BestEffortCompactionResult)
 
     destination_partition_columns: tuple[str, ...] = ()
     destination_partition_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RepartitionResult(MaintenanceResult):
+    """Typed result of executing a :class:`RepartitionPlan` (#60).
+
+    Pure repartition carries no key semantics, so this result inherits the
+    common maintenance result fields without adding deduplication-specific
+    data. The per-source and per-destination row-count invariant (every
+    source row appears exactly once in the output) is enforced by
+    :func:`_validate_staged_output` against ``expected_rows`` before
+    publication.
+    """
+
+
+@dataclass(frozen=True)
+class BestEffortRepartitionResult(BestEffortCompactionResult, RepartitionResult):
+    """Repartition result with object-store recovery details (#60).
+
+    Carries the standard best-effort recovery fields (staging prefix,
+    staged keys, copied live keys, failed copies, untouched sources,
+    drift flag, concurrency disclaimer) inherited from
+    :class:`BestEffortCompactionResult`. Destination partition columns and
+    keys are available from ``plan.partition_columns`` and the copied live
+    keys' paths.
+    """
 
 
 @dataclass(frozen=True)
@@ -4796,6 +5240,469 @@ def _execute_best_effort_global_repartition_deduplication(
     )
 
 
+def _execute_best_effort_repartition(
+    plan: RepartitionPlan,
+    filesystem: AbstractFileSystem,
+) -> BestEffortRepartitionResult:
+    """Execute a pure full-dataset repartition through best-effort publication (#60).
+
+    Unlike global-repartitioning deduplication, this operation preserves every
+    source row, including exact duplicates. It reads every source object into
+    one snapshot-local table, applies any declared derived partition keys,
+    hashes rows into destination-partition buckets, and writes each bucket
+    under its Hive-style destination path. No source object is removed until
+    all staged output has been validated, every planned live key has been
+    copied and validated, and every source object has been revalidated.
+
+    When ``plan.repartition_memory_budget_mb`` is set and a destination
+    bucket's materialized size exceeds the budget, the bucket is spilled to
+    a per-bucket object under a ``_spill`` prefix beneath the staging prefix
+    and re-read through a row-batch reader during output writing. When the
+    budget is ``None`` the operation is group-bounded.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    if plan.validation_level == ValidationLevel.FULL_DISTINCT_KEY_SCAN:
+        raise ValueError(
+            "FULL_DISTINCT_KEY_SCAN is not applicable to pure repartition: "
+            "the operation has no key semantics."
+        )
+
+    run_id = uuid.uuid4().hex[:16]
+    dataset_root = plan.source_snapshot.dataset_path
+    staging_prefix = posixpath.join(dataset_root, "_maintenance_staging", run_id)
+    spill_prefix = posixpath.join(staging_prefix, "_spill")
+    source_keys = tuple(source.absolute_path for source in plan.source_snapshot.files)
+    phase_outcomes: list[PhaseOutcome] = []
+    staged_keys: list[str] = []
+    staged_to_live: dict[str, str] = {}
+    staged_rows: dict[str, int] = {}
+    staged_partition_values: dict[str, tuple[Any, ...]] = {}
+    spill_keys: list[str] = []
+    source_row_count = 0
+
+    def result(
+        *,
+        succeeded: bool,
+        validation: ValidationOutcome | None = None,
+        publication: PublicationOutcome | None = None,
+        recovery: RecoveryArtifacts | None = None,
+        actual_metrics: ActualMetrics | None = None,
+        copied_live_keys: tuple[str, ...] = (),
+        failed_copies: tuple[str, ...] = (),
+        untouched_source_keys: tuple[str, ...] = source_keys,
+        drift_detected: bool = False,
+        error: str | None = None,
+    ) -> BestEffortRepartitionResult:
+        return BestEffortRepartitionResult(
+            plan=plan,
+            succeeded=succeeded,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            publication=publication,
+            recovery=recovery,
+            actual_metrics=actual_metrics,
+            error=error,
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            copied_live_keys=copied_live_keys,
+            failed_copies=failed_copies,
+            untouched_source_keys=untouched_source_keys,
+            drift_detected=drift_detected,
+        )
+
+    # ------------------------------------------------------------------ #
+    try:
+        tables: list[pa.Table] = []
+        # The physical fallback order is partition path, file path, row offset.
+        # SourceSnapshot preserves discovery metadata but fsspec listings are
+        # not required to return keys in a stable order.
+        source_files = sorted(
+            plan.source_snapshot.files,
+            key=lambda source: source.relative_path,
+        )
+        for source in source_files:
+            with filesystem.open(source.absolute_path, "rb") as fh:
+                tables.append(pq.read_table(fh))
+        if not tables:
+            raise ValueError("Pure repartition requires at least one source table")
+        combined = pa.concat_tables(tables)
+        if plan.schema is not None:
+            combined = combined.cast(plan.schema)
+        # No deduplication: apply derived keys directly before partitioning.
+        combined = _apply_derived_partition_keys(combined, plan.derived_partition_keys)
+        source_row_count = combined.num_rows
+
+        partition_arrays = [
+            combined[column].to_pylist() for column in plan.partition_columns
+        ]
+        partition_groups: dict[tuple[Any, ...], tuple[tuple[Any, ...], list[int]]] = {}
+        for row_index in range(source_row_count):
+            raw_values = tuple(values[row_index] for values in partition_arrays)
+            canonical_values = tuple(
+                _canonical_deduplication_value(value) for value in raw_values
+            )
+            entry = partition_groups.get(canonical_values)
+            if entry is None:
+                entry = (raw_values, [])
+                partition_groups[canonical_values] = entry
+            entry[1].append(row_index)
+
+        sorted_partitions = sorted(
+            partition_groups.values(),
+            key=lambda item: tuple(_hive_partition_component(v) for v in item[0]),
+        )
+        for partition_index, (raw_values, row_indices) in enumerate(sorted_partitions):
+            partition_path = _hive_partition_path(plan.partition_columns, raw_values)
+            # Partition values live in the hive path; drop them from the file
+            # schema so hive reads see each column exactly once (#56).
+            bucket_table = combined.take(pa.array(row_indices, type=pa.int64()))
+            bucket_table = bucket_table.drop_columns(
+                [c for c in plan.partition_columns if c in bucket_table.column_names]
+            )
+            in_memory_bucket, spill_path = _repartition_spill_bucket_object_store(
+                filesystem,
+                bucket_table,
+                partition_index,
+                run_id,
+                spill_prefix,
+                plan.repartition_memory_budget_mb,
+                plan.selected_codec,
+            )
+            if in_memory_bucket is not None:
+                chunks = _split_table_by_rows(in_memory_bucket, plan.max_rows_per_file)
+            else:
+                chunks = _stream_spilled_chunks_object_store(
+                    filesystem, spill_path, plan.max_rows_per_file
+                )
+                spill_keys.append(spill_path)
+            for chunk_index, chunk in enumerate(chunks):
+                if chunk.num_rows == 0:
+                    continue
+                filename = (
+                    f"repartitioned-{run_id}-{partition_index:04d}-"
+                    f"{chunk_index:04d}.parquet"
+                )
+                staged_path = posixpath.join(staging_prefix, partition_path, filename)
+                live_path = posixpath.join(dataset_root, partition_path, filename)
+                buffer = BytesIO()
+                pq.write_table(chunk, buffer, compression=plan.selected_codec)
+                filesystem.pipe(staged_path, buffer.getvalue())
+                staged_keys.append(staged_path)
+                staged_to_live[staged_path] = live_path
+                staged_rows[staged_path] = chunk.num_rows
+                staged_partition_values[staged_path] = raw_values
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=True))
+    except Exception as exc:
+        error = f"Stage phase failed: {exc}"
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=False, error=error))
+        return result(
+            succeeded=False,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            error=error,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: validate — every staged object must be readable, schema-compatible,
+    # and collectively contain exactly the source rows (every source row
+    # appears exactly once in the output).
+    # ------------------------------------------------------------------ #
+    total_staged_rows = 0
+    validation_error: str | None = None
+    expected_file_schema = _repartition_file_schema(plan.schema, plan.partition_columns)
+    try:
+        for staged_path in staged_keys:
+            with filesystem.open(staged_path, "rb") as fh:
+                parquet_file = pq.ParquetFile(fh)
+                rows = parquet_file.metadata.num_rows
+                total_staged_rows += rows
+                if rows != staged_rows[staged_path]:
+                    validation_error = (
+                        f"Row count mismatch in staged file {staged_path}: "
+                        f"got {rows}, expected {staged_rows[staged_path]}"
+                    )
+                    break
+                if (
+                    expected_file_schema is not None
+                    and not parquet_file.schema_arrow.equals(expected_file_schema)
+                ):
+                    validation_error = f"Schema mismatch in staged file {staged_path}"
+                    break
+                expected_partition_path = _hive_partition_path(
+                    plan.partition_columns, staged_partition_values[staged_path]
+                )
+                staged_relative = posixpath.relpath(staged_path, staging_prefix)
+                actual_partition_path = posixpath.dirname(staged_relative)
+                if actual_partition_path != expected_partition_path:
+                    validation_error = (
+                        "Destination path mismatch in staged file "
+                        f"{staged_path}: expected {expected_partition_path!r}, "
+                        f"got {actual_partition_path!r}"
+                    )
+                    break
+                duplicated_columns = [
+                    column
+                    for column in plan.partition_columns
+                    if column in parquet_file.schema_arrow.names
+                ]
+                if duplicated_columns:
+                    validation_error = (
+                        f"Staged file {staged_path} physically contains hive "
+                        f"partition columns {duplicated_columns!r}"
+                    )
+                    break
+        if validation_error is None and total_staged_rows != source_row_count:
+            validation_error = (
+                f"Staged row count mismatch: got {total_staged_rows}, "
+                f"expected {source_row_count}"
+            )
+    except Exception as exc:
+        validation_error = f"Staged validation error: {exc}"
+    validation = ValidationOutcome(
+        succeeded=validation_error is None,
+        staged_row_count=total_staged_rows,
+        expected_row_count=source_row_count,
+        error=validation_error,
+    )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="validate",
+            succeeded=validation_error is None,
+            error=validation_error,
+        )
+    )
+    if validation_error is not None:
+        return result(
+            succeeded=False,
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            error=f"Staged validation failed: {validation_error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: publish — copy and exactly validate each planned live key.
+    # ------------------------------------------------------------------ #
+    copied_live_keys: list[str] = []
+    failed_copies: list[str] = []
+    for staged_path, live_path in staged_to_live.items():
+        try:
+            content = filesystem.cat(staged_path)
+            filesystem.pipe(live_path, content)
+            if filesystem.cat(live_path) != content:
+                raise ValueError(f"Live key content mismatch for {live_path}")
+            with filesystem.open(live_path, "rb") as fh:
+                parquet_file = pq.ParquetFile(fh)
+                if parquet_file.metadata.num_rows != staged_rows[staged_path]:
+                    raise ValueError(f"Live key row-count mismatch for {live_path}")
+                if (
+                    expected_file_schema is not None
+                    and not parquet_file.schema_arrow.equals(expected_file_schema)
+                ):
+                    raise ValueError(f"Live key schema mismatch for {live_path}")
+            copied_live_keys.append(live_path)
+        except Exception as exc:
+            logger.warning(
+                "Failed to copy/validate staged key %s → %s: %s",
+                staged_path,
+                live_path,
+                exc,
+            )
+            failed_copies.append(live_path)
+    copy_error = (
+        f"Failed to copy or validate live keys: {failed_copies}"
+        if failed_copies
+        else None
+    )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="publish",
+            succeeded=not failed_copies,
+            error=copy_error,
+        )
+    )
+    if failed_copies:
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                error=copy_error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            failed_copies=tuple(failed_copies),
+            error=(
+                "Copy or live-key validation failed; staging and partial live "
+                "outputs retained as recovery artifacts."
+            ),
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: drift_check — revalidate every source before any deletion.
+    # ------------------------------------------------------------------ #
+    drift_error: str | None = None
+    for source in plan.source_snapshot.files:
+        drift_error = _revalidate_source_token(filesystem, source)
+        if drift_error is not None:
+            break
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="drift_check",
+            succeeded=drift_error is None,
+            error=drift_error,
+        )
+    )
+    if drift_error is not None:
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                error=f"Source drift detected; no sources deleted: {drift_error}",
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            drift_detected=True,
+            error=f"Source drift detected, no sources deleted: {drift_error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: cleanup — remove all sources only after the preceding gates pass.
+    # A delete failure stops immediately and leaves every remaining source
+    # untouched; no automatic rollback is claimed for an already successful
+    # delete on an object store.
+    # ------------------------------------------------------------------ #
+    deleted_sources: list[str] = []
+    delete_failures: list[str] = []
+    for source_path in source_keys:
+        try:
+            filesystem.rm(source_path)
+            deleted_sources.append(source_path)
+        except Exception as exc:
+            logger.warning("Failed to delete source %s: %s", source_path, exc)
+            delete_failures.append(source_path)
+            delete_failures.extend(
+                path
+                for path in source_keys
+                if path not in deleted_sources and path != source_path
+            )
+            break
+    if delete_failures:
+        error = f"Failed to delete sources: {delete_failures}"
+        phase_outcomes.append(
+            PhaseOutcome(phase="cleanup", succeeded=False, error=error)
+        )
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                removed_source_files=tuple(deleted_sources),
+                error=error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            untouched_source_keys=tuple(
+                path for path in source_keys if path not in deleted_sources
+            ),
+            error=error,
+        )
+
+    try:
+        if filesystem.exists(staging_prefix):
+            filesystem.rm(staging_prefix, recursive=True)
+    except Exception as exc:
+        error = f"Failed to remove staging prefix: {exc}"
+        phase_outcomes.append(
+            PhaseOutcome(phase="cleanup", succeeded=False, error=error)
+        )
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                removed_source_files=tuple(deleted_sources),
+                error=error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            untouched_source_keys=(),
+            error=error,
+        )
+
+    phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=True))
+    total_bytes = 0
+    for live_path in copied_live_keys:
+        try:
+            total_bytes += int(filesystem.info(live_path).get("size", 0))
+        except Exception:
+            pass
+    return result(
+        succeeded=True,
+        validation=validation,
+        publication=PublicationOutcome(
+            succeeded=True,
+            published_files=tuple(copied_live_keys),
+            removed_source_files=tuple(deleted_sources),
+        ),
+        actual_metrics=ActualMetrics(
+            row_count=source_row_count,
+            file_count=len(copied_live_keys),
+            total_bytes=total_bytes,
+        ),
+        copied_live_keys=tuple(copied_live_keys),
+        untouched_source_keys=(),
+    )
+
+
+def _repartition_spill_bucket_object_store(
+    filesystem: AbstractFileSystem,
+    bucket_table: pa.Table,
+    bucket_index: int,
+    run_id: str,
+    spill_prefix: str,
+    memory_budget_mb: int | None,
+    codec: str,
+) -> tuple[pa.Table | None, str | None]:
+    """Spill a destination-partition bucket to the object store when over budget."""
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    if memory_budget_mb is None:
+        return bucket_table, None
+    budget_bytes = memory_budget_mb * 1024 * 1024
+    if bucket_table.nbytes <= budget_bytes:
+        return bucket_table, None
+    spill_path = posixpath.join(
+        spill_prefix, f"repartition-bucket-{run_id}-{bucket_index:04d}.parquet"
+    )
+    buffer = BytesIO()
+    pq.write_table(bucket_table, buffer, compression=codec)
+    filesystem.pipe(spill_path, buffer.getvalue())
+    return None, spill_path
+
+
+def _stream_spilled_chunks_object_store(
+    filesystem: AbstractFileSystem,
+    spill_path: str,
+    max_rows: int | None,
+) -> Iterator[pa.Table]:
+    """Yield row-bounded table chunks from a spilled object-store bucket."""
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    batch_size = max_rows if (max_rows is not None and max_rows > 0) else 1 << 15
+    with filesystem.open(spill_path, "rb") as fh:
+        parquet_file = pq.ParquetFile(fh)
+        for batch in parquet_file.iter_batches(batch_size=batch_size):
+            if batch.num_rows == 0:
+                continue
+            yield pa.Table.from_batches([batch])
+
+
 def _execute_best_effort_coordinated_optimization(
     plan: CoordinatedOptimizationPlan,
     filesystem: AbstractFileSystem,
@@ -5476,6 +6383,134 @@ class DatasetMaintenanceCoordinator:
             dedup_groups=groups,
         )
 
+    def plan_repartition(
+        self,
+        dataset_path: str,
+        partition_columns: list[str],
+        filesystem: AbstractFileSystem | None = None,
+        target_mb_per_file: int | None = None,
+        target_rows_per_file: int | None = None,
+        validation_level: ValidationLevel | str | None = None,
+        codec: str | None = None,
+        derived_partition_columns: dict[str, tuple[str, ...]] | None = None,
+        partition_timezone: str = "UTC",
+        memory_budget_mb: int | None = None,
+    ) -> RepartitionPlan:
+        """Create an immutable pure full-dataset repartition plan (#60).
+
+        Pure full-dataset repartitioning is a physical rewrite that preserves
+        every source row, including exact duplicates. It performs no winner
+        selection and carries no deduplication fields. ``partition_filter`` is not accepted:
+        every source file is in scope, and unrelated partitions and source
+        files are replaced exactly as the full-dataset plan specifies.
+
+        Destination partition columns may be source columns or validated
+        :class:`DerivedPartitionKey` values; partition columns are path
+        metadata only and are not stored in physical file schemas.
+        ``max_rows_per_file`` remains a hard per-destination-partition bound.
+
+        ``memory_budget_mb`` selects the bounded-memory strategy recorded on
+        the plan as ``repartition_memory_budget_mb``: when ``None`` the
+        operation is group-bounded like
+        :class:`GlobalRepartitionDeduplicationPlan`; when set, destination
+        partitions whose materialized bucket exceeds the budget spill to a
+        per-bucket temporary file under the maintenance workspace and are
+        re-read through a row-batch reader during output writing.
+
+        ``FULL_DISTINCT_KEY_SCAN`` is rejected because pure full-dataset
+        repartitioning has no key semantics.
+        """
+        if target_rows_per_file is not None and target_rows_per_file <= 0:
+            raise ValueError("target_rows_per_file must be > 0")
+        if not partition_columns:
+            raise ValueError("partition_columns must be a non-empty list")
+        if any(
+            not isinstance(column, str) or not column for column in partition_columns
+        ):
+            raise ValueError("partition_columns must contain non-empty strings")
+        if len(set(partition_columns)) != len(partition_columns):
+            raise ValueError("partition_columns must not contain duplicates")
+        # Reject FULL_DISTINCT_KEY_SCAN before reading any file: pure
+        # repartition has no key semantics and the validation level is a
+        # frozen plan field, so failing fast keeps the contract explicit.
+        coerced_validation = _coerce_validation_level(validation_level)
+        if coerced_validation == ValidationLevel.FULL_DISTINCT_KEY_SCAN:
+            raise ValueError(
+                "FULL_DISTINCT_KEY_SCAN is not applicable to pure repartition: "
+                "the operation has no key semantics."
+            )
+        (
+            fs,
+            file_stats,
+            snapshot,
+            scope,
+            schema_outcome,
+            schema,
+            selected_codec,
+            target_byte_size,
+            validation,
+        ) = _prepare_plan_inputs(
+            MaintenanceOperation.REPARTITION,
+            dataset_path,
+            filesystem,
+            None,
+            partition_columns,
+            target_mb_per_file,
+            validation_level,
+            codec,
+        )
+        if schema is None:
+            raise ValueError("Pure repartition requires a readable source schema")
+        derived_partition_keys = _normalize_derived_partition_keys(
+            schema, derived_partition_columns, partition_timezone
+        )
+        derived_names = {key.name for key in derived_partition_keys}
+        missing_columns = [
+            column
+            for column in partition_columns
+            if column not in schema.names and column not in derived_names
+        ]
+        if missing_columns:
+            raise ValueError(
+                "partition_columns must name source or derived columns; "
+                f"missing: {missing_columns}"
+            )
+        unused_derived = derived_names - set(partition_columns)
+        if unused_derived:
+            raise ValueError(
+                "Derived partition definitions must appear in partition_columns; "
+                f"unused: {sorted(unused_derived)}"
+            )
+        # Pure repartition is a full-dataset rewrite; every source file is
+        # in exactly one global group so the result contract is auditable.
+        global_group = CompactionGroup(
+            files=tuple(
+                FileInfo(
+                    path=file_stat["path"],
+                    size_bytes=file_stat["size_bytes"],
+                    num_rows=file_stat["num_rows"],
+                )
+                for file_stat in file_stats
+            )
+        )
+        groups = (global_group,) if file_stats else ()
+        return RepartitionPlan(
+            source_snapshot=snapshot,
+            selected_backend=self.backend,
+            guarantee_level=_classify_guarantee(fs),
+            partition_scope=scope,
+            schema_outcome=schema_outcome,
+            selected_codec=selected_codec,
+            max_rows_per_file=target_rows_per_file,
+            target_byte_size=target_byte_size,
+            validation_level=validation,
+            schema=schema,
+            partition_columns=tuple(partition_columns),
+            derived_partition_keys=derived_partition_keys,
+            repartition_memory_budget_mb=memory_budget_mb,
+            repartition_groups=groups,
+        )
+
     def plan_coordinated_optimization(
         self,
         dataset_path: str,
@@ -5573,6 +6608,9 @@ class DatasetMaintenanceCoordinator:
         - ``atomic_local`` :class:`GlobalRepartitionDeduplicationPlan` —
           global cross-partition staged-rename deduplication with rollback
           (#42).
+        - ``atomic_local`` :class:`RepartitionPlan` — pure full-dataset
+          staged-rename repartition with rollback; preserves every source
+          row, including exact duplicates (#60).
         - ``best_effort_object_store`` :class:`CompactionPlan` — staged-copy
           lifecycle with per-key validation, source-drift revalidation, and
           recovery artifact reporting.  *filesystem* is **required** for this
@@ -5582,6 +6620,9 @@ class DatasetMaintenanceCoordinator:
           revalidation.
         - ``best_effort_object_store`` :class:`GlobalRepartitionDeduplicationPlan`
           — staged-copy global repartitioning deduplication.
+        - ``best_effort_object_store`` :class:`RepartitionPlan` — staged-copy
+          pure full-dataset repartition; preserves every source row, including
+          exact duplicates (#60).
         - ``atomic_local`` :class:`CoordinatedOptimizationPlan` — optional
           partition-local deduplication followed by compaction through one
           staged, validated, locked, and rollback-capable publication.
@@ -5623,6 +6664,15 @@ class DatasetMaintenanceCoordinator:
             plan, GlobalRepartitionDeduplicationPlan
         ):
             return _execute_atomic_local_global_repartition_deduplication(
+                plan,
+                lock_timeout_s=lock_timeout_s,
+                lock_retry_interval_s=lock_retry_interval_s,
+            )
+
+        if plan.guarantee_level == GuaranteeLevel.ATOMIC_LOCAL and isinstance(
+            plan, RepartitionPlan
+        ):
+            return _execute_atomic_local_repartition(
                 plan,
                 lock_timeout_s=lock_timeout_s,
                 lock_retry_interval_s=lock_retry_interval_s,
@@ -5687,6 +6737,17 @@ class DatasetMaintenanceCoordinator:
             return _execute_best_effort_global_repartition_deduplication(
                 plan, filesystem
             )
+
+        if (
+            plan.guarantee_level == GuaranteeLevel.BEST_EFFORT_OBJECT_STORE
+            and isinstance(plan, RepartitionPlan)
+        ):
+            if filesystem is None:
+                raise ValueError(
+                    "best_effort_object_store repartition requires the filesystem "
+                    "used to create the plan."
+                )
+            return _execute_best_effort_repartition(plan, filesystem)
 
         # ---------------------------------------------------------- #
         # best_effort_object_store coordinated optimization (#45)

@@ -48,7 +48,12 @@ For review before mutation, use `fs.plan_parquet_compaction(...)` followed by
 methods exist for partition-local deduplication and coordinated optimization.
 Global deduplication is deliberately explicit through
 `plan_parquet_global_repartition_deduplication` and
-`deduplicate_and_repartition_parquet_dataset`.
+`deduplicate_and_repartition_parquet_dataset`. Pure full-dataset repartition
+(change the partition layout without winner selection, preserving every
+source row including exact duplicates) is available through
+`plan_parquet_repartition` and `repartition_parquet_dataset` since #60;
+it accepts the same destination partition columns and derived-key vocabulary
+as global deduplication but carries no `key_columns` or `dedup_order_by`.
 
 ## Replacements
 

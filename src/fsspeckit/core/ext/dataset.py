@@ -26,6 +26,7 @@ from fsspeckit.core.maintenance import (
     MaintenancePlan,
     MaintenanceResult,
     PartitionLocalDeduplicationPlan,
+    RepartitionPlan,
 )
 
 
@@ -258,6 +259,37 @@ def plan_parquet_global_repartition_deduplication(
     )
 
 
+def plan_parquet_repartition(
+    self: AbstractFileSystem,
+    path: str,
+    *,
+    partition_columns: list[str] | str,
+    target_mb_per_file: int | None = None,
+    target_rows_per_file: int | None = None,
+    compression: str | None = None,
+    derived_partition_columns: dict[str, tuple[str, ...]] | None = None,
+    partition_timezone: str = "UTC",
+    memory_budget_mb: int | None = None,
+) -> RepartitionPlan:
+    """Create an explicit pure full-dataset repartition plan (#60).
+
+    Unlike :func:`plan_parquet_global_repartition_deduplication`, this plan
+    preserves every source row including exact duplicates. It performs no
+    winner selection and carries no deduplication fields.
+    """
+    return _automatic_maintenance_coordinator().plan_repartition(
+        path,
+        partition_columns=_normalize_optional_columns(partition_columns) or [],
+        filesystem=self,
+        target_mb_per_file=target_mb_per_file,
+        target_rows_per_file=target_rows_per_file,
+        codec=compression,
+        derived_partition_columns=derived_partition_columns,
+        partition_timezone=partition_timezone,
+        memory_budget_mb=memory_budget_mb,
+    )
+
+
 def plan_parquet_optimization(
     self: AbstractFileSystem,
     path: str,
@@ -300,6 +332,13 @@ def deduplicate_parquet_dataset(self: AbstractFileSystem, path: str, **kwargs: A
     """Plan then execute partition-local deduplication."""
     return execute_maintenance_plan(
         self, plan_parquet_partition_local_deduplication(self, path, **kwargs)
+    )
+
+
+def repartition_parquet_dataset(self: AbstractFileSystem, path: str, **kwargs: Any):
+    """Plan then execute pure full-dataset repartition (#60)."""
+    return execute_maintenance_plan(
+        self, plan_parquet_repartition(self, path, **kwargs)
     )
 
 
