@@ -72,3 +72,15 @@ in the plan and result.
 - Local publication is gated by a local-filesystem fault-injection matrix.
   Generic object-store support is covered with a memory filesystem only; it
   does not claim to verify real S3 behavior.
+
+## Reconciling decisions
+
+ADR-0007 adds three explicit coordinated physical rewrite operations
+(pure repartition, partition-ordered compaction, and caller-directed
+schema rewrite) as separate subclasses of `MaintenancePlan`, reusing
+the guarantee profiles and publication lifecycle defined here
+unchanged. ADR-0006's contract that ordinary maintenance output is
+unordered, that maintenance schema reconciliation is lossless and
+inference-free, and that global repartitioning is explicit is
+preserved by addition rather than weakening. See
+[0007-explicit-repartition-ordered-compaction-schema-rewrite.md](0007-explicit-repartition-ordered-compaction-schema-rewrite.md).

@@ -412,3 +412,100 @@ The best-effort publication rule that rechecks every planned input immediately
 before deletion and deletes none when any source snapshot has drifted, retaining
 staging and copied outputs as recovery artifacts.
 _Avoid_: Deleting an object that a concurrent writer changed during publication
+
+**Pure full-dataset repartitioning**:
+An explicit coordinated physical rewrite that writes every source row,
+including exact duplicates, under a caller-declared destination partition
+layout without performing any winner selection. It is a physical rewrite,
+not a deduplication, and reuses the destination-partition machinery of
+global-repartitioning deduplication with the dedup fields removed.
+_Avoid_: Coupling pure repartition to deduplication, repartition-via-dedup
+workarounds, partition_filter scoping on a full-dataset rewrite
+
+**Partition-ordered compaction**:
+An explicit coordinated physical rewrite whose output is one globally
+ordered sequence per affected physical partition, split into contiguous
+`max_rows_per_file`-bounded chunks. Adjacent output files form a single
+sorted run; the result does not claim global business ordering across
+partitions.
+_Avoid_: Per-file sorting presented as partition ordering, sort flags on
+ordinary compaction or coordinated optimization, cross-partition business
+ordering
+
+**Caller-directed schema rewrite**:
+An explicit coordinated physical rewrite that publishes a caller-supplied
+target schema under a typed cast policy. It is distinct from maintenance
+schema reconciliation: reconciliation preserves meaning through lossless
+promotions, while schema rewrite intentionally targets a caller-approved
+schema. Dtype inference is never invoked by the publication protocol.
+_Avoid_: Inference during publication, lossy casts without full-scope
+validation, mixing schema rewrite with maintenance schema reconciliation
+
+**Maintenance sort key**:
+One typed sort column for partition-ordered compaction, carrying a column
+name, a direction, and an explicit null placement. String forms reuse the
+`+col`/`-col` convention; a typed `SortKey` overrides direction and adds
+null placement.
+_Avoid_: Untyped sort specifications, backend-dependent null placement
+
+**Schema rewrite cast policy**:
+The typed policy that controls which casts a schema rewrite may perform:
+`STRICT` permits only value-preserving promotions, `SAFE` adds lossless
+narrowing, and `LOOSE` allows narrowing that may truncate but validates
+every value across the full scope before publication.
+_Avoid_: Untyped per-field cast decisions, lossy casts without full-scope
+validation
+
+**Ordered-compaction physical tie-breaker**:
+The ADR-0006 snapshot-local physical order tuple
+`(partition path, file path, row offset)` applied only after the
+caller-supplied sort keys tie, ensuring one reproducible row order per
+partition for equal keys.
+_Avoid_: Arbitrary equal-key winners, backend-specific tie behavior,
+treating tie-breaker output as a durable business ordering
+
+**Maintenance memory budget**:
+The optional per-operation bound that declares a bounded-memory strategy
+and a configurable budget; whole-dataset or whole-partition
+materialization is never an undocumented requirement. The selected budget
+is recorded on the plan so a result without spill behavior can be audited
+against the plan.
+_Avoid_: Whole-dataset materialization requirements, undocumented spill
+behavior, memory budgets that are not visible on the plan
+
+**Maintenance spill directory**:
+The caller-managed on-filesystem location used by ordered compaction's
+external merge sort when the affected partition exceeds the configured
+memory budget. For `atomic_local` it must be on the same filesystem as
+the dataset root so rename-into-place remains atomic; it is not part of
+recovery artifacts on the object-store lane.
+_Avoid_: Off-filesystem spill on the atomic-local lane, treating spill
+files as recovery artifacts
+
+**Pure repartition row-count invariant**:
+The validation rule that every source row, including exact duplicates,
+appears exactly once in the destination output of a pure repartition.
+_Avoid_: Silent row loss or duplication during repartition, winner
+selection disguised as repartition
+
+**Partition-ordered compaction boundary invariant**:
+The validation rule that sort order holds within each output file and
+across adjacent output-file boundaries within each affected partition,
+so that the produced files form a single sorted run.
+_Avoid_: Per-file-only sort validation, undocumented boundary gaps
+
+**Full-scope cast validation**:
+The schema-rewrite publication gate that checks every cast value across
+the full rewrite scope before any live mutation, mandatory for `STRICT`,
+default for `LOOSE`, and opt-in for `SAFE`. Any value that would overflow
+or become null unexpectedly aborts the plan before publication.
+_Avoid_: Sample-only cast validation, silent null introduction, post-hoc
+repair of a partially published schema
+
+**Maintenance operation proposal helper**:
+A dtype or schema inference helper (such as `opt_dtype`) that a caller
+may use to propose a target schema reviewed and approved before a schema
+rewrite plan is created. The maintenance publication protocol never calls
+proposal helpers; they are not in the publication path.
+_Avoid_: Calling inference from the publication protocol, treating a
+proposal as an approved schema
