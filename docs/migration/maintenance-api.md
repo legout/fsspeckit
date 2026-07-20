@@ -54,6 +54,14 @@ source row including exact duplicates) is available through
 `plan_parquet_repartition` and `repartition_parquet_dataset` since #60;
 it accepts the same destination partition columns and derived-key vocabulary
 as global deduplication but carries no `key_columns` or `dedup_order_by`.
+Caller-directed schema rewrite (publish an explicitly supplied target schema
+under a typed cast policy, distinct from lossless reconciliation) is available
+through `plan_parquet_schema_rewrite` and `schema_rewrite_parquet_dataset`
+since #62; it accepts a `target_schema`, `cast_policy`
+(`strict`/`safe`/`loose`), and the common target/validation/codec parameters.
+Dtype inference is never invoked by the publication protocol — use `opt_dtype`
+helpers to *propose* a target schema, then pass the approved schema to
+`plan_schema_rewrite`.
 
 ## Replacements
 

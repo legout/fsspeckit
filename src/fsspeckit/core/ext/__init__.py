@@ -35,9 +35,11 @@ from .dataset import (
     plan_parquet_optimization,
     plan_parquet_partition_local_deduplication,
     plan_parquet_repartition,
+    plan_parquet_schema_rewrite,
     pyarrow_dataset,
     pyarrow_parquet_dataset,
     repartition_parquet_dataset,
+    schema_rewrite_parquet_dataset,
 )
 
 # Universal I/O
@@ -79,15 +81,15 @@ __all__ = [
     "pyarrow_parquet_dataset",
     # Coordinator-backed maintenance façade
     "plan_parquet_compaction",
-    "plan_parquet_partition_local_deduplication",
-    "plan_parquet_global_repartition_deduplication",
     "plan_parquet_repartition",
+    "plan_parquet_schema_rewrite",
     "plan_parquet_optimization",
     "execute_maintenance_plan",
     "compact_parquet_dataset",
     "deduplicate_parquet_dataset",
     "deduplicate_and_repartition_parquet_dataset",
     "repartition_parquet_dataset",
+    "schema_rewrite_parquet_dataset",
     "optimize_parquet_dataset",
     # Universal I/O
     "read_files",

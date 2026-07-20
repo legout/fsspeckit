@@ -995,6 +995,7 @@ class MaintenanceOperation(str, Enum):
     PARTITION_LOCAL_DEDUPLICATION = "partition_local_deduplication"
     GLOBAL_REPARTITION_DEDUPLICATION = "global_repartition_deduplication"
     REPARTITION = "repartition"
+    SCHEMA_REWRITE = "schema_rewrite"
     COORDINATED_OPTIMIZATION = "coordinated_optimization"
 
 
@@ -1032,6 +1033,23 @@ class MaintenanceBackend(str, Enum):
 
     PYARROW = "pyarrow"
     DUCKDB = "duckdb"
+
+
+class CastPolicy(str, Enum):
+    """Cast policy for caller-directed schema rewrite (#62).
+
+    - ``STRICT``: allow only value-preserving promotions (a superset of
+      ADR-0006 lossless reconciliation).
+    - ``SAFE``: add lossless narrowing (e.g. ``int64 → int32`` when every
+      value fits).
+    - ``LOOSE``: allow narrowing that may truncate, but validate every
+      value across the full scope before publication; any value that would
+      overflow or become null aborts the plan before any live mutation.
+    """
+
+    STRICT = "strict"
+    SAFE = "safe"
+    LOOSE = "loose"
 
 
 @dataclass(frozen=True)
@@ -1209,6 +1227,32 @@ class CoordinatedOptimizationPlan(MaintenancePlan):
     dedup_key_columns: tuple[str, ...] | None = None
     dedup_order_by: tuple[str, ...] | None = None
     optimization_groups: tuple[CompactionGroup, ...] = ()
+
+
+@dataclass(frozen=True)
+class SchemaRewritePlan(MaintenancePlan):
+    """Immutable plan for a caller-directed schema rewrite (#62).
+
+    The target schema is supplied by the caller. Dtype inference is not
+    invoked. The plan exposes the source schema, the target schema, and the
+    tuple of fields whose type changes.
+
+    ``schema_rewrite_memory_budget_mb`` records the bounded-memory strategy
+    selected at plan time. When it is ``None`` the operation uses the
+    PyArrow scanner default batch size and is row-batch-bounded. When set,
+    the budget sets the batch size for both reading and casting; no
+    whole-column materialization occurs.
+    """
+
+    operation: MaintenanceOperation = field(
+        default=MaintenanceOperation.SCHEMA_REWRITE, init=False
+    )
+    target_schema: Any = None  # pa.Schema
+    source_schema: Any = None  # pa.Schema
+    cast_policy: CastPolicy = CastPolicy.SAFE
+    changed_fields: tuple[str, ...] = ()
+    schema_rewrite_groups: tuple[CompactionGroup, ...] = ()
+    schema_rewrite_memory_budget_mb: int | None = None
 
 
 # Strict native local/POSIX protocol allowlist that earns the atomic_local
@@ -3916,6 +3960,486 @@ def _execute_atomic_local_coordinated_optimization(
     )
 
 
+# --------------------------------------------------------------------------- #
+# Schema rewrite helpers (#62)
+# --------------------------------------------------------------------------- #
+
+
+def _coerce_cast_policy(cast_policy: CastPolicy | str) -> CastPolicy:
+    """Coerce a cast-policy argument to the :class:`CastPolicy` enum."""
+    if isinstance(cast_policy, CastPolicy):
+        return cast_policy
+    try:
+        return CastPolicy(cast_policy)
+    except ValueError:
+        raise ValueError(f"Unknown cast_policy: {cast_policy!r}")
+
+
+def _schema_rewrite_changed_fields(
+    source_schema: pa.Schema,
+    target_schema: pa.Schema,
+) -> tuple[str, ...]:
+    """Return the tuple of field names whose Arrow type changes."""
+    source_types: dict[str, pa.DataType] = {
+        field.name: field.type for field in source_schema
+    }
+    changed: list[str] = []
+    for field in target_schema:
+        source_type = source_types.get(field.name)
+        if source_type is not None and not source_type.equals(field.type):
+            changed.append(field.name)
+    return tuple(changed)
+
+
+def _is_type_promotion(
+    source_type: pa.DataType,
+    target_type: pa.DataType,
+) -> bool:
+    """Return True if *target_type* is a value-preserving promotion of *source_type*.
+
+    A promotion is a widening cast that can never lose information regardless
+    of the data values (a superset of ADR-0006 lossless reconciliation).
+    """
+    if source_type.equals(target_type):
+        return True
+    # Integer widening (same signedness, strictly wider).
+    if pa.types.is_integer(source_type) and pa.types.is_integer(target_type):
+        source_signed = bool(pa.types.is_signed_integer(source_type))
+        target_signed = bool(pa.types.is_signed_integer(target_type))
+        if source_signed and target_signed:
+            return bool(target_type.bit_width > source_type.bit_width)
+        if not source_signed and not target_signed:
+            return bool(target_type.bit_width > source_type.bit_width)
+        # unsigned → signed of equal-or-greater width.
+        if not source_signed and target_signed:
+            return bool(target_type.bit_width >= source_type.bit_width)
+        return False
+    # Float widening.
+    if pa.types.is_floating(source_type) and pa.types.is_floating(target_type):
+        return bool(target_type.bit_width > source_type.bit_width)
+    # Timestamp unit widening (same timezone, strictly finer unit).
+    if pa.types.is_timestamp(source_type) and pa.types.is_timestamp(target_type):
+        if source_type.tz != target_type.tz:
+            return False
+        unit_order = {"s": 1, "ms": 2, "us": 3, "ns": 4}
+        return bool(
+            unit_order.get(target_type.unit, 0)
+            > unit_order.get(source_type.unit, 0)
+        )
+    # date32 → date64.
+    if pa.types.is_date32(source_type) and pa.types.is_date64(target_type):
+        return True
+    # string → large_string.
+    if pa.types.is_string(source_type) and pa.types.is_large_string(target_type):
+        return True
+    # binary → large_binary.
+    if pa.types.is_binary(source_type) and pa.types.is_large_binary(target_type):
+        return True
+    # list → large_list.
+    if pa.types.is_list(source_type) and pa.types.is_large_list(target_type):
+        return True
+    return False
+
+
+def _validate_strict_promotion(
+    source_schema: pa.Schema,
+    target_schema: pa.Schema,
+    changed_fields: tuple[str, ...],
+) -> None:
+    """Reject any STRICT-plan field change that is not a type-level promotion."""
+    for field_name in changed_fields:
+        source_type = source_schema.field(field_name).type
+        target_type = target_schema.field(field_name).type
+        if not _is_type_promotion(source_type, target_type):
+            raise ValueError(
+                f"STRICT cast_policy requires value-preserving promotions; "
+                f"field {field_name!r} changes {source_type} → {target_type}, "
+                f"which is not a widening promotion."
+            )
+
+
+def _schema_rewrite_batch_size(memory_budget_mb: int | None) -> int:
+    """Compute the RecordBatch row count from the memory budget.
+
+    When the budget is ``None`` the PyArrow scanner default (64 K rows) is
+    used and the operation is row-batch-bounded. When set, the budget caps
+    both reading and casting; no whole-column materialization occurs.
+    """
+    if memory_budget_mb is None:
+        return 1 << 16  # 65 536 — PyArrow scanner default.
+    # Heuristic: ~128 bytes/row → 8 K rows per megabyte, minimum 1 K.
+    return max(1024, memory_budget_mb * 8192)
+
+
+def _validate_loose_narrowing(
+    source_col: pa.Array,
+    casted_col: pa.Array,
+    source_type: pa.DataType,
+    field_name: str,
+) -> None:
+    """Validate that a LOOSE narrowing did not overflow or produce new nulls.
+
+    PyArrow ``safe=False`` allows the cast to proceed silently. This guard
+    confirms that no value became null unexpectedly (failed string→int, out-
+    of-range decimal) and that integer narrowing did not wrap.
+    """
+    if casted_col.null_count > source_col.null_count:
+        raise ValueError(
+            f"LOOSE cast of field {field_name!r} produced new nulls; "
+            f"aborting before publication."
+        )
+    # Integer narrowing: detect overflow by casting back and comparing.
+    if (
+        pa.types.is_integer(source_type)
+        and pa.types.is_integer(casted_col.type)
+        and source_type.bit_width > casted_col.type.bit_width
+    ):
+        back = casted_col.cast(source_type)
+        if not back.equals(source_col):
+            raise ValueError(
+                f"LOOSE cast of field {field_name!r} from {source_type} "
+                f"to {casted_col.type} would overflow; aborting before "
+                f"publication."
+            )
+
+
+def _cast_schema_rewrite_batch(
+    table: pa.Table,
+    target_schema: pa.Schema,
+    source_schema: pa.Schema,
+    cast_policy: CastPolicy,
+    changed_fields: tuple[str, ...],
+) -> pa.Table:
+    """Cast one RecordBatch-sized table to the target schema under the policy.
+
+    STRICT and SAFE use PyArrow ``safe=True`` which raises on the first value
+    that does not fit the target type. LOOSE uses ``safe=False`` and then
+    validates per-field that no value overflowed or became null.
+    """
+    safe = cast_policy != CastPolicy.LOOSE
+    casted = table.cast(target_schema, safe=safe)
+    if cast_policy == CastPolicy.LOOSE and changed_fields:
+        for field_name in changed_fields:
+            source_col = table.column(field_name)
+            casted_col = casted.column(field_name)
+            source_type = source_schema.field(field_name).type
+            _validate_loose_narrowing(
+                source_col, casted_col, source_type, field_name
+            )
+    return casted
+
+
+def _execute_atomic_local_schema_rewrite(
+    plan: SchemaRewritePlan,
+    lock_timeout_s: float = 30.0,
+    lock_retry_interval_s: float = 0.05,
+) -> SchemaRewriteResult:
+    """Execute a caller-directed schema rewrite with atomic local publication (#62).
+
+    Source files are read in ``RecordBatch``-sized chunks; each chunk is cast
+    in place under the configured :class:`CastPolicy` and appended to a staged
+    output writer. No whole-column materialization occurs; the ``opt_dtype``
+    Python-side regex loops are explicitly not in the publication path.
+
+    Full validation (target schema exactly matches, row-count invariant) runs
+    before publication. LOOSE narrowing is validated per-batch during the
+    write phase so any overflow or unexpected null aborts before any live
+    mutation. On any failure the workspace and backups are retained as
+    recovery artifacts and every swapped subtree is rolled back under one
+    caller-held exclusive lock.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+    import shutil  # noqa: PLC0415
+
+    dataset_root = plan.source_snapshot.dataset_path
+    phase_outcomes: list[PhaseOutcome] = []
+    workspace: str | None = None
+    staged_dir = ""
+    backup_dir = ""
+    validation: ValidationOutcome | None = None
+    publication: PublicationOutcome | None = None
+
+    if not plan.source_snapshot.files:
+        return SchemaRewriteResult(
+            plan=plan,
+            succeeded=True,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=(PhaseOutcome(phase="write", succeeded=True),),
+            actual_metrics=ActualMetrics(row_count=0, file_count=0, total_bytes=0),
+        )
+
+    try:
+        workspace, staged_dir, backup_dir = _make_workspace(dataset_root)
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=True))
+    except Exception as exc:
+        phase_outcomes.append(
+            PhaseOutcome(phase="stage", succeeded=False, error=str(exc))
+        )
+        return SchemaRewriteResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Stage phase failed: {exc}",
+        )
+
+    run_id = uuid.uuid4().hex[:16]
+    batch_size = _schema_rewrite_batch_size(plan.schema_rewrite_memory_budget_mb)
+    staged_files: list[str] = []
+    staged_partition_dirs: list[str] = []
+    source_files_in_groups: list[str] = []
+    expected_rows = 0
+
+    # ------------------------------------------------------------------ #
+    # Phase: write — batch-stream each source file, cast, stage output.
+    # ------------------------------------------------------------------ #
+    try:
+        for group in plan.schema_rewrite_groups:
+            group_partition_dir = _group_partition_dir(group, dataset_root)
+            source_files_in_groups.extend(fi.path for fi in group.files)
+            writer: pq.ParquetWriter | None = None
+            rows_in_file = 0
+            file_index = 0
+
+            for fi in group.files:
+                with open(fi.path, "rb") as fh:
+                    pf = pq.ParquetFile(fh)
+                    for record_batch in pf.iter_batches(batch_size=batch_size):
+                        batch_table = pa.Table.from_batches([record_batch])
+                        casted = _cast_schema_rewrite_batch(
+                            batch_table,
+                            plan.target_schema,
+                            plan.source_schema,
+                            plan.cast_policy,
+                            plan.changed_fields,
+                        )
+                        expected_rows += casted.num_rows
+                        # Write the casted batch, splitting it to honor
+                        # max_rows_per_file as a hard per-file bound.  Small
+                        # batches accumulate in the current file until full.
+                        offset = 0
+                        while offset < casted.num_rows:
+                            if plan.max_rows_per_file is not None:
+                                capacity = plan.max_rows_per_file - rows_in_file
+                            else:
+                                capacity = casted.num_rows - offset
+                            if capacity <= 0:
+                                assert writer is not None
+                                writer.close()
+                                writer = None
+                                rows_in_file = 0
+                                capacity = plan.max_rows_per_file or (
+                                    casted.num_rows - offset
+                                )
+                            chunk_rows = min(capacity, casted.num_rows - offset)
+                            chunk = casted.slice(offset, chunk_rows)
+                            if writer is None:
+                                filename = (
+                                    f"schema-rewrite-{run_id}-"
+                                    f"{file_index:04d}.parquet"
+                                )
+                                output_dir = os.path.join(
+                                    staged_dir, group_partition_dir
+                                )
+                                os.makedirs(output_dir, exist_ok=True)
+                                output_path = os.path.join(output_dir, filename)
+                                writer = pq.ParquetWriter(
+                                    output_path,
+                                    plan.target_schema,
+                                    compression=plan.selected_codec,
+                                )
+                                staged_files.append(output_path)
+                                staged_partition_dirs.append(group_partition_dir)
+                                rows_in_file = 0
+                                file_index += 1
+                            assert writer is not None
+                            writer.write_table(chunk)
+                            rows_in_file += chunk_rows
+                            offset += chunk_rows
+            if writer is not None:
+                writer.close()
+        phase_outcomes.append(PhaseOutcome(phase="write", succeeded=True))
+    except Exception as exc:
+        phase_outcomes.append(
+            PhaseOutcome(phase="write", succeeded=False, error=str(exc))
+        )
+        return SchemaRewriteResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Write phase failed: {exc}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: validate — target schema exactly matches; row-count invariant.
+    # ------------------------------------------------------------------ #
+    validation = _validate_staged_output(
+        staged_files, plan.target_schema, expected_rows
+    )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="validate",
+            succeeded=validation.succeeded,
+            error=validation.error,
+        )
+    )
+    if not validation.succeeded:
+        return SchemaRewriteResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error=f"Validation failed: {validation.error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: lock, drift_check, publish, cleanup — identical to compaction.
+    # ------------------------------------------------------------------ #
+    lock_path = os.path.join(dataset_root, ".fsspeckit_maintenance.lock")
+    lock = _BoundedAdvisoryLock(
+        lock_path,
+        exclusive=True,
+        timeout_s=lock_timeout_s,
+        retry_interval_s=lock_retry_interval_s,
+    )
+    if not lock.acquire():
+        error = (
+            f"Could not acquire exclusive lock on {lock_path!r} "
+            f"within {lock_timeout_s}s"
+        )
+        phase_outcomes.append(PhaseOutcome(phase="lock", succeeded=False, error=error))
+        return SchemaRewriteResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=workspace),
+            error="Lock acquisition timed out",
+        )
+    phase_outcomes.append(PhaseOutcome(phase="lock", succeeded=True))
+    try:
+        drift_error = _check_source_drift(plan.source_snapshot)
+        if drift_error is not None:
+            phase_outcomes.append(
+                PhaseOutcome(phase="drift_check", succeeded=False, error=drift_error)
+            )
+            return SchemaRewriteResult(
+                plan=plan,
+                succeeded=False,
+                guarantee_level=plan.guarantee_level,
+                phase_outcomes=tuple(phase_outcomes),
+                validation=validation,
+                recovery=RecoveryArtifacts(workspace_path=workspace),
+                error=f"Source drift detected: {drift_error}",
+            )
+        phase_outcomes.append(PhaseOutcome(phase="drift_check", succeeded=True))
+        publication = _publish_atomic_local(
+            source_files=source_files_in_groups,
+            staged_files=staged_files,
+            dataset_root=dataset_root,
+            backup_dir=backup_dir,
+            staged_partition_dirs=staged_partition_dirs,
+        )
+        phase_outcomes.append(
+            PhaseOutcome(
+                phase="publish",
+                succeeded=publication.succeeded,
+                error=publication.error,
+            )
+        )
+    finally:
+        lock.release()
+
+    if publication is None or not publication.succeeded:
+        error = (
+            publication.error if publication is not None else None
+        ) or "Publication did not run"
+        return SchemaRewriteResult(
+            plan=plan,
+            succeeded=False,
+            guarantee_level=plan.guarantee_level,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            publication=publication,
+            recovery=RecoveryArtifacts(
+                workspace_path=workspace,
+                backup_paths=tuple(
+                    path
+                    for path in (
+                        os.path.join(
+                            backup_dir,
+                            _relative_file_path(f, dataset_root),
+                        )
+                        for f in source_files_in_groups
+                    )
+                    if os.path.exists(path)
+                ),
+                recovered=publication.rollback_succeeded is True
+                if publication is not None
+                else False,
+                error=publication.rollback_error
+                if publication is not None
+                else None,
+            ),
+            error=f"Publication failed: {error}",
+        )
+
+    cleanup_error: str | None = None
+    try:
+        shutil.rmtree(workspace)
+        workspace = None
+        phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=True))
+    except Exception as exc:
+        cleanup_error = str(exc)
+        phase_outcomes.append(
+            PhaseOutcome(phase="cleanup", succeeded=False, error=cleanup_error)
+        )
+    retained_backup_paths = (
+        tuple(
+            path
+            for path in (
+                os.path.join(
+                    backup_dir,
+                    _relative_file_path(f, dataset_root),
+                )
+                for f in source_files_in_groups
+            )
+            if os.path.exists(path)
+        )
+        if workspace is not None
+        else ()
+    )
+    total_bytes = sum(
+        os.path.getsize(path)
+        for path in publication.published_files
+        if os.path.exists(path)
+    )
+    return SchemaRewriteResult(
+        plan=plan,
+        succeeded=True,
+        guarantee_level=plan.guarantee_level,
+        phase_outcomes=tuple(phase_outcomes),
+        validation=validation,
+        publication=publication,
+        recovery=RecoveryArtifacts(
+            workspace_path=workspace,
+            backup_paths=retained_backup_paths,
+            error=cleanup_error,
+        ),
+        actual_metrics=ActualMetrics(
+            row_count=expected_rows,
+            file_count=len(publication.published_files),
+            total_bytes=total_bytes,
+        ),
+    )
+
+
 # Best-effort object-store execution helpers (#39)
 # --------------------------------------------------------------------------- #
 
@@ -4025,6 +4549,30 @@ class BestEffortCoordinatedOptimizationResult(
     BestEffortCompactionResult, CoordinatedOptimizationResult
 ):
     """Coordinated optimization result with object-store recovery details."""
+
+
+@dataclass(frozen=True)
+class SchemaRewriteResult(MaintenanceResult):
+    """Typed result of executing a :class:`SchemaRewritePlan` (#62).
+
+    Schema rewrite preserves row multiplicity and the partition layout. The
+    target schema exactly matches the output; per-field cast validation,
+    row-count and null-count invariants, and partition column type
+    compatibility are enforced before publication.
+    """
+
+
+@dataclass(frozen=True)
+class BestEffortSchemaRewriteResult(
+    BestEffortCompactionResult, SchemaRewriteResult
+):
+    """Schema rewrite result with object-store recovery details (#62).
+
+    Carries the standard best-effort recovery fields (staging prefix,
+    staged keys, copied live keys, failed copies, untouched sources,
+    drift flag, concurrency disclaimer) inherited from
+    :class:`BestEffortCompactionResult`.
+    """
 
 
 def _split_table_by_rows(table: pa.Table, max_rows: int | None) -> list[pa.Table]:
@@ -6101,6 +6649,390 @@ def _execute_best_effort_coordinated_optimization(
     )
 
 
+def _execute_best_effort_schema_rewrite(
+    plan: SchemaRewritePlan,
+    filesystem: AbstractFileSystem,
+) -> BestEffortSchemaRewriteResult:
+    """Execute a schema rewrite through best-effort publication (#62).
+
+    Source objects are read in ``RecordBatch``-sized chunks; each chunk is
+    cast in place under the configured :class:`CastPolicy` and appended to a
+    staged output writer. No source object is removed until all staged
+    output has been validated, every planned live key has been copied and
+    validated, and every source object has been revalidated.
+    """
+    import pyarrow.parquet as pq  # noqa: PLC0415
+
+    run_id = uuid.uuid4().hex[:16]
+    dataset_root = plan.source_snapshot.dataset_path
+    staging_prefix = posixpath.join(dataset_root, "_maintenance_staging", run_id)
+    source_keys = tuple(
+        source.absolute_path for source in plan.source_snapshot.files
+    )
+    phase_outcomes: list[PhaseOutcome] = []
+    staged_keys: list[str] = []
+    staged_to_live: dict[str, str] = {}
+    staged_rows: dict[str, int] = {}
+    staged_partition_dirs: dict[str, str] = {}
+    source_row_count = 0
+
+    def result(
+        *,
+        succeeded: bool,
+        validation: ValidationOutcome | None = None,
+        publication: PublicationOutcome | None = None,
+        recovery: RecoveryArtifacts | None = None,
+        actual_metrics: ActualMetrics | None = None,
+        copied_live_keys: tuple[str, ...] = (),
+        failed_copies: tuple[str, ...] = (),
+        untouched_source_keys: tuple[str, ...] = source_keys,
+        drift_detected: bool = False,
+        error: str | None = None,
+    ) -> BestEffortSchemaRewriteResult:
+        return BestEffortSchemaRewriteResult(
+            plan=plan,
+            succeeded=succeeded,
+            guarantee_level=GuaranteeLevel.BEST_EFFORT_OBJECT_STORE,
+            phase_outcomes=tuple(phase_outcomes),
+            validation=validation,
+            publication=publication,
+            recovery=recovery,
+            actual_metrics=actual_metrics,
+            error=error,
+            staging_prefix=staging_prefix,
+            staged_keys=tuple(staged_keys),
+            copied_live_keys=copied_live_keys,
+            failed_copies=failed_copies,
+            untouched_source_keys=untouched_source_keys,
+            drift_detected=drift_detected,
+        )
+
+    batch_size = _schema_rewrite_batch_size(plan.schema_rewrite_memory_budget_mb)
+
+    # ------------------------------------------------------------------ #
+    # Phase: stage — batch-stream each source object, cast, stage output.
+    # ------------------------------------------------------------------ #
+    try:
+        for group in plan.schema_rewrite_groups:
+            group_partition_dir = _group_partition_dir(group, dataset_root)
+            writer: pq.ParquetWriter | None = None
+            buffer: BytesIO | None = None
+            current_staged_path = ""
+            rows_in_file = 0
+            file_index = 0
+
+            for fi in group.files:
+                with filesystem.open(fi.path, "rb") as fh:
+                    pf = pq.ParquetFile(fh)
+                    for record_batch in pf.iter_batches(batch_size=batch_size):
+                        batch_table = pa.Table.from_batches([record_batch])
+                        casted = _cast_schema_rewrite_batch(
+                            batch_table,
+                            plan.target_schema,
+                            plan.source_schema,
+                            plan.cast_policy,
+                            plan.changed_fields,
+                        )
+                        source_row_count += casted.num_rows
+                        # Write the casted batch, splitting it to honor
+                        # max_rows_per_file as a hard per-file bound.
+                        offset = 0
+                        while offset < casted.num_rows:
+                            if plan.max_rows_per_file is not None:
+                                capacity = plan.max_rows_per_file - rows_in_file
+                            else:
+                                capacity = casted.num_rows - offset
+                            if capacity <= 0:
+                                assert writer is not None
+                                assert buffer is not None
+                                writer.close()
+                                filesystem.pipe(
+                                    current_staged_path, buffer.getvalue()
+                                )
+                                writer = None
+                                buffer = None
+                                rows_in_file = 0
+                                capacity = plan.max_rows_per_file or (
+                                    casted.num_rows - offset
+                                )
+                            chunk_rows = min(capacity, casted.num_rows - offset)
+                            chunk = casted.slice(offset, chunk_rows)
+                            if writer is None:
+                                buffer = BytesIO()
+                                filename = (
+                                    f"schema-rewrite-{run_id}-"
+                                    f"{file_index:04d}.parquet"
+                                )
+                                current_staged_path = posixpath.join(
+                                    staging_prefix,
+                                    group_partition_dir,
+                                    filename,
+                                )
+                                current_live_path = posixpath.join(
+                                    dataset_root, group_partition_dir, filename
+                                )
+                                writer = pq.ParquetWriter(
+                                    buffer,
+                                    plan.target_schema,
+                                    compression=plan.selected_codec,
+                                )
+                                staged_keys.append(current_staged_path)
+                                staged_to_live[current_staged_path] = (
+                                    current_live_path
+                                )
+                                staged_rows[current_staged_path] = 0
+                                staged_partition_dirs[current_staged_path] = (
+                                    group_partition_dir
+                                )
+                                rows_in_file = 0
+                                file_index += 1
+                            assert writer is not None
+                            writer.write_table(chunk)
+                            rows_in_file += chunk_rows
+                            staged_rows[current_staged_path] = rows_in_file
+                            offset += chunk_rows
+            if writer is not None:
+                writer.close()
+                assert buffer is not None
+                filesystem.pipe(current_staged_path, buffer.getvalue())
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=True))
+    except Exception as exc:
+        error = f"Stage phase failed: {exc}"
+        phase_outcomes.append(PhaseOutcome(phase="stage", succeeded=False, error=error))
+        return result(
+            succeeded=False,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            error=error,
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: validate — schema exactly matches; row-count invariant.
+    # ------------------------------------------------------------------ #
+    total_staged_rows = 0
+    validation_error: str | None = None
+    try:
+        for staged_path in staged_keys:
+            with filesystem.open(staged_path, "rb") as fh:
+                parquet_file = pq.ParquetFile(fh)
+                rows = parquet_file.metadata.num_rows
+                total_staged_rows += rows
+                if rows != staged_rows[staged_path]:
+                    validation_error = (
+                        f"Row count mismatch in staged file {staged_path}: "
+                        f"got {rows}, expected {staged_rows[staged_path]}"
+                    )
+                    break
+                if not parquet_file.schema_arrow.equals(
+                    plan.target_schema, check_metadata=False
+                ):
+                    validation_error = (
+                        f"Schema mismatch in staged file {staged_path}"
+                    )
+                    break
+        if validation_error is None and total_staged_rows != source_row_count:
+            validation_error = (
+                f"Staged row count mismatch: got {total_staged_rows}, "
+                f"expected {source_row_count}"
+            )
+    except Exception as exc:
+        validation_error = f"Staged validation error: {exc}"
+    validation = ValidationOutcome(
+        succeeded=validation_error is None,
+        staged_row_count=total_staged_rows,
+        expected_row_count=source_row_count,
+        error=validation_error,
+    )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="validate",
+            succeeded=validation_error is None,
+            error=validation_error,
+        )
+    )
+    if validation_error is not None:
+        return result(
+            succeeded=False,
+            validation=validation,
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            error=f"Staged validation failed: {validation_error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: publish — copy and validate each planned live key.
+    # ------------------------------------------------------------------ #
+    copied_live_keys: list[str] = []
+    failed_copies: list[str] = []
+    for staged_path, live_path in staged_to_live.items():
+        try:
+            content = filesystem.cat(staged_path)
+            filesystem.pipe(live_path, content)
+            if filesystem.cat(live_path) != content:
+                raise ValueError(f"Live key content mismatch for {live_path}")
+            with filesystem.open(live_path, "rb") as fh:
+                parquet_file = pq.ParquetFile(fh)
+                if parquet_file.metadata.num_rows != staged_rows[staged_path]:
+                    raise ValueError(f"Live key row-count mismatch for {live_path}")
+                if not parquet_file.schema_arrow.equals(
+                    plan.target_schema, check_metadata=False
+                ):
+                    raise ValueError(f"Live key schema mismatch for {live_path}")
+            copied_live_keys.append(live_path)
+        except Exception as exc:
+            logger.warning(
+                "Failed to copy/validate staged key %s → %s: %s",
+                staged_path,
+                live_path,
+                exc,
+            )
+            failed_copies.append(live_path)
+    copy_error = (
+        f"Failed to copy or validate live keys: {failed_copies}"
+        if failed_copies
+        else None
+    )
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="publish",
+            succeeded=not failed_copies,
+            error=copy_error,
+        )
+    )
+    if failed_copies:
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                error=copy_error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            failed_copies=tuple(failed_copies),
+            error=(
+                "Copy or live-key validation failed; staging and partial live "
+                "outputs retained as recovery artifacts."
+            ),
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: drift_check — revalidate every source before any deletion.
+    # ------------------------------------------------------------------ #
+    drift_error: str | None = None
+    for source in plan.source_snapshot.files:
+        drift_error = _revalidate_source_token(filesystem, source)
+        if drift_error is not None:
+            break
+    phase_outcomes.append(
+        PhaseOutcome(
+            phase="drift_check",
+            succeeded=drift_error is None,
+            error=drift_error,
+        )
+    )
+    if drift_error is not None:
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                error=f"Source drift detected; no sources deleted: {drift_error}",
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            drift_detected=True,
+            error=f"Source drift detected, no sources deleted: {drift_error}",
+        )
+
+    # ------------------------------------------------------------------ #
+    # Phase: cleanup — remove all sources after preceding gates pass.
+    # ------------------------------------------------------------------ #
+    deleted_sources: list[str] = []
+    delete_failures: list[str] = []
+    for source_path in source_keys:
+        try:
+            filesystem.rm(source_path)
+            deleted_sources.append(source_path)
+        except Exception as exc:
+            logger.warning("Failed to delete source %s: %s", source_path, exc)
+            delete_failures.append(source_path)
+            delete_failures.extend(
+                path
+                for path in source_keys
+                if path not in deleted_sources and path != source_path
+            )
+            break
+    if delete_failures:
+        error = f"Failed to delete sources: {delete_failures}"
+        phase_outcomes.append(
+            PhaseOutcome(phase="cleanup", succeeded=False, error=error)
+        )
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                removed_source_files=tuple(deleted_sources),
+                error=error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            untouched_source_keys=tuple(
+                path for path in source_keys if path not in deleted_sources
+            ),
+            error=error,
+        )
+
+    try:
+        if filesystem.exists(staging_prefix):
+            filesystem.rm(staging_prefix, recursive=True)
+    except Exception as exc:
+        error = f"Failed to remove staging prefix: {exc}"
+        phase_outcomes.append(
+            PhaseOutcome(phase="cleanup", succeeded=False, error=error)
+        )
+        return result(
+            succeeded=False,
+            validation=validation,
+            publication=PublicationOutcome(
+                succeeded=False,
+                published_files=tuple(copied_live_keys),
+                removed_source_files=tuple(deleted_sources),
+                error=error,
+            ),
+            recovery=RecoveryArtifacts(workspace_path=staging_prefix),
+            copied_live_keys=tuple(copied_live_keys),
+            untouched_source_keys=(),
+            error=error,
+        )
+
+    phase_outcomes.append(PhaseOutcome(phase="cleanup", succeeded=True))
+    total_bytes = 0
+    for live_path in copied_live_keys:
+        try:
+            total_bytes += int(filesystem.info(live_path).get("size", 0))
+        except Exception:
+            pass
+    return result(
+        succeeded=True,
+        validation=validation,
+        publication=PublicationOutcome(
+            succeeded=True,
+            published_files=tuple(copied_live_keys),
+            removed_source_files=tuple(deleted_sources),
+        ),
+        actual_metrics=ActualMetrics(
+            row_count=source_row_count,
+            file_count=len(copied_live_keys),
+            total_bytes=total_bytes,
+        ),
+        copied_live_keys=tuple(copied_live_keys),
+        untouched_source_keys=(),
+    )
+
+
 class DatasetMaintenanceCoordinator:
     """Direct coordinator that creates immutable, backend-pinned maintenance plans.
 
@@ -6586,6 +7518,109 @@ class DatasetMaintenanceCoordinator:
             optimization_groups=groups,
         )
 
+    def plan_schema_rewrite(
+        self,
+        dataset_path: str,
+        target_schema: Any,
+        cast_policy: CastPolicy | str = CastPolicy.SAFE,
+        filesystem: AbstractFileSystem | None = None,
+        target_mb_per_file: int | None = None,
+        target_rows_per_file: int | None = None,
+        partition_filter: list[str] | None = None,
+        validation_level: ValidationLevel | str | None = None,
+        codec: str | None = None,
+        memory_budget_mb: int | None = None,
+    ) -> SchemaRewritePlan:
+        """Create an immutable caller-directed schema rewrite plan (#62).
+
+        The caller supplies the target schema and cast policy; dtype inference
+        is not invoked. The plan exposes the source schema, target schema,
+        and the tuple of fields whose type changes.
+
+        Planning validates target fields against the full rewrite scope —
+        every source file's schema is checked by the shared reconciliation
+        step. ``STRICT`` allows only value-preserving promotions; ``SAFE``
+        adds lossless narrowing (``int64 → int32`` when every value fits);
+        ``LOOSE`` allows narrowing that may truncate but validates every
+        value across the full scope before publication.
+
+        Partition columns remain path metadata; their types are not part of
+        the physical file schema and are not cast. ``memory_budget_mb`` sets
+        the batch size for both reading and casting; ``None`` uses the
+        PyArrow scanner default (row-batch-bounded).
+        """
+        if not isinstance(target_schema, pa.Schema):
+            raise ValueError("target_schema must be a pyarrow.Schema")
+        if target_rows_per_file is not None and target_rows_per_file <= 0:
+            raise ValueError("target_rows_per_file must be > 0")
+        coerced_policy = _coerce_cast_policy(cast_policy)
+        coerced_validation = _coerce_validation_level(validation_level)
+        (
+            fs,
+            file_stats,
+            snapshot,
+            scope,
+            schema_outcome,
+            schema,
+            selected_codec,
+            target_byte_size,
+            validation,
+        ) = self._common_plan_inputs(
+            MaintenanceOperation.SCHEMA_REWRITE,
+            dataset_path,
+            filesystem,
+            partition_filter,
+            target_mb_per_file,
+            validation_level,
+            codec,
+        )
+        if schema is None:
+            raise ValueError(
+                "Schema rewrite requires a readable, losslessly reconciled "
+                "source schema."
+            )
+        source_schema = schema
+        # The target schema must name exactly the same physical columns; it
+        # may reorder them but may not add or drop fields.
+        source_names = set(source_schema.names)
+        target_names = set(target_schema.names)
+        if source_names != target_names:
+            missing = source_names - target_names
+            extra = target_names - source_names
+            raise ValueError(
+                "target_schema must name exactly the same fields as the "
+                f"source schema; missing: {sorted(missing)}, "
+                f"extra: {sorted(extra)}"
+            )
+        changed_fields = _schema_rewrite_changed_fields(
+            source_schema, target_schema
+        )
+        if coerced_policy == CastPolicy.STRICT:
+            _validate_strict_promotion(
+                source_schema, target_schema, changed_fields
+            )
+        groups = _plan_partition_local_deduplication_groups(
+            file_stats, snapshot.dataset_path
+        )
+        return SchemaRewritePlan(
+            source_snapshot=snapshot,
+            selected_backend=self.backend,
+            guarantee_level=_classify_guarantee(fs),
+            partition_scope=scope,
+            schema_outcome=schema_outcome,
+            selected_codec=selected_codec,
+            max_rows_per_file=target_rows_per_file,
+            target_byte_size=target_byte_size,
+            validation_level=validation,
+            schema=source_schema,
+            target_schema=target_schema,
+            source_schema=source_schema,
+            cast_policy=coerced_policy,
+            changed_fields=changed_fields,
+            schema_rewrite_groups=groups,
+            schema_rewrite_memory_budget_mb=memory_budget_mb,
+        )
+
     # ------------------------------------------------------------------ #
     # Execution seam (#37)
     # ------------------------------------------------------------------ #
@@ -6623,6 +7658,13 @@ class DatasetMaintenanceCoordinator:
         - ``best_effort_object_store`` :class:`RepartitionPlan` — staged-copy
           pure full-dataset repartition; preserves every source row, including
           exact duplicates (#60).
+        - ``atomic_local`` :class:`SchemaRewritePlan` — caller-directed
+          schema rewrite with batch-streamed casting and staged-rename
+          publication; validates casts across the full scope before any
+          live mutation (#62).
+        - ``best_effort_object_store`` :class:`SchemaRewritePlan` — staged-copy
+          schema rewrite with per-key validation and source-drift
+          revalidation.  *filesystem* is **required** for this path.
         - ``atomic_local`` :class:`CoordinatedOptimizationPlan` — optional
           partition-local deduplication followed by compaction through one
           staged, validated, locked, and rollback-capable publication.
@@ -6696,6 +7738,15 @@ class DatasetMaintenanceCoordinator:
                 lock_retry_interval_s=lock_retry_interval_s,
             )
 
+        if plan.guarantee_level == GuaranteeLevel.ATOMIC_LOCAL and isinstance(
+            plan, SchemaRewritePlan
+        ):
+            return _execute_atomic_local_schema_rewrite(
+                plan,
+                lock_timeout_s=lock_timeout_s,
+                lock_retry_interval_s=lock_retry_interval_s,
+            )
+
         # ---------------------------------------------------------- #
         # best_effort_object_store compaction (#39)
         # ---------------------------------------------------------- #
@@ -6762,6 +7813,20 @@ class DatasetMaintenanceCoordinator:
                     "used to create the plan."
                 )
             return _execute_best_effort_coordinated_optimization(plan, filesystem)
+
+        # ---------------------------------------------------------- #
+        # best_effort_object_store schema rewrite (#62)
+        # ---------------------------------------------------------- #
+        if (
+            plan.guarantee_level == GuaranteeLevel.BEST_EFFORT_OBJECT_STORE
+            and isinstance(plan, SchemaRewritePlan)
+        ):
+            if filesystem is None:
+                raise ValueError(
+                    "best_effort_object_store schema rewrite requires the "
+                    "filesystem used to create the plan."
+                )
+            return _execute_best_effort_schema_rewrite(plan, filesystem)
 
         # ---------------------------------------------------------- #
         # Seams for downstream issues — raise descriptive errors

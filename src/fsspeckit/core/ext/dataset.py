@@ -27,6 +27,7 @@ from fsspeckit.core.maintenance import (
     MaintenanceResult,
     PartitionLocalDeduplicationPlan,
     RepartitionPlan,
+    SchemaRewritePlan,
 )
 
 
@@ -339,6 +340,46 @@ def repartition_parquet_dataset(self: AbstractFileSystem, path: str, **kwargs: A
     """Plan then execute pure full-dataset repartition (#60)."""
     return execute_maintenance_plan(
         self, plan_parquet_repartition(self, path, **kwargs)
+    )
+
+
+def plan_parquet_schema_rewrite(
+    self: AbstractFileSystem,
+    path: str,
+    *,
+    target_schema: pa.Schema,
+    cast_policy: str = "safe",
+    target_mb_per_file: int | None = None,
+    target_rows_per_file: int | None = None,
+    partition_filter: list[str] | None = None,
+    compression: str | None = None,
+    memory_budget_mb: int | None = None,
+) -> SchemaRewritePlan:
+    """Create an explicit caller-directed schema rewrite plan (#62).
+
+    The caller supplies the target schema and cast policy; dtype inference is
+    not invoked. Use ``opt_dtype`` helpers to *propose* a target schema, then
+    pass the approved schema here.
+    """
+    return _automatic_maintenance_coordinator().plan_schema_rewrite(
+        path,
+        target_schema=target_schema,
+        cast_policy=cast_policy,
+        filesystem=self,
+        target_mb_per_file=target_mb_per_file,
+        target_rows_per_file=target_rows_per_file,
+        partition_filter=partition_filter,
+        codec=compression,
+        memory_budget_mb=memory_budget_mb,
+    )
+
+
+def schema_rewrite_parquet_dataset(
+    self: AbstractFileSystem, path: str, **kwargs: Any
+):
+    """Plan then execute a caller-directed schema rewrite (#62)."""
+    return execute_maintenance_plan(
+        self, plan_parquet_schema_rewrite(self, path, **kwargs)
     )
 
 

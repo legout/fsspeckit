@@ -73,6 +73,7 @@ approval, then execute.
 | Remove duplicate rows, keep partitions | `deduplicate_parquet_dataset` | `plan_parquet_partition_local_deduplication` |
 | Remove duplicates *and* change partitioning | `deduplicate_and_repartition_parquet_dataset` | `plan_parquet_global_repartition_deduplication` |
 | Change partitioning only (keep all rows) | `repartition_parquet_dataset` | `plan_parquet_repartition` |
+| Cast to a caller-supplied target schema | `schema_rewrite_parquet_dataset` | `plan_parquet_schema_rewrite` |
 | Deduplicate + compact in one pass | `optimize_parquet_dataset` | `plan_parquet_optimization` |
 
 Partition-local deduplication is the default: it only rewrites files within
@@ -194,6 +195,84 @@ so a result without spill can be audited against the plan.
 `FULL_DISTINCT_KEY_SCAN` validation is rejected at planning time: pure
 full-dataset repartitioning has no key semantics.
 
+## Rewrite the dataset schema
+
+Schema rewrite publishes an explicitly supplied target schema under a typed
+cast policy. It is distinct from maintenance schema reconciliation, which
+preserves meaning through predefined lossless promotions. Use it when you
+have already decided on a target schema (possibly proposed by `opt_dtype`
+helpers) and need a coordinated path to publish it safely.
+
+```python
+import pyarrow as pa
+
+target_schema = pa.schema([
+    ("id", pa.int32()),       # narrowed from int64
+    ("value", pa.string()),
+])
+
+result = fs.schema_rewrite_parquet_dataset(
+    "dataset/",
+    target_schema=target_schema,
+    cast_policy="safe",
+)
+```
+
+### Cast policies
+
+| Policy | Allows | Behavior |
+ | --- | --- | --- |
+| `strict` | Value-preserving promotions only (widening). | Rejects narrowing at plan time. A superset of ADR-0006 lossless reconciliation. |
+| `safe` (default) | Promotions **and** lossless narrowing. | PyArrow `safe=True` cast: raises on the first value that does not fit the target type. |
+| `loose` | Narrowing that may truncate. | Cast proceeds, but every value is validated across the full scope before publication; any overflow or unexpected null aborts. |
+
+### Proposing a target schema with `opt_dtype`
+
+The publication protocol **never** calls dtype inference. Use the existing
+`opt_dtype` helpers to *propose* a target schema, review it, then pass the
+approved schema to `plan_schema_rewrite`:
+
+```python
+from fsspeckit.datasets.schema import opt_dtype
+
+# Propose a schema — review the output before publishing.
+proposed = opt_dtype(table, strict=False)
+# ... caller reviews and adjusts proposed.schema ...
+result = fs.schema_rewrite_parquet_dataset(
+    "dataset/",
+    target_schema=proposed.schema,
+    cast_policy="safe",
+)
+```
+
+### Metadata preservation
+
+The output file schema exactly matches `target_schema`, including its
+schema-level and field-level metadata. Source-file metadata is **replaced**
+by the target schema's metadata — the caller controls the output schema.
+If you need to preserve source metadata, copy it into `target_schema`
+before calling `plan_schema_rewrite`.
+
+### Bounded-memory schema rewrite
+
+Schema rewrite reads source files in `RecordBatch`-sized chunks and casts
+each chunk in place. Pass `memory_budget_mb` to cap the batch size for both
+reading and casting:
+
+```python
+plan = fs.plan_parquet_schema_rewrite(
+    "dataset/",
+    target_schema=target_schema,
+    memory_budget_mb=256,
+)
+print(plan.schema_rewrite_memory_budget_mb)  # 256
+```
+
+When `memory_budget_mb` is `None` (the default), the operation uses the
+PyArrow scanner default batch size and is row-batch-bounded. The
+`opt_dtype` Python-side regex loops are explicitly **not** in the
+publication path.
+
 ## Optimize (dedup + compaction)
 
 `optimize_parquet_dataset` runs optional key-based deduplication followed by
@@ -292,7 +371,7 @@ result = coordinator.execute(plan)  # pass filesystem=... for object stores
 The planning methods mirror the facade:
 `plan_compaction`, `plan_partition_local_deduplication`,
 `plan_global_repartition_deduplication`, `plan_repartition`,
-`plan_coordinated_optimization`.
+`plan_schema_rewrite`, `plan_coordinated_optimization`.
 
 ## Working examples
 
