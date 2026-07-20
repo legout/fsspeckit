@@ -74,6 +74,7 @@ approval, then execute.
 | Remove duplicates *and* change partitioning | `deduplicate_and_repartition_parquet_dataset` | `plan_parquet_global_repartition_deduplication` |
 | Change partitioning only (keep all rows) | `repartition_parquet_dataset` | `plan_parquet_repartition` |
 | Cast to a caller-supplied target schema | `schema_rewrite_parquet_dataset` | `plan_parquet_schema_rewrite` |
+| Compact *and* sort within each partition | `ordered_compact_parquet_dataset` | `plan_parquet_ordered_compaction` |
 | Deduplicate + compact in one pass | `optimize_parquet_dataset` | `plan_parquet_optimization` |
 
 Partition-local deduplication is the default: it only rewrites files within
@@ -272,6 +273,77 @@ When `memory_budget_mb` is `None` (the default), the operation uses the
 PyArrow scanner default batch size and is row-batch-bounded. The
 `opt_dtype` Python-side regex loops are explicitly **not** in the
 publication path.
+## Partition-ordered compaction
+
+Ordinary compaction (`compact_parquet_dataset`) combines small files but
+makes **no** promise about row order. Ordered compaction produces one globally
+ordered output sequence per physical partition, split into contiguous
+`max_rows_per_file`-bounded chunks. Adjacent output files form a single sorted
+run, which gives predicate pushdown real pruning power on range-scannable
+columns (event timestamps, telemetry ids).
+
+```python
+result = fs.ordered_compact_parquet_dataset(
+    "events/",
+    sort_keys=["-event_ts"],       # descending; nulls first (SQL default)
+    target_rows_per_file=500_000,
+)
+```
+
+`sort_keys` accepts typed `SortKey` values or strings using the existing
+`+col` / `-col` convention. A leading `-` sorts descending; every other name
+(including `+col`) sorts ascending. String keys receive SQL-standard null
+placement: nulls last for ascending, nulls first for descending. A typed
+`SortKey(column, descending=..., nulls_first=...)` overrides direction and
+supplies explicit null placement.
+
+Ordering is validated **within** each output file **and across** adjacent
+output-file boundaries within each partition before publication. Sorting is
+stable; equal caller sort keys fall back to the physical tie-breaker
+`(partition path, file path, row offset)` from the source snapshot.
+
+`partition_filter` restricts which physical partitions are in scope; ordering
+stays partition-complete within each selected partition.
+
+### Bounded-memory ordered compaction
+
+Ordered compaction uses an external merge sort per physical partition. Pass
+`memory_budget_mb` to bound peak memory; when a partition's materialized size
+exceeds the budget, each source file is sorted in memory and written as a
+sorted run under `spill_directory`, then merged through a streaming k-way
+merge:
+
+```python
+plan = fs.plan_parquet_ordered_compaction(
+    "events/",
+    sort_keys=["event_ts"],
+    memory_budget_mb=512,
+    spill_directory="/var/tmp/fsspeckit-spill",
+)
+```
+
+When `memory_budget_mb` is `None` (the default), the operation sorts each
+partition in memory and is partition-bounded; the planner rejects a partition
+whose estimated size exceeds the default budget unless `spill_directory` is
+supplied. For `atomic_local` the spill directory must be on the same filesystem
+as the dataset root. The selected budget and spill directory are recorded on
+the plan as `sort_memory_budget_mb` / `sort_spill_directory`.
+
+`FULL_DISTINCT_KEY_SCAN` validation is rejected: ordered compaction has no key
+semantics.
+
+### What ordered compaction is *not*
+
+Ordered compaction is distinct from several neighboring concepts:
+
+- **Ordinary compaction** is explicitly unordered; no sort flag is added to
+  `plan_compaction` or `plan_coordinated_optimization`.
+- **Dedup winner ordering** (`dedup_order_by`) decides *which* row survives per
+  key; ordered compaction preserves every row and only reorders.
+- **z-ordering / multi-dimensional clustering** is not provided; ordered
+  compaction is a single lexicographic sort key sequence per partition.
+- **Business ordering across partitions** is not claimed. Ordering is
+  partition-local; two partitions may overlap in sort-key ranges.
 
 ## Optimize (dedup + compaction)
 
@@ -371,7 +443,7 @@ result = coordinator.execute(plan)  # pass filesystem=... for object stores
 The planning methods mirror the facade:
 `plan_compaction`, `plan_partition_local_deduplication`,
 `plan_global_repartition_deduplication`, `plan_repartition`,
-`plan_schema_rewrite`, `plan_coordinated_optimization`.
+`plan_schema_rewrite`, `plan_ordered_compaction`, `plan_coordinated_optimization`.
 
 ## Working examples
 

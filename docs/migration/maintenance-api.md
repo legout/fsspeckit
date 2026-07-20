@@ -63,6 +63,12 @@ Dtype inference is never invoked by the publication protocol — use `opt_dtype`
 helpers to *propose* a target schema, then pass the approved schema to
 `plan_schema_rewrite`.
 
+Partition-ordered compaction (compact *and* sort each physical partition into
+one contiguous sorted run, distinct from unordered compaction and from dedup
+winner ordering) is available through `plan_parquet_ordered_compaction` and
+`ordered_compact_parquet_dataset` since #61; it accepts typed `SortKey` values
+or the `+col` / `-col` string convention and carries no dedup fields.
+
 ## Replacements
 
 | Removed dictionary API | Replacement |
