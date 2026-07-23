@@ -476,7 +476,9 @@ class TestNoPlaceholderCollision:
 
         assert result.updated == 1
         assert result.inserted == 0
-        null_row = next(row for row in _read_dataset(path).to_pylist() if row["id"] is None)
+        null_row = next(
+            row for row in _read_dataset(path).to_pylist() if row["id"] is None
+        )
         assert null_row["__fsspeckit_nsk_f_id"] == "updated-user-value"
         assert bool(null_row["__fsspeckit_nsk_i_id"])
         assert null_row["v"] == "updated-null"
@@ -487,13 +489,9 @@ class TestNoPlaceholderCollision:
     ):
         io = io_factory(backend)
         path = str(tmp_path / "ds")
-        target = pa.table(
-            {"id": pa.array([None, math.nan]), "v": ["null", "nan"]}
-        )
+        target = pa.table({"id": pa.array([None, math.nan]), "v": ["null", "nan"]})
         _write_target(io, path, target)
-        source = pa.table(
-            {"id": pa.array([None, math.nan]), "v": ["N", "NAN"]}
-        )
+        source = pa.table({"id": pa.array([None, math.nan]), "v": ["N", "NAN"]})
 
         result = io.merge(source, path, strategy="upsert", key_columns=["id"])
 
@@ -509,9 +507,7 @@ class TestNoPlaceholderCollision:
     ):
         io = io_factory(backend)
         path = str(tmp_path / "ds")
-        target = pa.table(
-            {"id": pa.array([None, math.nan]), "v": ["null", "old-nan"]}
-        )
+        target = pa.table({"id": pa.array([None, math.nan]), "v": ["null", "old-nan"]})
         _write_target(io, path, target)
         source = pa.table(
             {

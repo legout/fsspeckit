@@ -719,16 +719,12 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                     if len(key_cols) == 1:
                         col_values = table.column(key_cols[0]).to_pylist()
                         for val in col_values:
-                            mask.append(
-                                canonical_key(val, _num_key_components) in keys
-                            )
+                            mask.append(canonical_key(val, _num_key_components) in keys)
                     else:
                         struct_keys = _make_struct_safe(table, key_cols).to_pylist()
                         for d in struct_keys:
                             mask.append(
-                                canonical_key(
-                                    tuple(d.values()), _num_key_components
-                                )
+                                canonical_key(tuple(d.values()), _num_key_components)
                                 in keys
                             )
                     return table.filter(pa_mod.array(mask))
@@ -910,9 +906,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                     continue
 
                 # Load only source rows relevant to this file
-                source_for_file = _select_rows_by_keys(
-                    source_table, file_key_tracker
-                )
+                source_for_file = _select_rows_by_keys(source_table, file_key_tracker)
 
                 if partition_cols:
                     file_schema = pq.read_schema(file_path, filesystem=self._filesystem)

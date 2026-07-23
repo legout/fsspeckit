@@ -89,9 +89,7 @@ def validate_partition_column_immutability(
         if src_name not in joined.column_names:
             continue
 
-        eq = pc.call_function(
-            "equal", [joined.column(col), joined.column(src_name)]
-        )
+        eq = pc.call_function("equal", [joined.column(col), joined.column(src_name)])
         violations = pc.fill_null(pc.call_function("invert", [eq]), True)
         if any(violations.to_pylist()):
             raise ValueError(
@@ -155,9 +153,7 @@ def _validate_partition_column_immutability_null_safe(
         src_name = f"{col}__src"
         if src_name not in joined.column_names:
             continue
-        eq = pc.call_function(
-            "equal", [joined.column(col), joined.column(src_name)]
-        )
+        eq = pc.call_function("equal", [joined.column(col), joined.column(src_name)])
         violations = pc.fill_null(pc.call_function("invert", [eq]), True)
         if any(violations.to_pylist()):
             raise ValueError(

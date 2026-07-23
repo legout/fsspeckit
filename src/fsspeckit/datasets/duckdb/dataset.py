@@ -747,9 +747,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                     preserved_files.append(file_path)
                     continue
 
-                target_table = pq.ParquetFile(
-                    file_path, filesystem=fs
-                ).read()
+                target_table = pq.ParquetFile(file_path, filesystem=fs).read()
                 output_columns = target_table.column_names
 
                 if partition_cols:
