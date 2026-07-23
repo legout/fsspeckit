@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 
 if TYPE_CHECKING:
@@ -469,31 +469,40 @@ class BaseDatasetHandler(ABC):
     ) -> pa.Table:
         """Select rows from table that match keys in key_set.
 
+        ``key_set`` must contain canonical keys (see
+        :func:`fsspeckit.core.merge.canonical_key_value`). Table keys are
+        canonicalized here before comparison so that ``NULL`` matches
+        ``NULL`` and ``NaN`` matches ``NaN`` with typed equality preserved.
+
         Args:
             table: Source table
             key_columns: Key column names
-            key_set: Set of keys to match
+            key_set: Set of canonical keys to match
 
         Returns:
             Filtered table
         """
         import pyarrow as pa
 
+        from fsspeckit.core.merge import canonical_key_value
+
         if not key_set:
             return table.slice(0, 0)
 
+        value_set = set(key_set)
         if len(key_columns) == 1:
             key_col = key_columns[0]
-            value_list = list(key_set)
-            table_keys = table.column(key_col).to_pylist()
-            mask = [key in value_list for key in table_keys]
+            mask = [
+                canonical_key_value(key) in value_set
+                for key in table.column(key_col).to_pylist()
+            ]
             return table.filter(pa.array(mask, type=pa.bool_()))
 
-        key_list = [tuple(k) if isinstance(k, (list, tuple)) else (k,) for k in key_set]
         arrays = [table.column(c).to_pylist() for c in key_columns]
-        table_keys = list(zip(*arrays))
-
-        mask = [key in key_list for key in table_keys]
+        mask = [
+            tuple(canonical_key_value(v) for v in row) in value_set
+            for row in zip(*arrays, strict=True)
+        ]
         return table.filter(pa.array(mask, type=pa.bool_()))
 
     def _collect_dataset_stats(
@@ -512,8 +521,11 @@ class BaseDatasetHandler(ABC):
         """
         from fsspeckit.core.maintenance import collect_dataset_stats
 
-        return collect_dataset_stats(
-            path=path,
-            filesystem=self.filesystem,
-            partition_filter=partition_filter,
+        return cast(
+            dict[str, Any],
+            collect_dataset_stats(
+                path=path,
+                filesystem=self.filesystem,
+                partition_filter=partition_filter,
+            ),
         )

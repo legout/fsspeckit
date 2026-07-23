@@ -15,7 +15,7 @@ Key responsibilities:
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal
@@ -228,7 +228,7 @@ def validate_merge_inputs(
 
     # Check target schema if it exists
     target_exists = target_schema is not None
-    if target_exists:
+    if target_schema is not None:
         target_columns = set(target_schema.names)
 
         # Check key columns exist in target
@@ -280,6 +280,56 @@ def validate_merge_inputs(
     )
 
 
+def canonical_key_value(value: Any) -> Any:
+    """Return a hashable canonical representation of a key component.
+
+    The canonical form implements the null-equal key identity contract while
+    preserving existing typed equality for non-null values:
+
+    - ``None`` maps to a distinct ``("null",)`` marker so ``NULL`` matches
+      ``NULL`` and never a non-null value.
+    - ``NaN`` maps to a distinct ``("nan", ...)`` marker so ``NaN`` matches
+      ``NaN`` (matching native Arrow join/``is_in`` semantics).
+    - Every other value is wrapped in a ``(type, value)`` tuple so that
+      values of different types (e.g. ``1`` and ``True``) never collide,
+      matching Arrow's type-strict equality.
+
+    This mirrors ``fsspeckit.core.maintenance._canonical_deduplication_value``
+    so merge and maintenance share one key-equality contract.
+    """
+    if value is None:
+        return ("null",)
+    if isinstance(value, float) and value != value:
+        return ("nan", type(value).__qualname__)
+    if isinstance(value, (list, tuple)):
+        return (
+            type(value).__qualname__,
+            tuple(canonical_key_value(item) for item in value),
+        )
+    try:
+        hash(value)
+    except TypeError:
+        return (type(value).__qualname__, repr(value))
+    return (type(value).__qualname__, value)
+
+
+def canonical_key(key: Any, num_components: int = 1) -> Any:
+    """Canonicalize a single or composite merge key.
+
+    For a single-component key this is :func:`canonical_key_value` applied to
+    the value. For a composite key (``num_components > 1``) each component is
+    canonicalized and the results combined into a tuple.
+
+    Args:
+        key: A single key value, or a tuple of component values for a
+            composite key.
+        num_components: Number of key columns.
+    """
+    if num_components == 1:
+        return canonical_key_value(key)
+    return tuple(canonical_key_value(v) for v in key)
+
+
 def has_nullable_keys(table: pa.Table, key_columns: Sequence[str]) -> bool:
     """Return True if any key column contains at least one null value.
 
@@ -299,28 +349,39 @@ def null_safe_key_set(
     table: pa.Table,
     key_columns: Sequence[str],
 ) -> set:
-    """Build a Python set of raw key tuples/values from a table.
+    """Build a set of canonical key tuples/values from a table.
 
-    Uses raw Python values where ``None`` matches ``None`` (Python set
-    semantics). Non-null equality is unchanged from standard Python
-    equality, satisfying the "existing typed equality for non-null values
-    remains unchanged" contract.
+    Keys are canonicalized with :func:`canonical_key_value` so that ``NULL``
+    matches ``NULL``, ``NaN`` matches ``NaN``, and non-null typed equality is
+    preserved (matching native Arrow semantics).
     """
     if len(key_columns) == 1:
-        return set(table.column(key_columns[0]).to_pylist())
+        return {
+            canonical_key_value(v) for v in table.column(key_columns[0]).to_pylist()
+        }
     arrays = [table.column(c).to_pylist() for c in key_columns]
-    return set(zip(*arrays, strict=True))
+    return {
+        tuple(canonical_key_value(v) for v in row) for row in zip(*arrays, strict=True)
+    }
 
 
 def null_safe_row_keys(
     table: pa.Table,
     key_columns: Sequence[str],
 ) -> list:
-    """Return a list of raw key values/tuples, one per row, in row order."""
+    """Return canonical key values/tuples, one per row, in row order.
+
+    Keys are canonicalized with :func:`canonical_key_value`; see
+    :func:`null_safe_key_set`.
+    """
     if len(key_columns) == 1:
-        return list(table.column(key_columns[0]).to_pylist())
+        return [
+            canonical_key_value(v) for v in table.column(key_columns[0]).to_pylist()
+        ]
     arrays = [table.column(c).to_pylist() for c in key_columns]
-    return list(zip(*arrays, strict=True))
+    return [
+        tuple(canonical_key_value(v) for v in row) for row in zip(*arrays, strict=True)
+    ]
 
 
 def check_null_keys(
@@ -376,6 +437,26 @@ def _null_safe_sentinel(pa_type: Any) -> Any:
             return 0
 
 
+def null_safe_join_key_prefix(
+    key_columns: Sequence[str],
+    reserved_names: Collection[str],
+    base_prefix: str = "__fsspeckit_nsk_",
+) -> str:
+    """Return a helper-column prefix that cannot collide with user columns."""
+    reserved = set(reserved_names)
+    suffix = 0
+    while True:
+        prefix = base_prefix if suffix == 0 else f"{base_prefix}{suffix}_"
+        helper_names = {
+            name
+            for col_name in key_columns
+            for name in (f"{prefix}f_{col_name}", f"{prefix}i_{col_name}")
+        }
+        if helper_names.isdisjoint(reserved):
+            return prefix
+        suffix += 1
+
+
 def add_null_safe_join_keys(
     table: pa.Table,
     key_columns: Sequence[str],
@@ -409,7 +490,7 @@ def add_null_safe_join_keys(
             filled = pc.fill_null(col, sentinel)
         else:
             filled = col
-        new_table = new_table.append_column(is_null_name, pc.is_null(col))
+        new_table = new_table.append_column(is_null_name, col.is_null())
         new_table = new_table.append_column(filled_name, filled)
         join_keys.append(filled_name)
         join_keys.append(is_null_name)
@@ -768,15 +849,15 @@ def _dedupe_source_last_wins_common(
 
     if len(key_columns) == 1:
         keys = table.column(key_columns[0]).to_pylist()
-        last_index = {}
+        last_index: dict[Any, int] = {}
         for idx, key in enumerate(keys):
-            last_index[key] = idx
+            last_index[canonical_key(key)] = idx
         indices = sorted(last_index.values())
     else:
         key_arrays = [table.column(c).to_pylist() for c in key_columns]
         last_index = {}
         for idx, key in enumerate(zip(*key_arrays, strict=True)):
-            last_index[key] = idx
+            last_index[canonical_key(key, len(key_columns))] = idx
         indices = sorted(last_index.values())
 
     import pyarrow as pa

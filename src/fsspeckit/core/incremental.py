@@ -89,9 +89,11 @@ def validate_partition_column_immutability(
         if src_name not in joined.column_names:
             continue
 
-        eq = pc.equal(joined.column(col), joined.column(src_name))
-        violations = pc.fill_null(pc.invert(eq), True)
-        if pc.any(violations).as_py():
+        eq = pc.call_function(
+            "equal", [joined.column(col), joined.column(src_name)]
+        )
+        violations = pc.fill_null(pc.call_function("invert", [eq]), True)
+        if any(violations.to_pylist()):
             raise ValueError(
                 "Cannot merge: partition column values cannot change for existing keys"
             )
@@ -110,13 +112,20 @@ def _validate_partition_column_immutability_null_safe(
     """
     import pyarrow.compute as pc
 
-    from fsspeckit.core.merge import add_null_safe_join_keys
+    from fsspeckit.core.merge import (
+        add_null_safe_join_keys,
+        null_safe_join_key_prefix,
+    )
 
+    helper_prefix = null_safe_join_key_prefix(
+        key_columns,
+        set(target_table.column_names) | set(source_table.column_names),
+    )
     join_target, join_keys, target_added = add_null_safe_join_keys(
-        target_table, key_columns
+        target_table, key_columns, prefix=helper_prefix
     )
     join_source, _s_keys, source_added = add_null_safe_join_keys(
-        source_table, key_columns
+        source_table, key_columns, prefix=helper_prefix
     )
     # Drop original key columns from source to avoid name conflicts.
     join_source = join_source.drop_columns(key_columns)
@@ -146,9 +155,11 @@ def _validate_partition_column_immutability_null_safe(
         src_name = f"{col}__src"
         if src_name not in joined.column_names:
             continue
-        eq = pc.equal(joined.column(col), joined.column(src_name))
-        violations = pc.fill_null(pc.invert(eq), True)
-        if pc.any(violations).as_py():
+        eq = pc.call_function(
+            "equal", [joined.column(col), joined.column(src_name)]
+        )
+        violations = pc.fill_null(pc.call_function("invert", [eq]), True)
+        if any(violations.to_pylist()):
             raise ValueError(
                 "Cannot merge: partition column values cannot change for existing keys"
             )
@@ -270,10 +281,8 @@ def extract_source_partition_values(
 
     if len(partition_columns) == 1:
         col = partition_columns[0]
-        # Use PyArrow's unique function for better performance
-        import pyarrow.compute as pc
-
-        unique_vals = pc.unique(source_table.column(col))
+        # Use PyArrow's native unique operation for better performance.
+        unique_vals = source_table.column(col).unique()
         return {(v.as_py(),) for v in unique_vals}
 
     # For multiple columns, use group_by to get unique combinations
@@ -415,6 +424,7 @@ class ParquetMetadataAnalyzer:
             min_values: list[Any] = []
             max_values: list[Any] = []
             null_count_total = 0
+            any_has_null_count = False
             any_has_min_max = False
 
             for rg_idx in range(row_group_count):
@@ -425,6 +435,7 @@ class ParquetMetadataAnalyzer:
                     continue
 
                 if stats.null_count is not None:
+                    any_has_null_count = True
                     null_count_total += stats.null_count
 
                 if getattr(stats, "has_min_max", False):
@@ -441,7 +452,7 @@ class ParquetMetadataAnalyzer:
                     # Non-comparable stats (e.g. mixed types) -> omit for safety
                     pass
 
-            if null_count_total:
+            if any_has_null_count:
                 col_stat["null_count"] = null_count_total
 
             if col_stat:
@@ -720,7 +731,10 @@ class IncrementalFileManager:
 
     def _mkdirs(self, path: str, filesystem: Any = None) -> None:
         if filesystem is None:
-            os.makedirs(path, exist_ok=True)
+            try:
+                os.makedirs(path, exist_ok=True)
+            except OSError:
+                raise
             return
 
         for method_name, kwargs in (
@@ -928,22 +942,22 @@ def confirm_affected_files(
             import pyarrow.compute as pc
 
             if len(key_columns) == 1:
-                # Use vectorized is_in for single column.
-                # pc.is_in matches null-to-null correctly, so no special
-                # handling is required for nullable single-column keys.
-                mask = pc.is_in(
-                    table.column(key_columns[0]), value_set=pa.array(list(source_set))
+                # Use vectorized is_in for single column. Arrow's is_in
+                # matches null-to-null correctly, so no special handling is
+                # required for nullable single-column keys.
+                mask = pc.call_function(
+                    "is_in",
+                    [table.column(key_columns[0])],
+                    options=pc.SetLookupOptions(value_set=pa.array(list(source_set))),
                 )
-                if pc.any(mask).as_py():
+                if any(mask.to_pylist()):
                     affected.append(file_path)
             else:
                 # Fast path: when neither source nor file keys contain nulls,
                 # use the vectorized native join (null-safe equality is not
                 # required because there are no nulls to match).
                 source_has_null = any(any(v is None for v in k) for k in source_set)
-                file_has_null = any(
-                    table.column(c).null_count > 0 for c in key_columns
-                )
+                file_has_null = any(table.column(c).null_count > 0 for c in key_columns)
                 if not source_has_null and not file_has_null:
                     source_list = list(source_set)
                     source_table = pa.table(

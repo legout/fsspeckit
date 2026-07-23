@@ -37,6 +37,20 @@ class TestParquetMetadataAnalyzer:
             metadata_list = analyzer.analyze_dataset_files(temp_dir)
             assert metadata_list == []
 
+    def test_records_known_zero_null_count(self, tmp_path):
+        """A known zero null count enables safe nullable-key pruning."""
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        from fsspeckit.core.incremental import ParquetMetadataAnalyzer
+
+        file_path = tmp_path / "part.parquet"
+        pq.write_table(pa.table({"id": [1, 2], "value": ["a", "b"]}), file_path)
+
+        metadata = ParquetMetadataAnalyzer().analyze_dataset_files(str(tmp_path))[0]
+
+        assert metadata.column_stats["id"]["null_count"] == 0
+
 
 class TestPartitionPruner:
     def test_identify_candidate_files_no_files(self):

@@ -1,5 +1,7 @@
 """Tests for backend-neutral merge layer core functionality."""
 
+from typing import Any, cast
+
 import pytest
 import pyarrow as pa
 
@@ -95,7 +97,7 @@ class TestNormalizeKeyColumns:
     def test_non_string_type_error(self):
         """Test error for non-string types."""
         with pytest.raises(ValueError, match="key_columns must be strings"):
-            normalize_key_columns([1, 2, 3])
+            normalize_key_columns(cast(Any, [1, 2, 3]))
 
     def test_whitespace_only_string_error(self):
         """Test error for strings with only whitespace."""
@@ -118,10 +120,10 @@ class TestMergePlan:
         assert plan.strategy == MergeStrategy.UPSERT
         assert plan.key_columns == ["id"]
         assert plan.source_count == 100
-        assert plan.target_exists is True
-        assert plan.key_columns_valid is True
-        assert plan.schema_compatible is True
-        assert plan.null_keys_detected is False
+        assert plan.target_exists
+        assert plan.key_columns_valid
+        assert plan.schema_compatible
+        assert not plan.null_keys_detected
 
     def test_merge_plan_validation(self):
         """Test merge plan validation in __post_init__."""
@@ -195,14 +197,14 @@ class TestMergeOperationPlanning:
             partition_columns=["region"],
         )
 
-        assert plan.strategy is MergeStrategy.UPSERT
+        assert plan.strategy == MergeStrategy.UPSERT
         assert plan.source_table.column("id").to_pylist() == [1, 2]
         assert plan.source_table.column("value").to_pylist() == ["replacement", "other"]
         assert plan.source_keys == [1, 2]
         assert plan.source_key_set == {1, 2}
         assert plan.partition_columns == ["region"]
         assert plan.target_files == ["target.parquet"]
-        assert plan.target_exists is True
+        assert plan.target_exists
         assert plan.target_count_before == 4
 
     def test_plan_merge_operation_deduplicates_composite_keys_last_write_wins(self):
@@ -227,9 +229,11 @@ class TestMergeOperationPlanning:
         )
 
         assert plan.source_table.num_rows == 2
-        assert plan.source_keys == [("eu", 1), ("us", 2)]
-        assert plan.source_key_set == {("eu", 1), ("us", 2)}
-        assert plan.target_exists is False
+        expected_keys = [("eu", 1), ("us", 2)]
+        expected_key_set = {("eu", 1), ("us", 2)}
+        assert plan.source_keys == expected_keys
+        assert plan.source_key_set == expected_key_set
+        assert not plan.target_exists
         assert plan.target_count_before == 0
 
     def test_resolve_merge_plan_early_exit_preserves_existing_target(self):
@@ -268,7 +272,7 @@ class TestMergeOperationPlanning:
             target_metadata=target_metadata,
         )
 
-        assert plan.validation_results["strategy_target_compatible"] is True
+        assert plan.validation_results["strategy_target_compatible"]
         # No false empty-source warning
         assert not any("requires non-empty source data" in w for w in plan.warnings)
 
@@ -288,7 +292,7 @@ class TestMergeOperationPlanning:
             target_metadata=target_metadata,
         )
 
-        assert plan.validation_results["strategy_target_compatible"] is False
+        assert not plan.validation_results["strategy_target_compatible"]
         assert any("requires non-empty source data" in w for w in plan.warnings)
 
     def test_resolve_merge_plan_early_exit_rejects_update_on_missing_target_nonempty_source(
@@ -420,9 +424,9 @@ class TestValidateMergeInputs:
 
         assert plan.strategy == MergeStrategy.UPSERT
         assert plan.key_columns == ["id"]
-        assert plan.target_exists is True
-        assert plan.key_columns_valid is True
-        assert plan.schema_compatible is True
+        assert plan.target_exists
+        assert plan.key_columns_valid
+        assert plan.schema_compatible
 
     def test_valid_inputs_without_target(self):
         """Test validation with valid inputs and no target."""
@@ -442,9 +446,9 @@ class TestValidateMergeInputs:
 
         assert plan.strategy == MergeStrategy.INSERT
         assert plan.key_columns == ["id"]
-        assert plan.target_exists is False
-        assert plan.key_columns_valid is True
-        assert plan.schema_compatible is True
+        assert not plan.target_exists
+        assert plan.key_columns_valid
+        assert plan.schema_compatible
 
     def test_missing_key_in_source(self):
         """Test error when key column missing from source."""
@@ -488,7 +492,7 @@ class TestValidateMergeInputs:
             strategy=MergeStrategy.UPSERT,
         )
 
-        assert plan.schema_compatible is False
+        assert not plan.schema_compatible
 
     def test_schema_column_mismatch(self):
         """Test detection of schema column mismatches."""
@@ -512,7 +516,7 @@ class TestValidateMergeInputs:
             strategy=MergeStrategy.UPSERT,
         )
 
-        assert plan.schema_compatible is False
+        assert not plan.schema_compatible
 
     def test_nullable_key_detection(self):
         """Test detection of nullable key columns."""
@@ -530,7 +534,7 @@ class TestValidateMergeInputs:
             strategy=MergeStrategy.UPSERT,
         )
 
-        assert plan.null_keys_detected is True
+        assert plan.null_keys_detected
 
 
 class TestCheckNullKeys:
@@ -558,7 +562,7 @@ class TestCheckNullKeys:
         )
 
         # No longer raises — check_null_keys is a backward-compat no-op.
-        assert check_null_keys(source_table, None, ["id"]) is None
+        check_null_keys(source_table, None, ["id"])
 
     def test_null_keys_in_target(self):
         """Null keys in target are accepted (null-safe equality)."""
@@ -576,7 +580,7 @@ class TestCheckNullKeys:
         )
 
         # No longer raises — check_null_keys is a backward-compat no-op.
-        assert check_null_keys(source_table, target_table, ["id"]) is None
+        check_null_keys(source_table, target_table, ["id"])
 
     def test_multiple_key_columns(self):
         """Null components in composite keys are accepted (null-safe equality)."""
@@ -589,7 +593,7 @@ class TestCheckNullKeys:
         )
 
         # No longer raises — check_null_keys is a backward-compat no-op.
-        assert check_null_keys(source_table, None, ["id", "date"]) is None
+        check_null_keys(source_table, None, ["id", "date"])
 
     def test_no_null_keys_when_target_none(self):
         """Test when target is None (doesn't exist)."""

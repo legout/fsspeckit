@@ -9,7 +9,7 @@ This module contains functions for dataset-level operations including:
 
 import time
 from collections import defaultdict
-from typing import Any, Callable, Iterable, Literal
+from typing import Any, Callable, Iterable, Literal, cast
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -26,6 +26,13 @@ from fsspeckit.datasets.pyarrow.memory import MemoryMonitor, MemoryPressureLevel
 logger = get_logger(__name__)
 
 
+def _arrow_is_in(values: Any, value_set: Any) -> Any:
+    """Call Arrow's ``is_in`` kernel without relying on incomplete stubs."""
+    return pc.call_function(
+        "is_in", [values], options=pc.SetLookupOptions(value_set=value_set)
+    )
+
+
 class PerformanceMonitor:
     """Comprehensive performance monitoring and metrics collection.
 
@@ -40,14 +47,14 @@ class PerformanceMonitor:
         min_system_available_mb: int = 512,
     ):
         self.start_time = time.perf_counter()
-        self.operation_breakdown = defaultdict(float)
+        self.operation_breakdown: defaultdict[str, float] = defaultdict(float)
         self.memory_peak_mb = 0.0
         self.process_memory_peak_mb = 0.0
         self.files_processed = 0
         self.chunks_processed = 0
         self.total_rows_processed = 0
         self.total_bytes_processed = 0
-        self.current_op = None
+        self.current_op: str | None = None
         self.op_start_time = 0.0
 
         self._memory_monitor = MemoryMonitor(
@@ -100,7 +107,7 @@ class PerformanceMonitor:
 
     def get_memory_status(self) -> dict[str, float]:
         """Get current memory snapshot from MemoryMonitor."""
-        return self._memory_monitor.get_memory_status()
+        return cast(dict[str, float], self._memory_monitor.get_memory_status())
 
     def get_metrics(
         self,
@@ -165,11 +172,11 @@ def _table_drop_duplicates(
         # Note: PyArrow Table.drop_duplicates only supports keep='first' in some versions
         # but the kwarg is supported in newer ones.
         try:
-            return table.drop_duplicates(subset=subset, keep=keep)  # type: ignore
+            return table.drop_duplicates(subset=subset, keep=keep)
         except (TypeError, ValueError):
             # Fallback for versions that don't support keep kwarg
             if keep == "first":
-                return table.drop_duplicates(subset=subset)  # type: ignore
+                return table.drop_duplicates(subset=subset)
             # if last requested but not supported, we'll fall back to Polars below
 
     # Fallback to Polars for older/weird PyArrow environments or if keep='last' not supported
@@ -177,7 +184,7 @@ def _table_drop_duplicates(
 
     df = pl.from_arrow(table)
     assert isinstance(df, pl.DataFrame)
-    return df.unique(subset=subset, keep=keep).to_arrow()  # type: ignore
+    return df.unique(subset=subset, keep=keep).to_arrow()
 
 
 def _make_struct_safe(table: pa.Table, columns: list[str]) -> pa.Array:
@@ -224,7 +231,7 @@ def _create_composite_key_array(table: pa.Table, key_columns: list[str]) -> pa.A
             f"Failed to create composite key from columns {key_columns}. "
             f"Ensure columns have compatible types for StructArray creation. "
             f"Error: {e}"
-        )
+        ) from e
 
 
 def _create_fallback_key_array(table: pa.Table, key_columns: list[str]) -> pa.Array:
@@ -252,7 +259,7 @@ def _create_fallback_key_array(table: pa.Table, key_columns: list[str]) -> pa.Ar
     for col_name in key_columns:
         col = table.column(col_name).combine_chunks()
         t = col.type
-        is_null_col = pc.is_null(col)
+        is_null_col = col.is_null()
 
         # Performance optimization: Use zero-copy binary view for fixed-width types
         # instead of casting to strings.
@@ -290,15 +297,21 @@ def _create_fallback_key_array(table: pa.Table, key_columns: list[str]) -> pa.Ar
         # Nulls are first replaced with an empty binary so the tag byte is the
         # sole discriminator; a real value can never equal a null marker.
         filled = pc.fill_null(bin_col, b"")
-        tag = pc.if_else(is_null_col, b"\x00", b"\x01")
-        bin_col = pc.binary_join_element_wise(tag, filled, b"")
+        tag = pc.call_function(
+            "if_else", [is_null_col, pa.scalar(b"\x00"), pa.scalar(b"\x01")]
+        )
+        bin_col = pc.call_function(
+            "binary_join_element_wise", [tag, filled, pa.scalar(b"")]
+        )
         binary_cols.append(bin_col)
 
     if len(binary_cols) == 1:
         return binary_cols[0]
 
     # Join multiple binary keys with a delimiter
-    return pc.binary_join_element_wise(*binary_cols, b"\x1f")
+    return pc.call_function(
+        "binary_join_element_wise", [*binary_cols, pa.scalar(b"\x1f")]
+    )
 
 
 def _table_has_nullable_keys(table: pa.Table, key_columns: list[str]) -> bool:
@@ -317,20 +330,18 @@ def _filter_by_key_membership_null_safe(
     reference_keys: pa.Table,
     keep_matches: bool = True,
 ) -> pa.Table:
-    """Null-safe membership filter using Python set semantics.
+    """Null-safe membership filter using canonical key equality.
 
-    ``None`` matches ``None`` (Python set equality). This is the slower
-    fallback path used only for batches that actually contain nullable keys.
+    Keys are canonicalized so that ``NULL`` matches ``NULL`` and ``NaN``
+    matches ``NaN`` (matching native Arrow semantics), while non-null typed
+    equality is preserved. This is the slower fallback path used only for
+    batches that actually contain nullable keys.
     """
-    from fsspeckit.core.merge import null_safe_key_set
+    from fsspeckit.core.merge import null_safe_key_set, null_safe_row_keys
 
     ref_set = null_safe_key_set(reference_keys, key_columns)
-    if len(key_columns) == 1:
-        col_vals = table.column(key_columns[0]).to_pylist()
-        mask = [v in ref_set for v in col_vals]
-    else:
-        arrays = [table.column(c).to_pylist() for c in key_columns]
-        mask = [row in ref_set for row in zip(*arrays, strict=True)]
+    row_keys = null_safe_row_keys(table, key_columns)
+    mask = [key in ref_set for key in row_keys]
     if not keep_matches:
         mask = [not m for m in mask]
     return table.filter(pa.array(mask, type=pa.bool_()))
@@ -390,9 +401,9 @@ def _filter_by_key_membership(
         ref_keys = _create_fallback_key_array(reference_keys, key_columns)
 
         # Use is_in for filtering. value_set must be an array or chunked array.
-        mask = pc.is_in(table_keys, value_set=ref_keys)
+        mask = _arrow_is_in(table_keys, ref_keys)
         if not keep_matches:
-            mask = pc.invert(mask)
+            mask = pc.call_function("invert", [mask])
 
         return table.filter(mask)
 
@@ -443,10 +454,13 @@ def collect_dataset_stats_pyarrow(
     """
     from fsspeckit.core.maintenance import collect_dataset_stats
 
-    return collect_dataset_stats(
-        path=path,
-        filesystem=filesystem,
-        partition_filter=partition_filter,
+    return cast(
+        dict[str, Any],
+        collect_dataset_stats(
+            path=path,
+            filesystem=filesystem,
+            partition_filter=partition_filter,
+        ),
     )
 
 
@@ -645,7 +659,7 @@ def merge_upsert_pyarrow(
             source_keys = _create_composite_key_array(source_aligned, key_columns)
             # Test if is_in works with this StructArray
             if source_keys.length() > 0:
-                pc.is_in(source_keys.slice(0, 1), value_set=source_keys.slice(0, 1))
+                _arrow_is_in(source_keys.slice(0, 1), source_keys.slice(0, 1))
         except Exception:
             use_string_fallback = True
             source_keys = _create_fallback_key_array(source_aligned, key_columns)
@@ -658,7 +672,8 @@ def merge_upsert_pyarrow(
         else:
             chunk_keys = _create_composite_key_array(chunk, key_columns)
 
-        mask = pc.invert(pc.is_in(chunk_keys, source_keys))
+        key_matches = _arrow_is_in(chunk_keys, source_keys)
+        mask = pc.call_function("invert", [key_matches])
         return chunk.filter(mask)
 
     if writer:

@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import uuid
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Callable, Literal, cast
 
 if TYPE_CHECKING:
     import duckdb
@@ -23,13 +23,15 @@ if TYPE_CHECKING:
 from fsspeckit.common.logging import get_logger
 from fsspeckit.common.optional import _DUCKDB_AVAILABLE
 from fsspeckit.common.security import (
-    PathValidator,
     safe_format_error,
     validate_compression_codec,
     validate_path,
 )
 from fsspeckit.core.merge import (
     MergeTargetMetadata,
+    add_null_safe_join_keys,
+    canonical_key,
+    null_safe_join_key_prefix,
     plan_merge_operation,
     resolve_merge_plan_early_exit,
 )
@@ -88,15 +90,19 @@ def collect_dataset_stats_duckdb(
     """
     from fsspeckit.core.maintenance import collect_dataset_stats
 
-    return collect_dataset_stats(
-        path=path,
-        filesystem=filesystem,
-        partition_filter=partition_filter,
+    return cast(
+        dict[str, Any],
+        collect_dataset_stats(
+            path=path,
+            filesystem=filesystem,
+            partition_filter=partition_filter,
+        ),
     )
 
 
 # DuckDB exception types for specific error handling
 _DUCKDB_EXCEPTIONS = {}
+_DUCKDB_READ_EXCEPTIONS: tuple[type[Exception], ...] = (RuntimeError,)
 if _DUCKDB_AVAILABLE:
     import duckdb
 
@@ -110,6 +116,11 @@ if _DUCKDB_AVAILABLE:
         "ConnectionException": duckdb.ConnectionException,
         "SyntaxException": duckdb.SyntaxException,
     }
+    _DUCKDB_READ_EXCEPTIONS = (
+        duckdb.IOException,
+        duckdb.InvalidInputException,
+        duckdb.ParserException,
+    )
 
 # Type alias for merge strategies
 MergeStrategy = Literal["upsert", "insert", "update", "full_merge", "deduplicate"]
@@ -137,7 +148,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         self._connection = connection
 
     @property
-    def filesystem(self) -> "AbstractFileSystem":
+    def filesystem(self) -> AbstractFileSystem:
         """Return the filesystem instance used by this handler."""
         return self._connection.filesystem
 
@@ -183,36 +194,26 @@ class DuckDBDatasetIO(BaseDatasetHandler):
 
         conn = self._connection.connection
 
-        # Build the query
-        query = "SELECT * FROM parquet_scan(?)"
-
-        params = [path]
-
-        if columns:
-            # Escape column names and build select list
-            quoted_cols = [f'"{col}"' for col in columns]
-            select_list = ", ".join(quoted_cols)
-            query = f"SELECT {select_list} FROM parquet_scan(?)"
-
-        if filters:
-            query += f" WHERE {filters}"
-
-        # DuckDB ignores use_threads parameter, but we accept it for interface compatibility
+        # DuckDB ignores use_threads parameter, but we accept it for interface compatibility.
         _ = use_threads
 
         try:
-            # Execute query
-            result = conn.execute(query, params).fetch_arrow_table()
+            # Use DuckDB's relation API so the file path is never interpolated
+            # into SQL. Filter strings remain expressions scoped to this
+            # relation, not executable multi-statement SQL.
+            relation = conn.from_parquet(path)
+            if columns:
+                quoted_cols = [
+                    f'"{col.replace(chr(34), chr(34) * 2)}"' for col in columns
+                ]
+                relation = relation.project(", ".join(quoted_cols))
+            if filters:
+                relation = relation.filter(filters)
+            return relation.fetch_arrow_table()
 
-            return result
-
-        except (
-            _DUCKDB_EXCEPTIONS.get("IOException"),
-            _DUCKDB_EXCEPTIONS.get("InvalidInputException"),
-            _DUCKDB_EXCEPTIONS.get("ParserException"),
-        ) as e:
+        except _DUCKDB_READ_EXCEPTIONS as e:
             raise RuntimeError(
-                f"Failed to read parquet from {path}: {safe_format_error(e)}"
+                safe_format_error("read parquet", path=path, error=e)
             ) from e
 
     def write_parquet(
@@ -261,25 +262,14 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         conn.register("data_table", table)
 
         try:
-            # Build the COPY command
-            copy_query = "COPY data_table TO ?"
-
-            params = [path]
-
-            options: list[str] = []
-            if compression_final:
-                options.append(f"COMPRESSION {compression_final}")
-            if row_group_size:
-                options.append(f"ROW_GROUP_SIZE {row_group_size}")
-            if options:
-                copy_query += " (" + ", ".join(options) + ")"
-
-            # Execute the copy
-            if use_threads:
-                conn.execute(copy_query, params)
-            else:
-                conn.execute(copy_query, params)
-
+            # The relation API avoids dynamically constructed COPY SQL while
+            # preserving DuckDB's native parquet writer options.
+            _ = use_threads
+            conn.table("data_table").write_parquet(
+                path,
+                compression=compression_final,
+                row_group_size=row_group_size,
+            )
         finally:
             # Clean up temporary table
             _unregister_duckdb_table_safely(conn, "data_table")
@@ -296,7 +286,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         compression: str | None = "snappy",
         max_rows_per_file: int | None = 5_000_000,
         row_group_size: int | None = 500_000,
-    ) -> "WriteDatasetResult":
+    ) -> WriteDatasetResult:
         """Write a parquet dataset and return per-file metadata."""
         import uuid
 
@@ -308,7 +298,8 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         )
 
         validate_path(path)
-        validate_compression_codec(compression)
+        if compression is not None:
+            validate_compression_codec(compression)
 
         self._validate_write_mode(mode)
         row_group_size = self._validate_write_parameters(
@@ -371,8 +362,8 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             staging_prefix = staging_dir.rstrip("/") + "/"
 
             for index, staging_file in enumerate(staging_files):
-                staging_file_path = fs._strip_protocol(staging_file)
-                staging_prefix_path = fs._strip_protocol(staging_prefix)
+                staging_file_path = str(fs._strip_protocol(staging_file))
+                staging_prefix_path = str(fs._strip_protocol(staging_prefix))
 
                 if os.path.isabs(staging_file_path) and not os.path.isabs(
                     staging_prefix_path
@@ -397,13 +388,18 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                         # Normalize value-only directories to Hive-style col=value
                         partition_dir = "/".join(
                             f"{col}={val}"
-                            for col, val in zip(partition_cols, partition_parts)
+                            for col, val in zip(
+                                partition_cols, partition_parts, strict=True
+                            )
                         )
 
                 target_dir = (
                     path if partition_dir in ("", ".") else f"{path}/{partition_dir}"
                 )
-                fs.mkdirs(target_dir, exist_ok=True)
+                try:
+                    fs.mkdirs(target_dir, exist_ok=True)
+                except OSError:
+                    raise
                 filename = _format_filename(index)
                 target_file = f"{target_dir}/{filename}"
                 fs.move(staging_file, target_file)
@@ -413,11 +409,15 @@ class DuckDBDatasetIO(BaseDatasetHandler):
 
         files: list[FileWriteMetadata] = []
         for f in moved_files:
-            row_count = int(self._get_file_row_count(f))
+            try:
+                row_count = int(self._get_file_row_count(f))
+            except OSError:
+                raise
             size_bytes = None
             try:
-                size_bytes = int(fs.size(f))
-            except (OSError, IOError, PermissionError) as e:
+                raw_size = fs.size(f)
+                size_bytes = int(raw_size) if raw_size is not None else None
+            except OSError as e:
                 logger.warning(
                     "Failed to retrieve file size",
                     path=f,
@@ -464,7 +464,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         merge_min_system_available_mb: int = 512,
         merge_progress_callback: Callable[[int, int], None] | None = None,
         use_merge: bool | None = None,
-    ) -> "MergeResult":
+    ) -> MergeResult:
         """Merge data into an existing parquet dataset incrementally (DuckDB backend).
 
         Semantics:
@@ -496,7 +496,8 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         )
 
         validate_path(path)
-        validate_compression_codec(compression)
+        if compression is not None:
+            validate_compression_codec(compression)
         row_group_size = self._validate_write_parameters(
             max_rows_per_file,
             row_group_size,
@@ -548,7 +549,9 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         key_cols = plan.key_columns
         partition_cols = plan.partition_columns
         source_keys = plan.source_keys
-        source_key_set = plan.source_key_set
+        source_key_set = {
+            canonical_key(key, len(key_cols)) for key in plan.source_key_set
+        }
         target_files = plan.target_files
         target_exists = plan.target_exists
         target_count_before = plan.target_count_before
@@ -570,7 +573,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                 row_group_size=row_group_size,
             )
 
-            inserted_files = [m.path for m in write_res.files]
+            initial_inserted_files = [m.path for m in write_res.files]
             files_meta = [
                 MergeFileMetadata(
                     path=m.path,
@@ -591,7 +594,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                 deleted=0,
                 files=files_meta,
                 rewritten_files=[],
-                inserted_files=inserted_files,
+                inserted_files=initial_inserted_files,
                 preserved_files=[],
             )
 
@@ -624,23 +627,27 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         matched_keys_by_file: dict[str, set[object]] = {}
         for file_path in affected_files:
             try:
-                key_table = pq.read_table(
-                    file_path,
-                    columns=key_cols,
-                    filesystem=fs,
-                    partitioning=None,
+                key_table = pq.ParquetFile(file_path, filesystem=fs).read(
+                    columns=key_cols
                 )
                 if len(key_cols) == 1:
-                    file_keys = set(key_table.column(key_cols[0]).to_pylist())
+                    file_keys = {
+                        canonical_key(key, len(key_cols))
+                        for key in key_table.column(key_cols[0]).to_pylist()
+                    }
                 else:
-                    file_keys = set(
-                        zip(*[key_table.column(c).to_pylist() for c in key_cols])
-                    )
+                    file_keys = {
+                        canonical_key(key, len(key_cols))
+                        for key in zip(
+                            *[key_table.column(c).to_pylist() for c in key_cols],
+                            strict=True,
+                        )
+                    }
                 file_matched = source_key_set & file_keys
                 if file_matched:
                     matched_keys_by_file[file_path] = set(file_matched)
                     matched_keys |= set(file_matched)
-            except (OSError, IOError, Exception):
+            except Exception:
                 # Conservative: assume all source keys might be present.
                 matched_keys_by_file[file_path] = set(source_key_set)
                 matched_keys |= set(source_key_set)
@@ -683,8 +690,8 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                 row_group_size=row_group_size,
             )
 
-            inserted_files = [m.path for m in write_res.files]
-            inserted_meta = [
+            insert_only_files = [m.path for m in write_res.files]
+            insert_only_meta = [
                 MergeFileMetadata(
                     path=m.path,
                     row_count=m.row_count,
@@ -697,7 +704,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             files_meta = [
                 MergeFileMetadata(path=f, row_count=0, operation="preserved")
                 for f in preserved_files
-            ] + inserted_meta
+            ] + insert_only_meta
 
             return MergeResult(
                 strategy="insert",
@@ -709,7 +716,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                 deleted=0,
                 files=files_meta,
                 rewritten_files=[],
-                inserted_files=inserted_files,
+                inserted_files=insert_only_files,
                 preserved_files=preserved_files,
             )
 
@@ -740,11 +747,9 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                     preserved_files.append(file_path)
                     continue
 
-                target_table = pq.read_table(
-                    file_path,
-                    filesystem=fs,
-                    partitioning=None,
-                )
+                target_table = pq.ParquetFile(
+                    file_path, filesystem=fs
+                ).read()
                 output_columns = target_table.column_names
 
                 if partition_cols:
@@ -770,8 +775,6 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                 # companion columns (fill_null sentinel + is_null flag) so
                 # that NULL IS NOT DISTINCT FROM NULL. The fast native path
                 # is preserved for entirely non-null keys.
-                from fsspeckit.core.merge import add_null_safe_join_keys
-
                 source_keys_nullable = any(
                     source_for_file.column(c).null_count > 0 for c in key_cols
                 )
@@ -780,11 +783,16 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                 )
 
                 if source_keys_nullable or target_keys_nullable:
+                    helper_prefix = null_safe_join_key_prefix(
+                        key_cols,
+                        set(target_table.column_names)
+                        | set(source_for_file.column_names),
+                    )
                     join_target, join_keys, _target_added = add_null_safe_join_keys(
-                        target_table, key_cols
+                        target_table, key_cols, prefix=helper_prefix
                     )
                     join_source, _s_keys, _source_added = add_null_safe_join_keys(
-                        source_for_file, key_cols
+                        source_for_file, key_cols, prefix=helper_prefix
                     )
                     # Drop original key columns from the source side so they
                     # do not conflict with target's key columns (matched rows
@@ -806,7 +814,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                         coalesce_keys=True,
                     )
 
-                match_mask = pc.is_valid(joined.column(match_col_name))
+                match_mask = joined.column(match_col_name).is_valid()
 
                 if partition_cols:
                     for col in partition_cols:
@@ -817,10 +825,14 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                             raise ValueError(
                                 f"Partition column '{col}' must be present in source for merge"
                             )
-                        eq = pc.equal(joined.column(col), joined.column(src_name))
-                        neq = pc.invert(eq)
-                        violations = pc.and_(match_mask, pc.fill_null(neq, True))
-                        if pc.any(violations).as_py():
+                        eq = pc.call_function(
+                            "equal", [joined.column(col), joined.column(src_name)]
+                        )
+                        neq = pc.call_function("invert", [eq])
+                        violations = pc.call_function(
+                            "and", [match_mask, pc.fill_null(neq, True)]
+                        )
+                        if any(violations.to_pylist()):
                             raise ValueError(
                                 "Cannot merge: partition column values cannot change for existing keys"
                             )
@@ -836,8 +848,13 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                     src_name = f"{col}__src"
                     if src_name in joined.column_names:
                         out_arrays.append(
-                            pc.if_else(
-                                match_mask, joined.column(src_name), joined.column(col)
+                            pc.call_function(
+                                "if_else",
+                                [
+                                    match_mask,
+                                    joined.column(src_name),
+                                    joined.column(col),
+                                ],
                             )
                         )
                     else:
@@ -851,14 +868,15 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                     updated_table,
                     staging_file,
                     filesystem=fs,
-                    compression=compression,
+                    compression=compression or "NONE",
                     row_group_size=row_group_size,
                 )
 
                 size_bytes = None
                 try:
-                    size_bytes = int(fs.size(staging_file))
-                except (OSError, IOError, PermissionError):
+                    raw_size = fs.size(staging_file)
+                    size_bytes = int(raw_size) if raw_size is not None else None
+                except OSError:
                     size_bytes = None
 
                 file_manager.atomic_replace_files(
@@ -925,7 +943,7 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             target_count_before=target_count_before,
             target_count_after=target_count_before + inserted_rows,
             inserted=inserted_rows,
-            updated=updated_rows if strategy != "insert" else 0,
+            updated=updated_rows,
             deleted=0,
             files=files_meta,
             rewritten_files=rewritten_files,
@@ -938,7 +956,10 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         import pyarrow.parquet as pq
 
         metadata = pq.read_metadata(file_path, filesystem=self._connection.filesystem)
-        return metadata.num_rows
+        try:
+            return int(metadata.num_rows)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(f"Invalid row count metadata for {file_path}") from exc
 
     def _write_to_path(
         self,
@@ -960,33 +981,16 @@ class DuckDBDatasetIO(BaseDatasetHandler):
         conn.register("data_table", table)
 
         try:
-            # Build the COPY command for dataset
-            # DuckDB cannot combine PER_THREAD_OUTPUT with PARTITION_BY
-            use_per_thread_output = partition_by is None
-            copy_query = f"COPY data_table TO '{path}' (FORMAT PARQUET"
-            if use_per_thread_output:
-                copy_query += ", PER_THREAD_OUTPUT TRUE"
-
-            # Note: We don't use OVERWRITE option here because we already manually
-            # cleared parquet files with _clear_dataset_parquet_only in overwrite mode
-
-            if compression:
-                copy_query += f", COMPRESSION {compression}"
-
-            if row_group_size:
-                copy_query += f", ROW_GROUP_SIZE {row_group_size}"
-
-            if partition_by:
-                for col in partition_by:
-                    PathValidator.validate_sql_identifier(col)
-                partition_expr = ", ".join([f'"{col}"' for col in partition_by])
-                copy_query += f", PARTITION_BY ({partition_expr})"
-
-            copy_query += ")"
-
-            # Execute
-            conn.execute(copy_query)
-
+            # The relation API avoids dynamic COPY SQL. DuckDB cannot combine
+            # per-thread output with partitioned output, so enable it only for
+            # unpartitioned datasets.
+            conn.table("data_table").write_parquet(
+                path,
+                compression=compression,
+                row_group_size=row_group_size,
+                per_thread_output=partition_by is None,
+                partition_by=partition_by,
+            )
         finally:
             # Clean up temporary table
             _unregister_duckdb_table_safely(conn, "data_table")

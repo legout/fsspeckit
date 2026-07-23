@@ -639,7 +639,7 @@ class TestMergeEdgeCases:
 
         final = duckdb_io._connection.connection.execute(
             f"SELECT id, name, value FROM parquet_scan('{dataset_dir}/*.parquet') ORDER BY id"
-        ).to_arrow_table()
+        ).fetch_arrow_table()
         rows = {r["id"]: r for r in final.to_pylist()}
         assert rows[None]["name"] == "N2"  # null matched null, updated
         assert rows[None]["value"] == 99

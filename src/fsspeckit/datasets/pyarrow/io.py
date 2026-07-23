@@ -140,7 +140,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         if filesystem is None:
             filesystem = fsspec_filesystem("file")
 
-        self._filesystem = filesystem
+        assert filesystem is not None
+        self._filesystem: AbstractFileSystem = filesystem
 
     @property
     def filesystem(self) -> AbstractFileSystem:
@@ -157,8 +158,13 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         dataset semantics (issue #47) while preserving the historical
         filesystem-aware behavior.
         """
-        normalized = core_normalize_path(
-            path, filesystem=self._filesystem, validate=True, operation=operation
+        normalized = str(
+            core_normalize_path(
+                path,
+                filesystem=self._filesystem,
+                validate=True,
+                operation=operation,
+            )
         )
         # Dataset-specific validation lives at the datasets boundary.
         from fsspeckit.datasets.path_utils import validate_dataset_path
@@ -314,7 +320,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         from fsspeckit.common.security import validate_compression_codec
 
         path = self._normalize_path(path, operation="write")
-        validate_compression_codec(compression)
+        if compression is not None:
+            validate_compression_codec(compression)
         _ = use_threads
 
         data = self._combine_tables(data)
@@ -323,7 +330,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             data,
             path,
             filesystem=self._filesystem,
-            compression=compression,
+            compression=compression or "NONE",
             row_group_size=row_group_size,
         )
 
@@ -340,7 +347,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         compression: str | None = "snappy",
         max_rows_per_file: int | None = 5_000_000,
         row_group_size: int | None = 500_000,
-    ) -> "WriteDatasetResult":
+    ) -> WriteDatasetResult:
         """Write a parquet dataset and return per-file metadata.
 
         Args:
@@ -373,7 +380,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         )
 
         path = self._normalize_path(path, operation="write")
-        validate_compression_codec(compression)
+        if compression is not None:
+            validate_compression_codec(compression)
 
         self._validate_write_mode(mode)
         row_group_size = self._validate_write_parameters(
@@ -408,7 +416,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             compression=compression
         )
 
-        write_options: dict[str, object] = {
+        write_options: dict[str, Any] = {
             "basename_template": basename_template,
             "max_rows_per_file": max_rows_per_file,
             "max_rows_per_group": row_group_size,
@@ -450,13 +458,16 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         for wf in written:
             row_count = 0
             if wf.metadata is not None:
-                row_count = int(wf.metadata.num_rows)
+                try:
+                    row_count = int(wf.metadata.num_rows)
+                except (TypeError, ValueError):
+                    row_count = 0
             else:
                 try:
                     row_count = int(
                         pq.read_metadata(wf.path, filesystem=self._filesystem).num_rows
                     )
-                except (IOError, RuntimeError, ValueError) as e:
+                except (OSError, RuntimeError, ValueError) as e:
                     logger.warning(
                         "failed_to_read_metadata",
                         path=wf.path,
@@ -467,11 +478,15 @@ class PyarrowDatasetIO(BaseDatasetHandler):
 
             size_bytes = None
             if wf.size is not None:
-                size_bytes = int(wf.size)
+                try:
+                    size_bytes = int(wf.size)
+                except (TypeError, ValueError):
+                    size_bytes = None
             else:
                 try:
-                    size_bytes = int(self._filesystem.size(wf.path))
-                except (IOError, RuntimeError) as e:
+                    raw_size = self._filesystem.size(wf.path)
+                    size_bytes = int(raw_size) if raw_size is not None else None
+                except (OSError, RuntimeError) as e:
                     logger.warning(
                         "failed_to_get_file_size",
                         path=wf.path,
@@ -577,7 +592,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
 
         pa_mod = _import_pyarrow()
         validate_path(path)
-        validate_compression_codec(compression)
+        if compression is not None:
+            validate_compression_codec(compression)
         row_group_size = self._validate_write_parameters(
             max_rows_per_file,
             row_group_size,
@@ -631,16 +647,19 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         # Keep source keys as PyArrow Table/Array for vectorized operations.
         source_key_table = source_table.select(key_cols)
         source_key_tracker = AdaptiveKeyTracker()
+        from fsspeckit.core.merge import canonical_key
+
+        _num_key_components = len(key_cols)
         if len(key_cols) == 1:
             # For single column, keep as PyArrow array for vectorized operations.
             source_key_array = source_key_table.column(0)
             for key in plan.source_keys:
-                source_key_tracker.add(key)
+                source_key_tracker.add(canonical_key(key, _num_key_components))
         else:
             # For multi-column keys, use vectorized conversion.
             source_key_array = None
             for key in plan.source_keys:
-                source_key_tracker.add(key)
+                source_key_tracker.add(canonical_key(key, _num_key_components))
 
         early_result = resolve_merge_plan_early_exit(plan)
         if early_result is not None:
@@ -659,7 +678,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 row_group_size=row_group_size,
             )
 
-            inserted_files = [m.path for m in write_res.files]
+            initial_inserted_files = [m.path for m in write_res.files]
             files_meta = [
                 MergeFileMetadata(
                     path=m.path,
@@ -680,48 +699,45 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 deleted=0,
                 files=files_meta,
                 rewritten_files=[],
-                inserted_files=inserted_files,
+                inserted_files=initial_inserted_files,
                 preserved_files=[],
             )
 
         def _select_rows_by_keys(
             table: pa.Table, keys: set[object] | AdaptiveKeyTracker
         ) -> pa.Table:
-            is_tracker = isinstance(keys, AdaptiveKeyTracker)
-            if is_tracker:
+            if isinstance(keys, AdaptiveKeyTracker):
                 if keys.get_metrics()["unique_keys_estimate"] == 0:
                     return table.slice(0, 0)
-            elif not keys:
-                return table.slice(0, 0)
 
-            if is_tracker:
-                # If tracker has exact keys, use them for efficiency
-                if (
-                    hasattr(keys, "_tier")
-                    and keys._tier == "EXACT"
-                    and keys._exact_keys is not None
-                ):
+                # If tracker has exact keys, use them for efficiency.
+                if keys._tier == "EXACT" and keys._exact_keys is not None:
                     key_set = keys._exact_keys
                 else:
-                    # Probabilistic or LRU: must filter manually
+                    # Probabilistic or LRU: must filter manually.
                     mask = []
                     if len(key_cols) == 1:
                         col_values = table.column(key_cols[0]).to_pylist()
                         for val in col_values:
-                            mask.append(val in keys)
+                            mask.append(
+                                canonical_key(val, _num_key_components) in keys
+                            )
                     else:
                         struct_keys = _make_struct_safe(table, key_cols).to_pylist()
                         for d in struct_keys:
-                            mask.append(tuple(d.values()) in keys)
+                            mask.append(
+                                canonical_key(
+                                    tuple(d.values()), _num_key_components
+                                )
+                                in keys
+                            )
                     return table.filter(pa_mod.array(mask))
             else:
+                if not keys:
+                    return table.slice(0, 0)
                 key_set = keys
 
-            return self._select_rows_by_keys(
-                table,
-                key_cols,
-                key_set,
-            )
+            return self._select_rows_by_keys(table, key_cols, key_set)
 
         source_partition_values: set[tuple[object, ...]] | None = None
         if partition_cols:
@@ -772,16 +788,17 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                     if len(key_cols) == 1:
                         # Get the actual matched keys
                         for key in matched_rows.column(0).to_pylist():
-                            file_matched.add(key)
-                            matched_keys.add(key)
+                            ck = canonical_key(key, _num_key_components)
+                            file_matched.add(ck)
+                            matched_keys.add(ck)
                     else:
                         # Use struct array for vectorized multi-key extraction
                         for d in _make_struct_safe(matched_rows, key_cols).to_pylist():
-                            key = tuple(d.values())
-                            file_matched.add(key)
-                            matched_keys.add(key)
+                            ck = canonical_key(tuple(d.values()), _num_key_components)
+                            file_matched.add(ck)
+                            matched_keys.add(ck)
                     matched_keys_by_file[file_path] = file_matched
-            except (IOError, RuntimeError, ValueError) as e:
+            except (OSError, RuntimeError, ValueError) as e:
                 logger.error(
                     "failed_to_check_file_for_matching_keys",
                     path=file_path,
@@ -792,23 +809,28 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 # Conservative: if we can't confirm, treat all source keys as matched
                 matched_keys_by_file[file_path] = source_key_tracker
                 if len(key_cols) == 1:
+                    assert source_key_array is not None
                     for key in source_key_array.to_pylist():
-                        matched_keys.add(key)
+                        matched_keys.add(canonical_key(key, _num_key_components))
                 else:
                     for d in _make_struct_safe(source_key_table, key_cols).to_pylist():
-                        matched_keys.add(tuple(d.values()))
+                        matched_keys.add(
+                            canonical_key(tuple(d.values()), _num_key_components)
+                        )
 
         # Calculate inserted keys using trackers
         inserted_key_tracker = AdaptiveKeyTracker()
         if len(key_cols) == 1:
+            assert source_key_array is not None
             for key in source_key_array.to_pylist():
-                if key not in matched_keys:
-                    inserted_key_tracker.add(key)
+                ck = canonical_key(key, _num_key_components)
+                if ck not in matched_keys:
+                    inserted_key_tracker.add(ck)
         else:
             for d in _make_struct_safe(source_key_table, key_cols).to_pylist():
-                key = tuple(d.values())
-                if key not in matched_keys:
-                    inserted_key_tracker.add(key)
+                ck = canonical_key(tuple(d.values()), _num_key_components)
+                if ck not in matched_keys:
+                    inserted_key_tracker.add(ck)
 
         if strategy == "insert":
             preserved_files = list(target_files)
@@ -840,8 +862,8 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 max_rows_per_file=max_rows_per_file,
                 row_group_size=row_group_size,
             )
-            inserted_files = [m.path for m in write_res.files]
-            inserted_meta = [
+            insert_only_files = [m.path for m in write_res.files]
+            insert_only_meta = [
                 MergeFileMetadata(
                     path=m.path,
                     row_count=m.row_count,
@@ -853,7 +875,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             files_meta = [
                 MergeFileMetadata(path=f, row_count=0, operation="preserved")
                 for f in preserved_files
-            ] + inserted_meta
+            ] + insert_only_meta
             return MergeResult(
                 strategy="insert",
                 source_count=source_table.num_rows,
@@ -864,7 +886,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 deleted=0,
                 files=files_meta,
                 rewritten_files=[],
-                inserted_files=inserted_files,
+                inserted_files=insert_only_files,
                 preserved_files=preserved_files,
             )
 
@@ -881,14 +903,16 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         try:
             for file_path in affected_files:
                 monitor.start_op("file_processing")
-                file_matched = matched_keys_by_file.get(file_path)
-                if not file_matched:
+                file_key_tracker = matched_keys_by_file.get(file_path)
+                if not file_key_tracker:
                     preserved_files.append(file_path)
                     monitor.end_op()
                     continue
 
                 # Load only source rows relevant to this file
-                source_for_file = _select_rows_by_keys(source_table, file_matched)
+                source_for_file = _select_rows_by_keys(
+                    source_table, file_key_tracker
+                )
 
                 if partition_cols:
                     file_schema = pq.read_schema(file_path, filesystem=self._filesystem)
@@ -1007,11 +1031,13 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                             memory_monitor=monitor._memory_monitor,
                         )
 
+                    if updated_table is None:
+                        raise RuntimeError("In-memory merge did not return a table")
                     pq.write_table(
                         updated_table,
                         staging_file,
                         filesystem=self._filesystem,
-                        compression=compression,
+                        compression=compression or "NONE",
                         row_group_size=row_group_size,
                     )
                     updated_row_count = updated_table.num_rows
@@ -1019,7 +1045,9 @@ class PyarrowDatasetIO(BaseDatasetHandler):
 
                 size_bytes = None
                 try:
-                    size_bytes = int(self._filesystem.size(staging_file))
+                    assert self._filesystem is not None
+                    raw_size = self._filesystem.size(staging_file)
+                    size_bytes = int(raw_size) if raw_size is not None else None
                 except Exception:
                     size_bytes = None
 
@@ -1100,7 +1128,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             target_count_before=target_count_before,
             target_count_after=target_count_before + inserted_rows,
             inserted=inserted_rows,
-            updated=updated_rows if strategy != "insert" else 0,
+            updated=updated_rows,
             deleted=0,
             files=files_meta,
             rewritten_files=rewritten_files,
@@ -1117,7 +1145,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         """
         return self
 
-    def __exit__(
+    def __exit__(  # pi-lens-ignore: exit-signature-check
         self,
         exc_type: type[BaseException] | None,
         exc_value: BaseException | None,

@@ -9,6 +9,8 @@ match only when every component matches. Both ``PyarrowDatasetIO`` and
 from __future__ import annotations
 
 import pyarrow as pa
+import math
+
 import pytest
 
 from fsspeckit.common.optional import _DUCKDB_AVAILABLE
@@ -20,7 +22,7 @@ try:
     from fsspeckit.datasets.duckdb import DuckDBDatasetIO, create_duckdb_connection
 except ImportError:  # pragma: no cover
     DuckDBDatasetIO = None  # type: ignore[assignment,misc]
-    create_duckdb_connection = None  # type: ignore[assignment,misc]
+    create_duckdb_connection = None  # type: ignore[assignment]
 
 
 def _read_dataset(path: str) -> pa.Table:
@@ -171,6 +173,45 @@ class TestCompositeNullableKey:
         assert lookup[null_key] == "updated_null"
         assert lookup[new_key] == "new_value"
         assert lookup[abc_key] == "existing"
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_null_component_is_inserted_when_only_non_null_variant_exists(
+        self, tmp_path, io_factory, backend
+    ):
+        """Issue #64 acceptance case: (id, NULL) differs from (id, "abc")."""
+        io = io_factory(backend)
+        path = str(tmp_path / "ds")
+        _write_target(
+            io,
+            path,
+            pa.table(
+                {
+                    "id": pa.array([121221], type=pa.int64()),
+                    "value": pa.array(["abc"], type=pa.string()),
+                    "data": ["existing"],
+                }
+            ),
+        )
+
+        source = pa.table(
+            {
+                "id": pa.array([121221], type=pa.int64()),
+                "value": pa.array([None], type=pa.string()),
+                "data": ["inserted_null"],
+            }
+        )
+        result = io.merge(source, path, strategy="upsert", key_columns=["id", "value"])
+
+        assert result.updated == 0
+        assert result.inserted == 1
+        lookup = {
+            (row["id"], row["value"]): row["data"]
+            for row in _read_dataset(path).to_pylist()
+        }
+        abc_key = (121221, "abc")
+        null_key = (121221, None)
+        assert lookup[abc_key] == "existing"
+        assert lookup[null_key] == "inserted_null"
 
     @pytest.mark.parametrize("backend", BACKENDS)
     def test_repeated_null_key_not_inserted_twice(self, tmp_path, io_factory, backend):
@@ -339,6 +380,42 @@ class TestRewriteNullableTargetKeys:
         )
         assert rows[None] == "REWRITTEN"
 
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_partition_pruning_keeps_only_null_key_partition_candidate(
+        self, tmp_path, io_factory, backend
+    ):
+        io = io_factory(backend)
+        path = str(tmp_path / "ds")
+        target = pa.table(
+            {
+                "id": pa.array([None, 2], type=pa.int64()),
+                "region": ["A", "B"],
+                "v": ["null-a", "two-b"],
+            }
+        )
+        io.write_dataset(target, path, mode="overwrite", partition_by=["region"])
+        source = pa.table(
+            {
+                "id": pa.array([None], type=pa.int64()),
+                "region": ["A"],
+                "v": ["updated-a"],
+            }
+        )
+
+        result = io.merge(
+            source,
+            path,
+            strategy="upsert",
+            key_columns=["id"],
+            partition_columns=["region"],
+        )
+
+        assert result.updated == 1
+        assert result.inserted == 0
+        assert result.rewritten_files
+        assert all("region=A" in file_path for file_path in result.rewritten_files)
+        assert any("region=B" in file_path for file_path in result.preserved_files)
+
 
 # ---------------------------------------------------------------------------
 # Collision: a real value resembling an internal null marker must not collide
@@ -370,6 +447,86 @@ class TestNoPlaceholderCollision:
         assert lookup["__NULL__"] == "UPD"
         assert lookup[None] == "NUL"
         assert lookup["real"] == "b"
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_internal_helper_column_names_do_not_collide(
+        self, tmp_path, io_factory, backend
+    ):
+        io = io_factory(backend)
+        path = str(tmp_path / "ds")
+        target = pa.table(
+            {
+                "id": pa.array([None, 1], type=pa.int64()),
+                "__fsspeckit_nsk_f_id": ["user-null", "user-one"],
+                "__fsspeckit_nsk_i_id": [False, True],
+                "v": ["old-null", "old-one"],
+            }
+        )
+        _write_target(io, path, target)
+        source = pa.table(
+            {
+                "id": pa.array([None], type=pa.int64()),
+                "__fsspeckit_nsk_f_id": ["updated-user-value"],
+                "__fsspeckit_nsk_i_id": [True],
+                "v": ["updated-null"],
+            }
+        )
+
+        result = io.merge(source, path, strategy="upsert", key_columns=["id"])
+
+        assert result.updated == 1
+        assert result.inserted == 0
+        null_row = next(row for row in _read_dataset(path).to_pylist() if row["id"] is None)
+        assert null_row["__fsspeckit_nsk_f_id"] == "updated-user-value"
+        assert bool(null_row["__fsspeckit_nsk_i_id"])
+        assert null_row["v"] == "updated-null"
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_nan_equality_is_preserved_in_nullable_batch(
+        self, tmp_path, io_factory, backend
+    ):
+        io = io_factory(backend)
+        path = str(tmp_path / "ds")
+        target = pa.table(
+            {"id": pa.array([None, math.nan]), "v": ["null", "nan"]}
+        )
+        _write_target(io, path, target)
+        source = pa.table(
+            {"id": pa.array([None, math.nan]), "v": ["N", "NAN"]}
+        )
+
+        result = io.merge(source, path, strategy="upsert", key_columns=["id"])
+
+        assert result.updated == 2
+        assert result.inserted == 0
+        rows = _read_dataset(path).to_pylist()
+        assert next(row["v"] for row in rows if row["id"] in [None]) == "N"
+        assert next(row["v"] for row in rows if row["id"] != row["id"]) == "NAN"
+
+    @pytest.mark.parametrize("backend", BACKENDS)
+    def test_duplicate_nan_source_key_is_last_row_wins(
+        self, tmp_path, io_factory, backend
+    ):
+        io = io_factory(backend)
+        path = str(tmp_path / "ds")
+        target = pa.table(
+            {"id": pa.array([None, math.nan]), "v": ["null", "old-nan"]}
+        )
+        _write_target(io, path, target)
+        source = pa.table(
+            {
+                "id": pa.array([None, math.nan, math.nan]),
+                "v": ["N", "first-nan", "last-nan"],
+            }
+        )
+
+        result = io.merge(source, path, strategy="upsert", key_columns=["id"])
+
+        assert result.updated == 2
+        assert result.inserted == 0
+        rows = _read_dataset(path).to_pylist()
+        assert len(rows) == 2
+        assert next(row["v"] for row in rows if row["id"] != row["id"]) == "last-nan"
 
 
 # ---------------------------------------------------------------------------
