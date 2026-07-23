@@ -493,7 +493,6 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             list_dataset_files,
             parse_hive_partition_path,
             plan_incremental_rewrite,
-            validate_no_null_keys,
         )
 
         validate_path(path)
@@ -523,8 +522,6 @@ class DuckDBDatasetIO(BaseDatasetHandler):
             partition_columns,
             source_table.column_names,
         )
-
-        validate_no_null_keys(source_table, key_cols)
 
         fs = self._connection.filesystem
 
@@ -768,13 +765,46 @@ class DuckDBDatasetIO(BaseDatasetHandler):
                     set(file_matched),
                 )
 
-                joined = target_table.join(
-                    source_for_file,
-                    keys=key_cols,
-                    join_type="left outer",
-                    right_suffix="__src",
-                    coalesce_keys=True,
+                # Null-safe join: PyArrow table joins do not match null to
+                # null. When nullable keys are present, join on encoded
+                # companion columns (fill_null sentinel + is_null flag) so
+                # that NULL IS NOT DISTINCT FROM NULL. The fast native path
+                # is preserved for entirely non-null keys.
+                from fsspeckit.core.merge import add_null_safe_join_keys
+
+                source_keys_nullable = any(
+                    source_for_file.column(c).null_count > 0 for c in key_cols
                 )
+                target_keys_nullable = any(
+                    target_table.column(c).null_count > 0 for c in key_cols
+                )
+
+                if source_keys_nullable or target_keys_nullable:
+                    join_target, join_keys, _target_added = add_null_safe_join_keys(
+                        target_table, key_cols
+                    )
+                    join_source, _s_keys, _source_added = add_null_safe_join_keys(
+                        source_for_file, key_cols
+                    )
+                    # Drop original key columns from the source side so they
+                    # do not conflict with target's key columns (matched rows
+                    # share the same key under null-safe equality).
+                    join_source = join_source.drop_columns(key_cols)
+                    joined = join_target.join(
+                        join_source,
+                        keys=join_keys,
+                        join_type="left outer",
+                        right_suffix="__src",
+                        coalesce_keys=True,
+                    )
+                else:
+                    joined = target_table.join(
+                        source_for_file,
+                        keys=key_cols,
+                        join_type="left outer",
+                        right_suffix="__src",
+                        coalesce_keys=True,
+                    )
 
                 match_mask = pc.is_valid(joined.column(match_col_name))
 

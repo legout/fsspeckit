@@ -555,7 +555,6 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             list_dataset_files,
             parse_hive_partition_path,
             plan_incremental_rewrite,
-            validate_no_null_keys,
             validate_partition_column_immutability,
         )
         from fsspeckit.common.security import validate_compression_codec, validate_path
@@ -601,9 +600,6 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             partition_columns,
             source_table.column_names,
         )
-
-        # Validate no null keys in source before planning/deduplication can mask rows.
-        validate_no_null_keys(source_table, key_cols)
 
         target_files = list_dataset_files(path, filesystem=self._filesystem)
         target_metadata = MergeTargetMetadata(

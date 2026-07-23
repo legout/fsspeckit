@@ -549,7 +549,7 @@ class TestCheckNullKeys:
         check_null_keys(source_table, None, ["id"])
 
     def test_null_keys_in_source(self):
-        """Test detection of NULL keys in source."""
+        """Null keys are accepted (null-safe equality is now supported)."""
         source_table = pa.table(
             {
                 "id": [1, None, 3],
@@ -557,13 +557,11 @@ class TestCheckNullKeys:
             }
         )
 
-        with pytest.raises(
-            ValueError, match="Key column 'id' contains.*NULL values in source"
-        ):
-            check_null_keys(source_table, None, ["id"])
+        # No longer raises — check_null_keys is a backward-compat no-op.
+        assert check_null_keys(source_table, None, ["id"]) is None
 
     def test_null_keys_in_target(self):
-        """Test detection of NULL keys in target."""
+        """Null keys in target are accepted (null-safe equality)."""
         source_table = pa.table(
             {
                 "id": [1, 2, 3],
@@ -577,13 +575,11 @@ class TestCheckNullKeys:
             }
         )
 
-        with pytest.raises(
-            ValueError, match="Key column 'id' contains.*NULL values in target"
-        ):
-            check_null_keys(source_table, target_table, ["id"])
+        # No longer raises — check_null_keys is a backward-compat no-op.
+        assert check_null_keys(source_table, target_table, ["id"]) is None
 
     def test_multiple_key_columns(self):
-        """Test NULL detection with multiple key columns."""
+        """Null components in composite keys are accepted (null-safe equality)."""
         source_table = pa.table(
             {
                 "id": [1, 2, 3],
@@ -592,10 +588,8 @@ class TestCheckNullKeys:
             }
         )
 
-        with pytest.raises(
-            ValueError, match="Key column 'date' contains.*NULL values in source"
-        ):
-            check_null_keys(source_table, None, ["id", "date"])
+        # No longer raises — check_null_keys is a backward-compat no-op.
+        assert check_null_keys(source_table, None, ["id", "date"]) is None
 
     def test_no_null_keys_when_target_none(self):
         """Test when target is None (doesn't exist)."""

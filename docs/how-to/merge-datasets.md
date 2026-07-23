@@ -133,6 +133,35 @@ result = io.merge(
 See [Multi-Key API](../reference/multi-key-api.md) for how composite keys are
 resolved internally.
 
+## Nullable key columns
+
+Merge keys may contain null values. fsspeckit matches keys using null-equal
+identity (equivalent to SQL `IS NOT DISTINCT FROM` applied component-wise):
+
+- `NULL` matches `NULL`.
+- `NULL` never matches a non-null value.
+- A composite key matches only when every component matches under those rules.
+- Equality of non-null values is unchanged.
+- Duplicate source keys are last-row-wins, including keys with null components.
+
+```python
+# Target: (121221, "abc")
+# Source: (121221, NULL)  -> different key, inserted
+# Source: (121221, NULL)  -> matches the inserted row, not duplicated
+result = io.merge(
+    source,
+    "orders/",
+    strategy="upsert",
+    key_columns=["id", "value"],
+)
+```
+
+All three strategies honor this contract: `insert` appends rows whose
+null-safe key is absent, `update` rewrites only rows whose null-safe key is
+present, and `upsert` does both. Earlier releases rejected null keys; that
+restriction no longer applies and sources do not need to be cleaned of nulls
+before merging.
+
 ## Partition-aware merges
 
 When the source is partitioned, pass `partition_columns` so the merge prunes

@@ -76,8 +76,10 @@ print(f"Updated: {result.updated}")  # 2 (ids 101 and 102; 999 ignored)
 | `update` | No | Yes (only affected files) | Dimension updates, price changes |
 | `upsert` | Yes (new files) | Yes (only affected files) | CDC, synchronization |
 
-All three strategies require `key_columns` and reject null keys. `insert` and
-`upsert` work on an empty target; `update` requires an existing target dataset.
+All three strategies require `key_columns`. Key columns may contain nulls:
+fsspeckit matches them with null-equal (SQL `IS NOT DISTINCT FROM`) semantics,
+so `NULL` matches `NULL` but never a non-null value. `insert` and `upsert`
+work on an empty target; `update` requires an existing target dataset.
 
 ## Composite-key merge
 
@@ -120,7 +122,9 @@ print(f"Preserved: {len(result.preserved_files)}")
 ## Key column requirements
 
 - Key columns must be present in both source and target.
-- Keys cannot contain null values; the merge raises if any are found.
+- Keys may contain null values. Null key components are compared with
+  null-equal semantics (`IS NOT DISTINCT FROM`): `NULL` matches `NULL`, and
+  `NULL` never matches a non-null value.
 - For a composite key, the full column combination must identify a row
   uniquely. Use `dedup_order_by` (on `deduplicate_parquet_dataset_pyarrow`) to
   control which duplicate survives during deduplication.
@@ -131,7 +135,6 @@ Common failures and their fixes:
 
 - **Key column not found**: verify the column names match the source schema
   exactly.
-- **Null values in key columns**: clean the source so keys are non-null.
 - **`update` on a missing target**: `update` requires an existing dataset. Use
   `insert` or `upsert` to seed a new one.
 

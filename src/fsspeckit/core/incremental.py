@@ -17,33 +17,24 @@ from __future__ import annotations
 
 import os
 import re
-import tempfile as temp_module
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Literal, Sequence
+from typing import TYPE_CHECKING, Any, Literal, Sequence
 
 if TYPE_CHECKING:
     import pyarrow as pa
-    import pyarrow.dataset as ds
 
 
 def validate_no_null_keys(table: pa.Table, key_columns: Sequence[str]) -> None:
-    """Reject NULL keys in source data.
+    """No-op retained for backward compatibility.
 
-    Merge semantics assume keys uniquely identify rows. NULLs would break that
-    invariant and produce surprising behavior (e.g. many-to-many matches).
+    Merge now supports null-safe (IS NOT DISTINCT FROM) key identity, so
+    nullable key columns are no longer rejected. This function previously
+    raised ``ValueError`` on null keys; it now always returns ``None``.
+    New code should not call it.
     """
-    if not key_columns or table.num_rows == 0:
-        return
-
-    import pyarrow.compute as pc
-
-    for col in key_columns:
-        if col not in table.column_names:
-            continue
-        if pc.any(pc.is_null(table.column(col))).as_py():
-            raise ValueError(f"NULL values are not allowed in key column '{col}'")
+    return None
 
 
 def validate_partition_column_immutability(
@@ -70,6 +61,16 @@ def validate_partition_column_immutability(
                 f"Partition column '{col}' must exist in source and target for immutability validation"
             )
 
+    # Null-safe path: PyArrow joins do not match null to null, so delegate to
+    # the encoded-companion variant when any key column contains nulls.
+    source_has_nulls = any(source_table.column(c).null_count > 0 for c in key_columns)
+    target_has_nulls = any(target_table.column(c).null_count > 0 for c in key_columns)
+    if source_has_nulls or target_has_nulls:
+        _validate_partition_column_immutability_null_safe(
+            source_table, target_table, key_columns, partition_columns
+        )
+        return
+
     joined = target_table.join(
         source_table,
         keys=list(key_columns),
@@ -88,6 +89,63 @@ def validate_partition_column_immutability(
         if src_name not in joined.column_names:
             continue
 
+        eq = pc.equal(joined.column(col), joined.column(src_name))
+        violations = pc.fill_null(pc.invert(eq), True)
+        if pc.any(violations).as_py():
+            raise ValueError(
+                "Cannot merge: partition column values cannot change for existing keys"
+            )
+
+
+def _validate_partition_column_immutability_null_safe(
+    source_table: pa.Table,
+    target_table: pa.Table,
+    key_columns: Sequence[str],
+    partition_columns: Sequence[str],
+) -> None:
+    """Null-safe variant of :func:`validate_partition_column_immutability`.
+
+    Uses encoded companion key columns so that NULL matches NULL when finding
+    rows whose partition values must not change.
+    """
+    import pyarrow.compute as pc
+
+    from fsspeckit.core.merge import add_null_safe_join_keys
+
+    join_target, join_keys, target_added = add_null_safe_join_keys(
+        target_table, key_columns
+    )
+    join_source, _s_keys, source_added = add_null_safe_join_keys(
+        source_table, key_columns
+    )
+    # Drop original key columns from source to avoid name conflicts.
+    join_source = join_source.drop_columns(key_columns)
+    joined = join_target.join(
+        join_source,
+        keys=join_keys,
+        join_type="inner",
+        right_suffix="__src",
+        coalesce_keys=True,
+    )
+    # Clean up helper columns. Deduplicate because target_added and
+    # source_added share the same names; drop_columns misbehaves on duplicates.
+    drop_cols = list(
+        dict.fromkeys(
+            c for c in target_added + source_added if c in joined.column_names
+        )
+    )
+    if drop_cols:
+        joined = joined.drop_columns(drop_cols)
+
+    if joined.num_rows == 0:
+        return
+
+    for col in partition_columns:
+        if col in key_columns:
+            continue
+        src_name = f"{col}__src"
+        if src_name not in joined.column_names:
+            continue
         eq = pc.equal(joined.column(col), joined.column(src_name))
         violations = pc.fill_null(pc.invert(eq), True)
         if pc.any(violations).as_py():
@@ -116,11 +174,11 @@ def list_dataset_files(
 
     # fsspec: prefer find(), fall back to glob().
     try:
-        files = filesystem.find(dataset_path, withdirs=False)  # type: ignore[call-arg]
+        files = filesystem.find(dataset_path, withdirs=False)
         return sorted([p for p in files if p.endswith(".parquet")])
     except Exception:
         try:
-            files = filesystem.find(dataset_path)  # type: ignore[call-arg]
+            files = filesystem.find(dataset_path)
             return sorted([p for p in files if p.endswith(".parquet")])
         except Exception:
             try:
@@ -219,7 +277,6 @@ def extract_source_partition_values(
         return {(v.as_py(),) for v in unique_vals}
 
     # For multiple columns, use group_by to get unique combinations
-    import pyarrow as pa
 
     subset = source_table.select(partition_columns)
     grouped = subset.group_by(partition_columns).aggregate([])
@@ -414,7 +471,7 @@ class PartitionPruner:
         """Prune candidate files by hive partition values.
 
         This is conservative: files with unknown partition_values are kept.
-        
+
         Note: For UPDATE operations where keys might exist in different partitions,
         we include ALL files to ensure we don't miss any existing keys.
         The partition filtering will be applied during the key matching phase instead.
@@ -497,6 +554,10 @@ class ConservativeMembershipChecker:
         This is conservative: if we can't prove the file doesn't contain the keys,
         we assume it does.
 
+        Null-safe pruning: if a source key has a null component, min/max
+        statistics for that component cannot prove absence. The file is
+        retained unless statistics prove it has no nulls (null_count == 0).
+
         Args:
             file_metadata: Metadata for the file to check
             key_columns: Key columns being searched
@@ -508,21 +569,34 @@ class ConservativeMembershipChecker:
         if not source_keys:
             return False
 
-        # Get key ranges from source data
+        # Detect null components per key column.
+        source_has_null = self._source_columns_have_nulls(source_keys, key_columns)
+
+        # Get key ranges from source data (non-null values only).
         if isinstance(source_keys[0], (list, tuple)):
-            # Multi-column keys
             key_ranges = self._get_multi_column_ranges(source_keys, key_columns)
         else:
-            # Single column keys
             key_ranges = self._get_single_column_ranges(source_keys, key_columns)
 
-        # Check each key column
+        # Check each key column. The file is prunable only when EVERY key
+        # column provably cannot match.
         for col_name in key_columns:
             if col_name not in file_metadata.column_stats:
                 # Column not found in file metadata - assume file might contain keys
                 return True
 
             col_stats = file_metadata.column_stats[col_name]
+            file_null_count = col_stats.get("null_count")
+
+            # Null-safe pruning: if the source has a null for this column and
+            # the file might contain nulls, we cannot prove absence.
+            if source_has_null.get(col_name) and (
+                file_null_count is None or file_null_count > 0
+            ):
+                return True
+            # If file_null_count == 0: file definitely has no nulls, so the
+            # null source component cannot match. Fall through to range
+            # check against the non-null source values.
 
             # Check if we have enough metadata to make a decision
             if "min" not in col_stats or "max" not in col_stats:
@@ -532,8 +606,13 @@ class ConservativeMembershipChecker:
             file_min = col_stats["min"]
             file_max = col_stats["max"]
 
-            # Check if any key range overlaps with file range
+            # If the only source values for this column are nulls (handled
+            # above) and the file has no nulls, there is nothing left to
+            # overlap with: this column cannot match.
             col_ranges = key_ranges.get(col_name, [])
+            if not col_ranges:
+                return False
+
             for key_min, key_max in col_ranges:
                 if self._ranges_overlap(file_min, file_max, key_min, key_max):
                     return True
@@ -541,12 +620,39 @@ class ConservativeMembershipChecker:
         # If we get here, no overlap found - file definitely doesn't contain keys
         return False
 
+    def _source_columns_have_nulls(
+        self,
+        source_keys: Sequence[Any],
+        key_columns: Sequence[str],
+    ) -> dict[str, bool]:
+        """Return a per-column map of whether any source key has a null."""
+        result = dict.fromkeys(key_columns, False)
+        if not source_keys:
+            return result
+        multi = isinstance(source_keys[0], (list, tuple))
+        for key in source_keys:
+            if multi:
+                for idx, col in enumerate(key_columns):
+                    if idx < len(key) and key[idx] is None:
+                        result[col] = True
+            else:
+                if key is None:
+                    result[key_columns[0]] = True
+        return result
+
     def _get_single_column_ranges(
         self,
         source_keys: Sequence[Any],
         key_columns: Sequence[str],
     ) -> dict[str, list[tuple[Any, Any]]]:
-        """Get value ranges for single-column keys."""
+        """Get value ranges for single-column keys (non-null values only).
+
+        Null source values are intentionally excluded; they are handled by the
+        null-aware pruning logic in ``file_might_contain_keys`` via null_count
+        metadata. Returning an empty range list for a column signals that the
+        only possible match for that column is a null, which the caller
+        resolves using null_count statistics.
+        """
         if len(key_columns) != 1:
             return {}
 
@@ -554,7 +660,7 @@ class ConservativeMembershipChecker:
         key_values = [key for key in source_keys if key is not None]
 
         if not key_values:
-            return {col_name: [(None, None)]}
+            return {col_name: []}
 
         return {col_name: [(min(key_values), max(key_values))]}
 
@@ -563,19 +669,25 @@ class ConservativeMembershipChecker:
         source_keys: Sequence[Any],
         key_columns: Sequence[str],
     ) -> dict[str, list[tuple[Any, Any]]]:
-        """Get value ranges for multi-column keys."""
+        """Get value ranges for multi-column keys (non-null values only).
+
+        Null source components are intentionally excluded; see
+        ``_get_single_column_ranges``.
+        """
         ranges = {}
 
         for col_idx, col_name in enumerate(key_columns):
             col_values = []
             for key_tuple in source_keys:
                 if key_tuple and len(key_tuple) > col_idx:
-                    col_values.append(key_tuple[col_idx])
+                    component = key_tuple[col_idx]
+                    if component is not None:
+                        col_values.append(component)
 
             if col_values:
                 ranges[col_name] = [(min(col_values), max(col_values))]
             else:
-                ranges[col_name] = [(None, None)]
+                ranges[col_name] = []
 
         return ranges
 
@@ -676,7 +788,7 @@ class IncrementalFileManager:
         if len(source_files) != len(target_files):
             raise ValueError("source_files and target_files must have the same length")
 
-        for src, dst in zip(source_files, target_files):
+        for src, dst in zip(source_files, target_files, strict=True):
             if filesystem is None:
                 os.replace(src, dst)
                 continue
@@ -816,24 +928,47 @@ def confirm_affected_files(
             import pyarrow.compute as pc
 
             if len(key_columns) == 1:
-                # Use vectorized is_in for single column
+                # Use vectorized is_in for single column.
+                # pc.is_in matches null-to-null correctly, so no special
+                # handling is required for nullable single-column keys.
                 mask = pc.is_in(
                     table.column(key_columns[0]), value_set=pa.array(list(source_set))
                 )
                 if pc.any(mask).as_py():
                     affected.append(file_path)
             else:
-                # For multi-column: convert source_set to table and use join
-                source_list = list(source_set)
-                source_table = pa.table(
-                    {
-                        col: [k[i] for k in source_list]
-                        for i, col in enumerate(key_columns)
-                    }
+                # Fast path: when neither source nor file keys contain nulls,
+                # use the vectorized native join (null-safe equality is not
+                # required because there are no nulls to match).
+                source_has_null = any(any(v is None for v in k) for k in source_set)
+                file_has_null = any(
+                    table.column(c).null_count > 0 for c in key_columns
                 )
-                joined = table.join(source_table, keys=key_columns, join_type="inner")
-                if joined.num_rows > 0:
-                    affected.append(file_path)
+                if not source_has_null and not file_has_null:
+                    source_list = list(source_set)
+                    source_table = pa.table(
+                        {
+                            col: [k[i] for k in source_list]
+                            for i, col in enumerate(key_columns)
+                        }
+                    )
+                    joined = table.join(
+                        source_table, keys=key_columns, join_type="inner"
+                    )
+                    if joined.num_rows > 0:
+                        affected.append(file_path)
+                else:
+                    # Null-safe path: native joins do not match null to null.
+                    # Build a Python set of file keys (None matches None) and
+                    # intersect with the source set.
+                    file_keys = set(
+                        zip(
+                            *[table.column(c).to_pylist() for c in key_columns],
+                            strict=True,
+                        )
+                    )
+                    if file_keys & source_set:
+                        affected.append(file_path)
         except Exception:
             # Conservative: if we can't confirm, treat as affected.
             affected.append(file_path)

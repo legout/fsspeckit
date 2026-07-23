@@ -117,7 +117,10 @@ to `key_columns`. See [Multi-Key API](../reference/multi-key-api.md).
 ## Key requirements
 
 - Key columns must be present in the data.
-- Keys cannot contain null values.
+- Keys may contain null values. Null key components are compared with
+  null-equal semantics (SQL `IS NOT DISTINCT FROM`): `NULL` matches `NULL`,
+  `NULL` never matches a non-null value, and a composite key matches only when
+  every component matches under those rules.
 - For a composite key, the full column combination must identify a row uniquely.
 - Use `dedup_order_by` to make survivor selection deterministic when the source
   contains duplicate keys.

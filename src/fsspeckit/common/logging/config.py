@@ -1,9 +1,18 @@
 """Logging configuration utilities for fsspeckit."""
 
+from __future__ import annotations
+
 import os
 import sys
+from typing import TYPE_CHECKING
 
 from loguru import logger
+
+if TYPE_CHECKING:
+    from loguru import Logger
+
+if TYPE_CHECKING:
+    pass
 
 
 def setup_logging(
@@ -18,7 +27,7 @@ def setup_logging(
 
     Args:
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
-               If None, uses fsspeckit_LOG_LEVEL environment variable
+               If None, uses FSSPECKIT_LOG_LEVEL environment variable
                or defaults to "INFO".
         disable: Whether to disable logging for fsspeckit package.
         format_string: Custom format string for log messages.
@@ -38,7 +47,7 @@ def setup_logging(
     """
     # Determine log level
     if level is None:
-        level = os.getenv("fsspeckit_LOG_LEVEL", "INFO")
+        level = os.getenv("FSSPECKIT_LOG_LEVEL", "INFO")
 
     # Default format if none provided
     if format_string is None:
@@ -64,7 +73,7 @@ def setup_logging(
         logger.disable("fsspeckit")
 
 
-def get_logger(name: str = "fsspeckit") -> "logger":
+def get_logger(name: str = "fsspeckit") -> Logger:
     """Get a logger instance for the given name.
 
     Args:

@@ -140,7 +140,7 @@ class TestMergeInsert:
 
         # Verify existing keys unchanged
         conn = duckdb_io._connection.connection
-        final_data = conn.execute(
+        conn.execute(
             f"SELECT * FROM parquet_scan('{initial_dataset}/**/*.parquet') ORDER BY id"
         ).fetch_arrow_table()
 
@@ -246,6 +246,7 @@ class TestMergeUpdate:
             strategy="update",
             key_columns=["id"],
         )
+        assert result.updated == 2
 
         # Verify all original rows still present
         conn = duckdb_io._connection.connection
@@ -371,6 +372,8 @@ class TestMergeUpsert:
             strategy="upsert",
             key_columns=["id"],
         )
+        assert result.inserted == 1
+        assert result.updated == 1
 
         # Verify all rows present
         conn = duckdb_io._connection.connection
@@ -440,6 +443,7 @@ class TestMergeIncrementalRewrite:
             zip(
                 final_data.column("id").to_pylist(),
                 final_data.column("value").to_pylist(),
+                strict=True,
             )
         )
         assert values_by_id[1] == 111
@@ -598,25 +602,51 @@ class TestMergeEdgeCases:
         assert result.updated == 0
         assert result.target_count_after == result.target_count_before
 
-    def test_null_keys_rejected(self, temp_dir, duckdb_io):
-        """Merge should reject NULL keys in source."""
+    def test_null_keys_accepted(self, temp_dir, duckdb_io):
+        """Merge should accept NULL keys using null-safe (IS NOT DISTINCT FROM) equality."""
         dataset_dir = temp_dir / "dataset"
         dataset_dir.mkdir()
 
-        existing = pa.table({"id": [1, 2], "name": ["A", "B"], "value": [10, 20]})
+        existing = pa.table(
+            {
+                "id": pa.array([1, 2, None], type=pa.int64()),
+                "name": ["A", "B", "N"],
+                "value": [10, 20, 0],
+            }
+        )
         pq.write_table(existing, dataset_dir / "part-0.parquet")
 
+        # Source has a null key that matches the existing null (None==None),
+        # plus a new non-null key (3), and an update to key 2.
         source = pa.table(
-            {"id": [2, None, 3], "name": ["B2", "NULL", "C"], "value": [22, 0, 30]}
+            {
+                "id": pa.array([2, None, 3], type=pa.int64()),
+                "name": ["B2", "N2", "C"],
+                "value": [22, 99, 30],
+            }
         )
 
-        with pytest.raises(ValueError, match="NULL"):
-            duckdb_io.merge(
-                data=source,
-                path=str(dataset_dir),
-                strategy="upsert",
-                key_columns=["id"],
-            )
+        result = duckdb_io.merge(
+            data=source,
+            path=str(dataset_dir),
+            strategy="upsert",
+            key_columns=["id"],
+        )
+
+        # key 2 updated, null key matched+updated, key 3 inserted.
+        assert result.updated == 2
+        assert result.inserted == 1
+
+        final = duckdb_io._connection.connection.execute(
+            f"SELECT id, name, value FROM parquet_scan('{dataset_dir}/*.parquet') ORDER BY id"
+        ).to_arrow_table()
+        rows = {r["id"]: r for r in final.to_pylist()}
+        assert rows[None]["name"] == "N2"  # null matched null, updated
+        assert rows[None]["value"] == 99
+        assert rows[2]["name"] == "B2"  # updated
+        assert rows[2]["value"] == 22
+        assert rows[3]["name"] == "C"  # inserted
+        assert rows[3]["value"] == 30
 
     def test_partition_immutability_enforced(self, temp_dir, duckdb_io):
         """Merge should reject partition column changes for existing keys."""
@@ -646,5 +676,3 @@ class TestMergeEdgeCases:
                 key_columns=["id"],
                 partition_columns=["partition"],
             )
-
-

@@ -15,9 +15,10 @@ Key responsibilities:
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Callable, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     import pyarrow as pa
@@ -279,40 +280,141 @@ def validate_merge_inputs(
     )
 
 
+def has_nullable_keys(table: pa.Table, key_columns: Sequence[str]) -> bool:
+    """Return True if any key column contains at least one null value.
+
+    This is the cheap detection used to select between the fast native
+    code path (no nulls) and the slower null-safe fallback. It only
+    inspects ``null_count`` metadata and never materializes the data.
+    """
+    for col in key_columns:
+        if col not in table.column_names:
+            continue
+        if table.column(col).null_count > 0:
+            return True
+    return False
+
+
+def null_safe_key_set(
+    table: pa.Table,
+    key_columns: Sequence[str],
+) -> set:
+    """Build a Python set of raw key tuples/values from a table.
+
+    Uses raw Python values where ``None`` matches ``None`` (Python set
+    semantics). Non-null equality is unchanged from standard Python
+    equality, satisfying the "existing typed equality for non-null values
+    remains unchanged" contract.
+    """
+    if len(key_columns) == 1:
+        return set(table.column(key_columns[0]).to_pylist())
+    arrays = [table.column(c).to_pylist() for c in key_columns]
+    return set(zip(*arrays, strict=True))
+
+
+def null_safe_row_keys(
+    table: pa.Table,
+    key_columns: Sequence[str],
+) -> list:
+    """Return a list of raw key values/tuples, one per row, in row order."""
+    if len(key_columns) == 1:
+        return list(table.column(key_columns[0]).to_pylist())
+    arrays = [table.column(c).to_pylist() for c in key_columns]
+    return list(zip(*arrays, strict=True))
+
+
 def check_null_keys(
     source_table: pa.Table,
     target_table: pa.Table | None,
     key_columns: list[str],
 ) -> None:
+    """No-op retained for backward compatibility.
+
+    Merge now supports null-safe (IS NOT DISTINCT FROM) key identity, so
+    nullable key columns are no longer rejected. This function previously
+    raised ``ValueError`` on null keys; it now always returns ``None``.
+    New code should not call it.
     """
-    Check for NULL values in key columns.
+    return None
 
-    Args:
-        source_table: Source data table.
-        target_table: Target data table, None if target doesn't exist.
-        key_columns: List of key column names.
 
-    Raises:
-        ValueError: If NULL values found in key columns.
+def _null_safe_sentinel(pa_type: Any) -> Any:
+    """Return a type-appropriate sentinel for ``fill_null``.
+
+    The sentinel only needs to be a valid value of the column's type; it is
+    collision-free because the companion ``is_null`` discriminator (added by
+    :func:`add_null_safe_join_keys`) distinguishes real values from nulls.
     """
-    # Check source for NULL keys
-    for key_col in key_columns:
-        source_col = source_table.column(key_col)
-        if source_col.null_count > 0:
-            raise ValueError(
-                f"Key column '{key_col}' contains {source_col.null_count} NULL values in source. "
-                f"Key columns must not have NULLs."
-            )
+    import pyarrow as pa
 
-    # Check target for NULL keys if it exists
-    if target_table is not None:
-        for key_col in key_columns:
-            target_col = target_table.column(key_col)
-            if target_col.null_count > 0:
-                raise ValueError(
-                    f"Key column '{key_col}' contains {target_col.null_count} NULL values in target. "
-                    f"Key columns must not have NULLs."
-                )
+    try:
+        if pa.types.is_string(pa_type) or pa.types.is_large_string(pa_type):
+            return ""
+        if pa.types.is_binary(pa_type) or pa.types.is_large_binary(pa_type):
+            return b""
+        if pa.types.is_boolean(pa_type):
+            return False
+        if pa.types.is_date32(pa_type):
+            import datetime
+
+            return datetime.date(1970, 1, 1)
+        if pa.types.is_date64(pa_type):
+            import datetime
+
+            return datetime.date(1970, 1, 1)
+        if pa.types.is_timestamp(pa_type):
+            import datetime
+
+            return datetime.datetime(1970, 1, 1)
+        # Numeric (int/float) and decimal types accept a 0 scalar.
+        return pa.scalar(0, type=pa_type)
+    except (pa.ArrowNotImplementedError, pa.ArrowInvalid, TypeError):
+        # Last resort: cast an integer zero to the target type.
+        try:
+            return pa.scalar(0).cast(pa_type)
+        except (pa.ArrowNotImplementedError, pa.ArrowInvalid, TypeError):
+            return 0
+
+
+def add_null_safe_join_keys(
+    table: pa.Table,
+    key_columns: Sequence[str],
+    prefix: str = "__fsspeckit_nsk_",
+) -> tuple[pa.Table, list[str], list[str]]:
+    """Add null-safe encoded companion columns for join key columns.
+
+    For each key column ``c`` this appends two columns:
+
+    - ``{prefix}f_{c}``: ``fill_null(c, sentinel)`` (typed sentinel)
+    - ``{prefix}i_{c}``: ``is_null(c)`` (boolean discriminator)
+
+    Joining two tables prepared this way on the encoded columns yields
+    null-safe (``IS NOT DISTINCT FROM``) matching. A real value equal to
+    the sentinel never collides with null because the boolean discriminator
+    differs. The added columns must be dropped before persisting output.
+
+    Returns ``(new_table, join_key_names, added_column_names)``.
+    """
+    import pyarrow.compute as pc
+
+    added: list[str] = []
+    join_keys: list[str] = []
+    new_table = table
+    for col_name in key_columns:
+        col = new_table.column(col_name)
+        filled_name = f"{prefix}f_{col_name}"
+        is_null_name = f"{prefix}i_{col_name}"
+        if col.null_count > 0:
+            sentinel = _null_safe_sentinel(col.type)
+            filled = pc.fill_null(col, sentinel)
+        else:
+            filled = col
+        new_table = new_table.append_column(is_null_name, pc.is_null(col))
+        new_table = new_table.append_column(filled_name, filled)
+        join_keys.append(filled_name)
+        join_keys.append(is_null_name)
+        added.extend([filled_name, is_null_name])
+    return new_table, join_keys, added
 
 
 def calculate_merge_stats(
@@ -395,12 +497,9 @@ def validate_strategy_compatibility(
         raise ValueError("UPDATE strategy requires non-empty source data")
 
     if strategy == MergeStrategy.FULL_MERGE and not target_exists:
-        # FULL_MERGE on non-existent target is equivalent to just writing source
-        # This is more of a warning situation, but we'll allow it
-        pass
-
-    # Other strategies are generally compatible with any state
-    pass
+        # FULL_MERGE on non-existent target is equivalent to just writing source.
+        # This is more of a warning situation, but we allow it.
+        return
 
 
 def get_canonical_merge_strategies() -> list[str]:
@@ -550,11 +649,13 @@ def validate_merge_inputs_comprehensive(
 
     # Check for potential NULL keys based on schema
     for key_col in key_columns:
-        source_field = source_table.schema.field(key_col)
+        source_field = source_table.field(key_col)
         if source_field.nullable:
             validation_results["null_keys_possible"] = True
             warnings.append(
-                f"Key column '{key_col}' is nullable - NULL values will cause merge to fail"
+                f"Key column '{key_col}' is nullable; "
+                f"NULL key components are matched using null-equal "
+                f"(IS NOT DISTINCT FROM) key identity."
             )
             break
 
@@ -674,7 +775,7 @@ def _dedupe_source_last_wins_common(
     else:
         key_arrays = [table.column(c).to_pylist() for c in key_columns]
         last_index = {}
-        for idx, key in enumerate(zip(*key_arrays)):
+        for idx, key in enumerate(zip(*key_arrays, strict=True)):
             last_index[key] = idx
         indices = sorted(last_index.values())
 
@@ -701,7 +802,7 @@ def _extract_keys_from_table_common(
         key_set = set(key_list)
     else:
         arrays = [table.column(c).to_pylist() for c in key_columns]
-        key_list = list(zip(*arrays))
+        key_list = list(zip(*arrays, strict=True))
         key_set = set(key_list)
 
     return key_list, key_set
@@ -768,7 +869,7 @@ def select_rows_by_keys_common(
 
     key_set_check = set(key_set)
     arrays = [table.column(c).to_pylist() for c in key_columns]
-    table_keys = list(zip(*arrays))
+    table_keys = list(zip(*arrays, strict=True))
 
     import pyarrow as pa
 
@@ -900,9 +1001,9 @@ def handle_file_io_error_conservative(
     """
     from fsspeckit.common.logging import get_logger
 
-    logger = get_logger(__name__)
+    merge_logger = get_logger(__name__)
 
-    logger.warning(
+    merge_logger.warning(
         "Failed to process file during merge",
         path=file_path,
         error=str(error),

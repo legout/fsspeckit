@@ -228,10 +228,15 @@ def _create_composite_key_array(table: pa.Table, key_columns: list[str]) -> pa.A
 
 
 def _create_fallback_key_array(table: pa.Table, key_columns: list[str]) -> pa.Array:
-    """Create an efficient representation of composite keys as a fallback.
+    """Create an efficient, null-safe representation of composite keys.
 
     This is used when StructArray or Join operations fail. It prefers
     memory-efficient binary views to avoid expensive string conversions.
+
+    Null-safety is achieved with a leading discriminator byte (0x00 for null,
+    0x01 for non-null) so a real value can never collide with a null marker,
+    satisfying the collision-free requirement without an unescaped magic
+    placeholder.
 
     Args:
         table: PyArrow table containing the key columns.
@@ -247,6 +252,7 @@ def _create_fallback_key_array(table: pa.Table, key_columns: list[str]) -> pa.Ar
     for col_name in key_columns:
         col = table.column(col_name).combine_chunks()
         t = col.type
+        is_null_col = pc.is_null(col)
 
         # Performance optimization: Use zero-copy binary view for fixed-width types
         # instead of casting to strings.
@@ -280,8 +286,12 @@ def _create_fallback_key_array(table: pa.Table, key_columns: list[str]) -> pa.Ar
             # Last resort: cast to string then binary
             bin_col = pc.cast(pc.cast(col, pa.string()), pa.binary())
 
-        # Fill nulls with a fixed binary marker to ensure they are tracked
-        bin_col = pc.fill_null(bin_col, b"__NULL__")
+        # Collision-free null encoding: prefix 0x01 for non-null, 0x00 for null.
+        # Nulls are first replaced with an empty binary so the tag byte is the
+        # sole discriminator; a real value can never equal a null marker.
+        filled = pc.fill_null(bin_col, b"")
+        tag = pc.if_else(is_null_col, b"\x00", b"\x01")
+        bin_col = pc.binary_join_element_wise(tag, filled, b"")
         binary_cols.append(bin_col)
 
     if len(binary_cols) == 1:
@@ -291,17 +301,53 @@ def _create_fallback_key_array(table: pa.Table, key_columns: list[str]) -> pa.Ar
     return pc.binary_join_element_wise(*binary_cols, b"\x1f")
 
 
+def _table_has_nullable_keys(table: pa.Table, key_columns: list[str]) -> bool:
+    """Return True if any key column has at least one null value."""
+    for col in key_columns:
+        if col not in table.column_names:
+            continue
+        if table.column(col).null_count > 0:
+            return True
+    return False
+
+
+def _filter_by_key_membership_null_safe(
+    table: pa.Table,
+    key_columns: list[str],
+    reference_keys: pa.Table,
+    keep_matches: bool = True,
+) -> pa.Table:
+    """Null-safe membership filter using Python set semantics.
+
+    ``None`` matches ``None`` (Python set equality). This is the slower
+    fallback path used only for batches that actually contain nullable keys.
+    """
+    from fsspeckit.core.merge import null_safe_key_set
+
+    ref_set = null_safe_key_set(reference_keys, key_columns)
+    if len(key_columns) == 1:
+        col_vals = table.column(key_columns[0]).to_pylist()
+        mask = [v in ref_set for v in col_vals]
+    else:
+        arrays = [table.column(c).to_pylist() for c in key_columns]
+        mask = [row in ref_set for row in zip(*arrays, strict=True)]
+    if not keep_matches:
+        mask = [not m for m in mask]
+    return table.filter(pa.array(mask, type=pa.bool_()))
+
+
 def _filter_by_key_membership(
     table: pa.Table,
     key_columns: list[str],
     reference_keys: pa.Table,
     keep_matches: bool = True,
 ) -> pa.Table:
-    """Filter table rows based on key membership using PyArrow joins.
+    """Filter table rows based on key membership.
 
-    Uses pa.Table.join() with join_type="semi" for matches, "anti" for non-matches.
-    Avoids to_pylist() and stays in Arrow space for multi-column keys.
-    Falls back to efficient binary keys if native join fails.
+    Uses the fast native PyArrow semi/anti join when no key column contains
+    nulls. When nullable keys are present, falls back to a null-safe Python
+    path where ``NULL`` matches ``NULL`` (IS NOT DISTINCT FROM semantics),
+    because PyArrow joins do not match null to null.
 
     Args:
         table: Table to filter.
@@ -315,6 +361,14 @@ def _filter_by_key_membership(
     """
     if not key_columns:
         return table
+
+    # Null-safe slow path: PyArrow joins do not match null to null.
+    if _table_has_nullable_keys(table, key_columns) or _table_has_nullable_keys(
+        reference_keys, key_columns
+    ):
+        return _filter_by_key_membership_null_safe(
+            table, key_columns, reference_keys, keep_matches
+        )
 
     try:
         # We only need the key columns from reference_keys for the join
@@ -330,7 +384,8 @@ def _filter_by_key_membership(
             e,
         )
 
-        # Fallback mechanism using efficient binary keys
+        # Fallback mechanism using efficient binary keys (no nulls here, so
+        # collision-free by construction).
         table_keys = _create_fallback_key_array(table, key_columns)
         ref_keys = _create_fallback_key_array(reference_keys, key_columns)
 

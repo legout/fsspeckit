@@ -20,7 +20,7 @@ def _count_parquet_files(path) -> int:
     import os
 
     count = 0
-    for root, _, files in os.walk(path):
+    for _, _, files in os.walk(path):
         count += sum(1 for f in files if f.endswith(".parquet"))
     return count
 
@@ -63,7 +63,11 @@ class TestPyarrowMergeInsertStrategy:
 
         # Verify original values preserved for existing keys
         values_dict = dict(
-            zip(final.column("id").to_pylist(), final.column("value").to_pylist())
+            zip(
+                final.column("id").to_pylist(),
+                final.column("value").to_pylist(),
+                strict=True,
+            )
         )
         assert values_dict[2] == "b"  # Original value, not "B"
         assert values_dict[3] == "c"  # Original value, not "C"
@@ -96,7 +100,11 @@ class TestPyarrowMergeInsertStrategy:
         # Verify data unchanged
         final = _read_dataset_table(str(target))
         values_dict = dict(
-            zip(final.column("id").to_pylist(), final.column("value").to_pylist())
+            zip(
+                final.column("id").to_pylist(),
+                final.column("value").to_pylist(),
+                strict=True,
+            )
         )
         assert values_dict[1] == "a"
         assert values_dict[2] == "b"
@@ -153,7 +161,11 @@ class TestPyarrowMergeUpdateStrategy:
         # Verify updates applied
         final = _read_dataset_table(str(target))
         values_dict = dict(
-            zip(final.column("id").to_pylist(), final.column("value").to_pylist())
+            zip(
+                final.column("id").to_pylist(),
+                final.column("value").to_pylist(),
+                strict=True,
+            )
         )
         assert values_dict[1] == "a"  # Unchanged
         assert values_dict[2] == "UPDATED_B"
@@ -236,7 +248,11 @@ class TestPyarrowMergeUpsertStrategy:
         final = _read_dataset_table(str(target))
         assert final.num_rows == 5
         values_dict = dict(
-            zip(final.column("id").to_pylist(), final.column("value").to_pylist())
+            zip(
+                final.column("id").to_pylist(),
+                final.column("value").to_pylist(),
+                strict=True,
+            )
         )
         assert values_dict[1] == "a"  # Unchanged
         assert values_dict[2] == "B"  # Updated
@@ -249,9 +265,7 @@ class TestPyarrowMergeUpsertStrategy:
         target = tmp_path / "dataset"
         target.mkdir()
 
-        initial = pa.table(
-            {"id": [1], "day": ["2025-01-01"], "value": [10]}
-        )
+        initial = pa.table({"id": [1], "day": ["2025-01-01"], "value": [10]})
 
         io = PyarrowDatasetIO()
         io.write_dataset(
@@ -386,7 +400,11 @@ class TestPyarrowMergeFilePreservation:
         # Verify data correctness
         final = _read_dataset_table(str(target))
         values_dict = dict(
-            zip(final.column("id").to_pylist(), final.column("value").to_pylist())
+            zip(
+                final.column("id").to_pylist(),
+                final.column("value").to_pylist(),
+                strict=True,
+            )
         )
         assert values_dict[1] == "UPDATED_A"
         assert values_dict[2] == "UPDATED_B"
@@ -534,25 +552,39 @@ class TestPyarrowMergeMetadata:
 class TestPyarrowMergeInvariants:
     """Test merge invariants: null keys, partition immutability."""
 
-    def test_null_keys_rejected(self, tmp_path):
-        """Merge should reject source data with NULL keys."""
+    def test_null_keys_accepted(self, tmp_path):
+        """Merge should accept NULL keys using null-safe (IS NOT DISTINCT FROM) equality."""
         target = tmp_path / "dataset"
         target.mkdir()
 
-        existing = pa.table({"id": [1, 2], "value": ["a", "b"]})
+        existing = pa.table(
+            {"id": pa.array([1, 2, None], type=pa.int64()), "value": ["a", "b", "n"]}
+        )
         pq.write_table(existing, target / "part-0.parquet")
 
-        # Source with NULL key
-        source = pa.table({"id": [2, None, 3], "value": ["B", "NULL_KEY", "C"]})
+        # Source: null key matches existing null (update), key 2 updated, key 3 new.
+        source = pa.table(
+            {"id": pa.array([2, None, 3], type=pa.int64()), "value": ["B", "N2", "C"]}
+        )
 
         io = PyarrowDatasetIO()
-        with pytest.raises(ValueError, match="NULL"):
-            io.merge(
-                data=source,
-                path=str(target),
-                strategy="upsert",
-                key_columns=["id"],
-            )
+        result = io.merge(
+            data=source,
+            path=str(target),
+            strategy="upsert",
+            key_columns=["id"],
+        )
+
+        assert result.updated == 2  # id=2 and id=None matched
+        assert result.inserted == 1  # id=3 is new
+
+        final = _read_dataset_table(str(target))
+        values_by_id = {row["id"]: row["value"] for row in final.to_pylist()}
+        assert values_by_id[2] == "B"  # updated
+        assert values_by_id is not None
+        assert values_by_id[None] == "N2"  # null matched null, updated
+        assert values_by_id[3] == "C"  # inserted
+        assert values_by_id[1] == "a"  # untouched
 
     def test_partition_immutability_enforced(self, tmp_path):
         """Merge should reject changes to partition columns for existing keys."""
@@ -635,9 +667,10 @@ class TestPyArrowMergeMethods:
     def setup_method(self):
         """Setup for each test method."""
         from fsspeckit.datasets.pyarrow.dataset import (
-            merge_upsert_pyarrow,
             merge_update_pyarrow,
+            merge_upsert_pyarrow,
         )
+
         self.merge_upsert_pyarrow = merge_upsert_pyarrow
         self.merge_update_pyarrow = merge_update_pyarrow
 
@@ -660,12 +693,18 @@ class TestPyArrowMergeMethods:
         )
 
         result = self.merge_upsert_pyarrow(existing, source, ["id"])
+        assert result is not None
 
         assert result.num_rows == 4
         result_dict = result.to_pydict()
 
         result_rows = sorted(
-            zip(result_dict["id"], result_dict["name"], result_dict["value"])
+            zip(
+                result_dict["id"],
+                result_dict["name"],
+                result_dict["value"],
+                strict=True,
+            )
         )
         expected_rows = sorted(
             [
@@ -686,12 +725,18 @@ class TestPyArrowMergeMethods:
         )
 
         result = self.merge_upsert_pyarrow(existing, source, ["id"])
+        assert result is not None
 
         assert result.num_rows == 4
         result_dict = result.to_pydict()
 
         result_rows = sorted(
-            zip(result_dict["id"], result_dict["name"], result_dict["value"])
+            zip(
+                result_dict["id"],
+                result_dict["name"],
+                result_dict["value"],
+                strict=True,
+            )
         )
         expected_rows = sorted(
             [(1, "Alice", 10), (2, "Bob", 20), (3, "Charlie", 30), (4, "David", 40)]
@@ -707,6 +752,7 @@ class TestPyArrowMergeMethods:
         )
 
         result = self.merge_upsert_pyarrow(existing, source, ["id"])
+        assert result is not None
 
         assert result.num_rows == 2
         result_dict = result.to_pydict()
@@ -733,15 +779,19 @@ class TestPyArrowMergeMethods:
             }
         )
 
-        result = self.merge_upsert_pyarrow(
-            existing, source, ["user_id", "date"]
-        )
+        result = self.merge_upsert_pyarrow(existing, source, ["user_id", "date"])
+        assert result is not None
 
         assert result.num_rows == 4
         result_dict = result.to_pydict()
 
         result_rows = sorted(
-            zip(result_dict["user_id"], result_dict["date"], result_dict["value"])
+            zip(
+                result_dict["user_id"],
+                result_dict["date"],
+                result_dict["value"],
+                strict=True,
+            )
         )
         expected_rows = sorted(
             [
@@ -772,12 +822,18 @@ class TestPyArrowMergeMethods:
         )
 
         result = self.merge_update_pyarrow(existing, source, ["id"])
+        assert result is not None
 
         assert result.num_rows == 3
         result_dict = result.to_pydict()
 
         result_rows = sorted(
-            zip(result_dict["id"], result_dict["name"], result_dict["value"])
+            zip(
+                result_dict["id"],
+                result_dict["name"],
+                result_dict["value"],
+                strict=True,
+            )
         )
         expected_rows = sorted(
             [(1, "Alice", 10), (2, "Bob Updated", 25), (3, "Charlie", 35)]
@@ -793,6 +849,7 @@ class TestPyArrowMergeMethods:
         )
 
         result = self.merge_update_pyarrow(existing, source, ["id"])
+        assert result is not None
 
         assert result.num_rows == 2
         result_dict = result.to_pydict()
@@ -810,6 +867,7 @@ class TestPyArrowMergeMethods:
         )
 
         result = self.merge_update_pyarrow(existing, source, ["id"])
+        assert result is not None
 
         assert result.num_rows == 2
         result_dict = result.to_pydict()
@@ -834,6 +892,7 @@ class TestPyArrowMergeMethods:
         )
 
         result = self.merge_upsert_pyarrow(existing, source, ["id"])
+        assert result is not None
 
         assert result.num_rows == 3
         result_dict = result.to_pydict()
@@ -844,6 +903,7 @@ class TestPyArrowMergeMethods:
                 result_dict["name"],
                 result_dict["value"],
                 result_dict["category"],
+                strict=True,
             )
         )
         expected_rows = sorted(
@@ -871,6 +931,7 @@ class TestPyArrowMergeMethods:
         )
 
         result = self.merge_update_pyarrow(existing, source, ["id"])
+        assert result is not None
 
         assert result.num_rows == 2
         result_dict = result.to_pydict()
@@ -881,6 +942,7 @@ class TestPyArrowMergeMethods:
                 result_dict["name"],
                 result_dict["value"],
                 result_dict["category"],
+                strict=True,
             )
         )
         expected_rows = sorted([(1, "Alice", 10, "A"), (2, "Bob Updated", 25, None)])
