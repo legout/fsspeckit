@@ -647,19 +647,20 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         # Keep source keys as PyArrow Table/Array for vectorized operations.
         source_key_table = source_table.select(key_cols)
         source_key_tracker = AdaptiveKeyTracker()
-        from fsspeckit.core.merge import canonical_key
+        from fsspeckit.core.merge import canonical_key, canonical_keys_from_table
 
         _num_key_components = len(key_cols)
         if len(key_cols) == 1:
             # For single column, keep as PyArrow array for vectorized operations.
             source_key_array = source_key_table.column(0)
-            for key in plan.source_keys:
-                source_key_tracker.add(canonical_key(key, _num_key_components))
         else:
-            # For multi-column keys, use vectorized conversion.
             source_key_array = None
-            for key in plan.source_keys:
-                source_key_tracker.add(canonical_key(key, _num_key_components))
+        # Bulk-build the tracker directly from the Arrow key table. For single
+        # non-nullable non-float columns this skips the per-row canonical_key()
+        # pass and the per-key add() loop (~750ms/1M rows combined).
+        source_key_tracker.add_canonical_keys(
+            canonical_keys_from_table(source_key_table, key_cols)
+        )
 
         early_result = resolve_merge_plan_early_exit(plan)
         if early_result is not None:

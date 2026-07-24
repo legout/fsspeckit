@@ -330,6 +330,39 @@ def canonical_key(key: Any, num_components: int = 1) -> Any:
     return tuple(canonical_key_value(v) for v in key)
 
 
+def canonical_keys_from_table(table: pa.Table, key_columns: list[str]) -> list[Any]:
+    """Produce the canonical merge key for every row of ``table``.
+
+    Equivalent to applying :func:`canonical_key` to each row, but with a fast
+    path for the common case of a single, non-nullable, non-floating key
+    column: there every value canonicalizes uniformly to
+    ``(type_qualname, value)`` (see :func:`canonical_key_value`), so the per-row
+    canonicalization call and its isinstance/branch overhead is skipped.
+    Nullable, floating, and composite keys fall back to per-row
+    canonicalization for correctness.
+
+    Intended for bulk ingestion via
+    :meth:`AdaptiveKeyTracker.add_canonical_keys`.
+    """
+    if len(key_columns) == 1:
+        name = key_columns[0]
+        col = table.column(name)
+        field = table.schema.field(name)
+        values = col.to_pylist()
+        has_nulls = bool(field.nullable and col.null_count > 0)
+        if values and not has_nulls:
+            import pyarrow as pa
+
+            if not pa.types.is_floating(field.type):
+                qualname = type(values[0]).__qualname__
+                return [(qualname, v) for v in values]
+        return [canonical_key_value(v) for v in values]
+    columns = [table.column(c).to_pylist() for c in key_columns]
+    return [
+        tuple(canonical_key_value(v) for v in row) for row in zip(*columns, strict=True)
+    ]
+
+
 def has_nullable_keys(table: pa.Table, key_columns: Sequence[str]) -> bool:
     """Return True if any key column contains at least one null value.
 

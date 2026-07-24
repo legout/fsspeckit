@@ -218,7 +218,7 @@ class TestAdaptiveKeyTracker:
     def test_bloom_tier_with_mock(self, mock_bloom):
         """Test Bloom filter tier with mock implementation."""
         from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
-        
+
         # Force to LRU tier first
         tracker = AdaptiveKeyTracker(
             max_exact_keys=2, max_lru_keys=5, false_positive_rate=0.01
@@ -314,7 +314,7 @@ class TestAdaptiveKeyTracker:
     def test_lru_to_bloom_transition(self, mock_bloom):
         """Test LRU to Bloom tier transition."""
         from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
-        
+
         tracker = AdaptiveKeyTracker(
             max_exact_keys=2, max_lru_keys=5, false_positive_rate=0.001
         )
@@ -341,7 +341,7 @@ class TestAdaptiveKeyTracker:
     def test_multiple_transitions(self, mock_bloom):
         """Test multiple tier transitions in sequence."""
         from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
-        
+
         tracker = AdaptiveKeyTracker(
             max_exact_keys=2, max_lru_keys=4, false_positive_rate=0.01
         )
@@ -529,3 +529,61 @@ class TestAdaptiveKeyTracker:
         assert metrics["current_count"] == 1
         assert metrics["total_operations"] == 1
         assert metrics["transitions"] == 0
+
+
+class TestAddCanonicalKeys:
+    """Bulk-ingestion path for AdaptiveKeyTracker."""
+
+    def test_bulk_equals_per_key_add(self):
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        keys = [("int", i) for i in [1, 2, 3, 2, 1, 4]]
+        bulk = AdaptiveKeyTracker()
+        bulk.add_canonical_keys(keys)
+        ref = AdaptiveKeyTracker()
+        for k in keys:
+            ref.add(k)
+        unique = set(keys)
+        for k in unique:
+            assert (k in bulk) == (k in ref)
+        assert bulk.get_metrics()["unique_keys_estimate"] == len(unique)
+        assert bulk.get_metrics()["tier"] == "EXACT"
+
+    def test_empty_iterable_is_noop(self):
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        t = AdaptiveKeyTracker()
+        t.add_canonical_keys([])
+        m = t.get_metrics()
+        assert m["unique_keys_estimate"] == 0
+        assert m["tier"] == "EXACT"
+        assert m["total_add_calls"] == 0
+
+    def test_transition_to_lru_when_bound_exceeded(self):
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        t = AdaptiveKeyTracker(max_exact_keys=10, max_lru_keys=1000)
+        keys = [("int", i) for i in range(50)]
+        t.add_canonical_keys(keys)
+        assert t.get_metrics()["tier"] == "LRU"
+        for k in keys:
+            assert k in t
+
+    def test_bulk_into_degraded_tier_falls_back(self):
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        t = AdaptiveKeyTracker(max_exact_keys=5, max_lru_keys=1000)
+        for i in range(6):
+            t.add(("int", i))  # overflow -> LRU
+        assert t.get_metrics()["tier"] == "LRU"
+        more = [("int", i) for i in range(6, 10)]
+        t.add_canonical_keys(more)
+        for k in more:
+            assert k in t
+
+    def test_total_add_calls_counts_bulk_input(self):
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        t = AdaptiveKeyTracker()
+        t.add_canonical_keys([("int", 1), ("int", 2), ("int", 1)])
+        assert t.get_metrics()["total_add_calls"] == 3
