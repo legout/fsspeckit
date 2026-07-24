@@ -6,7 +6,7 @@ Provides tiered storage from exact sets to probabilistic Bloom filters.
 from fsspeckit.common.logging import get_logger
 import threading
 import sys
-from typing import Any, Dict, Optional, Set, Union, Tuple
+from typing import Any, Dict, Iterable, Optional, Set, Tuple, Union
 from collections import OrderedDict
 
 logger = get_logger(__name__)
@@ -144,6 +144,36 @@ class AdaptiveKeyTracker:
                 else:
                     # Should not be reached
                     break
+
+    def add_canonical_keys(self, keys: Iterable[Any]) -> None:
+        """Bulk-add many already-canonicalized keys at once.
+
+        Loads directly into the EXACT-tier set with a single ``set.update()``,
+        which is far faster than calling :meth:`add` per key (no per-key
+        tier-checking). If the EXACT bound is exceeded the tracker transitions
+        to LRU as usual. Callers must pass keys already canonicalized via
+        :func:`canonical_key` / :func:`canonical_key_value` -- e.g. the output
+        of :func:`canonical_keys_from_table`.
+
+        On a degraded tier (LRU/BLOOM) this falls back to per-key :meth:`add`.
+        """
+        if not isinstance(keys, (list, tuple)):
+            keys = list(keys)
+        if not keys:
+            return
+        with self._lock:
+            if self._tier == "EXACT" and self._exact_keys is not None:
+                before = len(self._exact_keys)
+                self._exact_keys.update(keys)
+                self._unique_keys_seen += len(self._exact_keys) - before
+                self._keys_added_count += len(keys)
+                if len(self._exact_keys) >= self.max_exact_keys:
+                    self._transition_to_lru()
+                self._update_mem_peak()
+                return
+        # Degraded tier (LRU/BLOOM): fall back to per-key add().
+        for key in keys:
+            self.add(key)
 
     def __contains__(self, key: Any) -> bool:
         """
