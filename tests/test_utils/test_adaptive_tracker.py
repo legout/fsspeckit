@@ -529,3 +529,230 @@ class TestAdaptiveKeyTracker:
         assert metrics["current_count"] == 1
         assert metrics["total_operations"] == 1
         assert metrics["transitions"] == 0
+
+
+class TestBulkIngestion:
+    """Tests for vectorized bulk key ingestion (issue #73).
+
+    The merge hot path previously called ``add(canonical_key(key))`` per
+    source row. These tests cover the bulk ``add_from_arrow`` /
+    ``add_canonical_keys`` paths that eliminate the per-row Python loop
+    while preserving tier semantics and null/NaN-safe canonicalization.
+    """
+
+    def test_add_from_arrow_single_int_fast_path(self):
+        """Single non-nullable int column stores canonical keys in bulk."""
+        import pyarrow as pa
+
+        from fsspeckit.core.merge import canonical_key_value
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        arr = pa.array([1, 2, 3, 4, 5, 1, 2], type=pa.int64())  # duplicates
+        tracker = AdaptiveKeyTracker()
+        tracker.add_from_arrow(arr, num_components=1)
+
+        # Canonical form must match canonical_key_value exactly.
+        assert canonical_key_value(1) in tracker
+        assert canonical_key_value(5) in tracker
+        assert canonical_key_value(6) not in tracker
+
+        metrics = tracker.get_metrics()
+        assert metrics["tier"] == "EXACT"
+        assert metrics["unique_keys_estimate"] == 5  # deduped
+
+    def test_add_from_arrow_fast_path_matches_slow_path(self):
+        """Fast path and per-row add must produce identical tracker state."""
+        import pyarrow as pa
+
+        from fsspeckit.core.merge import canonical_key_value
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        values = [1, 2, 3, 4, 5, 1, 3]
+        arr = pa.array(values, type=pa.int64())
+
+        fast = AdaptiveKeyTracker()
+        fast.add_from_arrow(arr, num_components=1)
+
+        slow = AdaptiveKeyTracker()
+        for v in values:
+            slow.add(canonical_key_value(v))
+
+        assert fast._tier == slow._tier == "EXACT"
+        assert fast._exact_keys == slow._exact_keys
+
+    def test_add_from_arrow_nullable_column_canonicalizes(self):
+        """Nullable single column takes the slow path; nulls canonicalized."""
+        import pyarrow as pa
+
+        from fsspeckit.core.merge import canonical_key_value
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        arr = pa.array([1, 2, None, 4], type=pa.int64())
+        tracker = AdaptiveKeyTracker()
+        tracker.add_from_arrow(arr, num_components=1)
+
+        assert canonical_key_value(1) in tracker
+        assert canonical_key_value(4) in tracker
+        assert canonical_key_value(None) in tracker  # null marker present
+        assert None not in tracker  # raw None never stored
+
+    def test_add_from_arrow_float_nan_canonicalizes(self):
+        """Float column (incl. NaN) takes the slow path; NaN canonicalized."""
+        import pyarrow as pa
+
+        from fsspeckit.core.merge import canonical_key_value
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        arr = pa.array([1.5, float("nan"), 3.0], type=pa.float64())
+        tracker = AdaptiveKeyTracker()
+        tracker.add_from_arrow(arr, num_components=1)
+
+        assert canonical_key_value(1.5) in tracker
+        assert canonical_key_value(3.0) in tracker
+        assert canonical_key_value(float("nan")) in tracker
+
+    def test_add_from_arrow_string_fast_path(self):
+        """Non-nullable string column uses the fast path correctly."""
+        import pyarrow as pa
+
+        from fsspeckit.core.merge import canonical_key_value
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        arr = pa.array(["a", "b", "a", "c"])
+        tracker = AdaptiveKeyTracker()
+        tracker.add_from_arrow(arr, num_components=1)
+
+        assert canonical_key_value("a") in tracker
+        assert canonical_key_value("c") in tracker
+        assert canonical_key_value("z") not in tracker
+        assert tracker.get_metrics()["unique_keys_estimate"] == 3
+
+    def test_add_from_arrow_composite_key(self):
+        """Composite key (num_components > 1) canonicalizes each component."""
+        import pyarrow as pa
+
+        from fsspeckit.core.merge import canonical_key
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        struct_arr = pa.StructArray.from_arrays(
+            [pa.array([1, 2], type=pa.int64()), pa.array(["a", "b"])],
+            names=["id", "name"],
+        )
+        tracker = AdaptiveKeyTracker()
+        tracker.add_from_arrow(struct_arr, num_components=2)
+
+        assert canonical_key((1, "a"), 2) in tracker
+        assert canonical_key((2, "b"), 2) in tracker
+        assert canonical_key((1, "b"), 2) not in tracker
+
+    def test_add_from_arrow_chunked_array(self):
+        """ChunkedArray input is handled (combine_chunks) on the fast path."""
+        import pyarrow as pa
+
+        from fsspeckit.core.merge import canonical_key_value
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        chunked = pa.chunked_array([[1, 2], [3, 4]], type=pa.int64())
+        tracker = AdaptiveKeyTracker()
+        tracker.add_from_arrow(chunked, num_components=1)
+
+        for v in (1, 2, 3, 4):
+            assert canonical_key_value(v) in tracker
+
+    def test_add_canonical_keys_within_limit(self):
+        """Bulk add within the limit stays in EXACT and dedups."""
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        tracker = AdaptiveKeyTracker(max_exact_keys=100)
+        keys = [("int", 1), ("int", 2), ("int", 1)]  # one duplicate
+        tracker.add_canonical_keys(keys)
+
+        metrics = tracker.get_metrics()
+        assert metrics["tier"] == "EXACT"
+        assert metrics["unique_keys_estimate"] == 2
+
+    def test_add_canonical_keys_respects_max_exact_keys(self):
+        """Bulk add exceeding max_exact_keys triggers an LRU transition."""
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        tracker = AdaptiveKeyTracker(max_exact_keys=10, max_lru_keys=1000)
+        keys = {("int", i) for i in range(25)}
+        tracker.add_canonical_keys(keys)
+
+        metrics = tracker.get_metrics()
+        assert metrics["tier"] == "LRU"
+        assert metrics["transitions"] == 1
+        # Every key must still be resolvable (LRU holds them all).
+        for i in range(25):
+            assert ("int", i) in tracker
+
+    def test_add_canonical_keys_merges_with_existing_exact(self):
+        """Bulk add unions with keys already in the EXACT tier."""
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        tracker = AdaptiveKeyTracker(max_exact_keys=100)
+        tracker.add(("int", 1))
+        tracker.add_canonical_keys([("int", 1), ("int", 2), ("int", 3)])
+
+        metrics = tracker.get_metrics()
+        assert metrics["tier"] == "EXACT"
+        assert metrics["unique_keys_estimate"] == 3
+        assert ("int", 1) in tracker
+        assert ("int", 3) in tracker
+
+    def test_fast_path_does_not_call_add_per_row(self):
+        """Perf: the fast path must not invoke add() once per row (#73)."""
+        import pyarrow as pa
+
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        arr = pa.array(list(range(10_000)), type=pa.int64())
+        tracker = AdaptiveKeyTracker(max_exact_keys=1_000_000)
+
+        calls = {"n": 0}
+        original_add = tracker.add
+
+        def counting_add(key):
+            calls["n"] += 1
+            return original_add(key)
+
+        tracker.add = counting_add  # type: ignore[method-assign]
+        tracker.add_from_arrow(arr, num_components=1)
+
+        # O(1): the vectorized path must never fall back to per-row add().
+        assert calls["n"] == 0, f"add() called {calls['n']} times on fast path"
+
+    def test_fast_path_does_not_canonicalize_per_row(self):
+        """Perf: the fast path must not call canonical_key per row (#73)."""
+        from unittest.mock import patch
+
+        import pyarrow as pa
+
+        import fsspeckit.core.merge as merge_mod
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        arr = pa.array(list(range(1000)), type=pa.int64())
+        tracker = AdaptiveKeyTracker(max_exact_keys=1_000_000)
+
+        with patch.object(merge_mod, "canonical_key") as mock_ck, patch.object(
+            merge_mod, "canonical_key_value"
+        ) as mock_ckv:
+            tracker.add_from_arrow(arr, num_components=1)
+            assert mock_ck.call_count == 0
+            assert mock_ckv.call_count == 0
+
+    def test_slow_path_still_canonicalizes(self):
+        """Sanity: the nullable slow path still calls canonical_key per row."""
+        from unittest.mock import patch
+
+        import pyarrow as pa
+
+        import fsspeckit.core.merge as merge_mod
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        arr = pa.array([1, None, 3], type=pa.int64())  # nullable -> slow path
+        tracker = AdaptiveKeyTracker(max_exact_keys=1_000_000)
+
+        with patch.object(merge_mod, "canonical_key", wraps=merge_mod.canonical_key) as mock_ck:
+            tracker.add_from_arrow(arr, num_components=1)
+            assert mock_ck.call_count == 3  # one per row

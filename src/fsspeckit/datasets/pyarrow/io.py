@@ -578,7 +578,10 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             _filter_by_key_membership,
             _make_struct_safe,
         )
-        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import (
+            AdaptiveKeyTracker,
+            _arrow_array_to_canonical_keys,
+        )
 
         monitor = PerformanceMonitor(
             max_pyarrow_mb=merge_max_memory_mb,
@@ -653,13 +656,18 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         if len(key_cols) == 1:
             # For single column, keep as PyArrow array for vectorized operations.
             source_key_array = source_key_table.column(0)
-            for key in plan.source_keys:
-                source_key_tracker.add(canonical_key(key, _num_key_components))
+            # Bulk-ingest canonical keys; fast path avoids the per-row loop
+            # (issue #73).
+            source_key_tracker.add_from_arrow(
+                source_key_array, _num_key_components
+            )
         else:
             # For multi-column keys, use vectorized conversion.
             source_key_array = None
-            for key in plan.source_keys:
-                source_key_tracker.add(canonical_key(key, _num_key_components))
+            source_key_tracker.add_from_arrow(
+                _make_struct_safe(source_key_table, key_cols),
+                _num_key_components,
+            )
 
         early_result = resolve_merge_plan_early_exit(plan)
         if early_result is not None:
@@ -782,17 +790,17 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 if matched_rows.num_rows > 0:
                     file_matched = AdaptiveKeyTracker()
                     if len(key_cols) == 1:
-                        # Get the actual matched keys
-                        for key in matched_rows.column(0).to_pylist():
-                            ck = canonical_key(key, _num_key_components)
-                            file_matched.add(ck)
-                            matched_keys.add(ck)
+                        # Bulk-ingest matched keys for this file (issue #73).
+                        matched_arr = matched_rows.column(0)
+                        file_matched.add_from_arrow(matched_arr, _num_key_components)
+                        matched_keys.add_from_arrow(matched_arr, _num_key_components)
                     else:
                         # Use struct array for vectorized multi-key extraction
-                        for d in _make_struct_safe(matched_rows, key_cols).to_pylist():
-                            ck = canonical_key(tuple(d.values()), _num_key_components)
-                            file_matched.add(ck)
-                            matched_keys.add(ck)
+                        matched_struct = _make_struct_safe(matched_rows, key_cols)
+                        file_matched.add_from_arrow(
+                            matched_struct, _num_key_components
+                        )
+                        matched_keys.add_from_arrow(matched_struct, _num_key_components)
                     matched_keys_by_file[file_path] = file_matched
             except (OSError, RuntimeError, ValueError) as e:
                 logger.error(
@@ -806,27 +814,42 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 matched_keys_by_file[file_path] = source_key_tracker
                 if len(key_cols) == 1:
                     assert source_key_array is not None
-                    for key in source_key_array.to_pylist():
-                        matched_keys.add(canonical_key(key, _num_key_components))
+                    matched_keys.add_from_arrow(
+                        source_key_array, _num_key_components
+                    )
                 else:
-                    for d in _make_struct_safe(source_key_table, key_cols).to_pylist():
-                        matched_keys.add(
-                            canonical_key(tuple(d.values()), _num_key_components)
-                        )
+                    matched_keys.add_from_arrow(
+                        _make_struct_safe(source_key_table, key_cols),
+                        _num_key_components,
+                    )
 
         # Calculate inserted keys using trackers
         inserted_key_tracker = AdaptiveKeyTracker()
         if len(key_cols) == 1:
             assert source_key_array is not None
-            for key in source_key_array.to_pylist():
-                ck = canonical_key(key, _num_key_components)
-                if ck not in matched_keys:
-                    inserted_key_tracker.add(ck)
+            source_keys = _arrow_array_to_canonical_keys(
+                source_key_array, _num_key_components
+            )
         else:
-            for d in _make_struct_safe(source_key_table, key_cols).to_pylist():
-                ck = canonical_key(tuple(d.values()), _num_key_components)
-                if ck not in matched_keys:
-                    inserted_key_tracker.add(ck)
+            source_keys = _arrow_array_to_canonical_keys(
+                _make_struct_safe(source_key_table, key_cols), _num_key_components
+            )
+
+        # Filter out matched keys. When matched_keys is in the EXACT tier we
+        # snapshot its underlying set to avoid per-row lock acquisition in the
+        # membership check (issue #73); otherwise fall back to the tracker's
+        # __contains__ (which acquires the lock per check).
+        if (
+            matched_keys._tier == "EXACT"
+            and matched_keys._exact_keys is not None
+        ):
+            matched_container: Any = matched_keys._exact_keys
+        else:
+            matched_container = matched_keys
+
+        inserted = [ck for ck in source_keys if ck not in matched_container]
+        if inserted:
+            inserted_key_tracker.add_canonical_keys(inserted)
 
         if strategy == "insert":
             preserved_files = list(target_files)

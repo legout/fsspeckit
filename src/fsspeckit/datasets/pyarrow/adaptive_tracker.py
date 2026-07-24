@@ -6,8 +6,9 @@ Provides tiered storage from exact sets to probabilistic Bloom filters.
 from fsspeckit.common.logging import get_logger
 import threading
 import sys
-from typing import Any, Dict, Optional, Set, Union, Tuple
+from typing import Any, Dict, Iterable, Optional, Set, Tuple, Union
 from collections import OrderedDict
+from itertools import repeat
 
 logger = get_logger(__name__)
 
@@ -82,8 +83,21 @@ class AdaptiveKeyTracker:
             if self._keys_added_count % 1000 == 0:
                 self._update_mem_peak()
 
-            # Use a loop to handle potential tier transitions during addition
-            while True:
+            self._add_locked(key)
+
+    def _add_locked(self, key: Any) -> None:
+        """
+        Add a single key, handling tier transitions.
+
+        Assumes ``self._lock`` is already held. Does **not** update the
+        add-call counter or memory-peak bookkeeping; callers are responsible
+        for that, which lets the bulk paths count once for the whole batch.
+
+        Args:
+            key: The (already hashable) key to track.
+        """
+        # Use a loop to handle potential tier transitions during addition
+        while True:
                 if self._tier == "EXACT":
                     if self._exact_keys is None:
                         # Defensive: tier mismatch, try to recover
@@ -144,6 +158,117 @@ class AdaptiveKeyTracker:
                 else:
                     # Should not be reached
                     break
+
+    def add_canonical_keys(self, keys: Iterable[Any]) -> int:
+        """
+        Bulk-add a sequence of already-canonicalized keys.
+
+        This avoids the per-key ``add()`` overhead (lock acquisition, method
+        dispatch, and per-key set membership checks) by ingesting the whole
+        batch at once while still respecting ``max_exact_keys`` and triggering
+        tier transitions exactly as the per-key path would.
+
+        Keys must already be in the canonical form produced by
+        :func:`fsspeckit.core.merge.canonical_key` /
+        :func:`fsspeckit.core.merge.canonical_key_value`. For raw PyArrow
+        arrays, prefer :meth:`add_from_arrow`, which handles canonicalization.
+
+        Args:
+            keys: An iterable of canonical keys.
+
+        Returns:
+            The number of (deduplicated) keys processed.
+        """
+        new_keys = set(keys)
+        if not new_keys:
+            return 0
+
+        with self._lock:
+            self._keys_added_count += len(new_keys)
+            if self._keys_added_count % 1000 == 0:
+                self._update_mem_peak()
+
+            if self._tier == "EXACT" and self._exact_keys is not None:
+                self._bulk_add_exact_locked(new_keys)
+            else:
+                # LRU/Bloom (or mid-transition): preserve exact per-key semantics.
+                for key in new_keys:
+                    self._add_locked(key)
+
+        return len(new_keys)
+
+    def _bulk_add_exact_locked(self, new_keys: Set[Any]) -> None:
+        """
+        Bulk-add canonical keys while in the EXACT tier (lock held).
+
+        Mirrors the per-key ``add()`` semantics: once the EXACT tier fills to
+        ``max_exact_keys``, the overflow transitions to LRU and is added there
+        one key at a time via :meth:`_add_locked`.
+
+        ``new_keys`` is consumed read-only and is never mutated, so callers may
+        pass a freshly built set for zero-copy assignment when the EXACT tier
+        is empty. :meth:`add_canonical_keys` always passes a freshly allocated
+        set (it copies its input), so this is safe.
+        """
+        assert self._exact_keys is not None
+        remaining: Set[Any] = new_keys
+        while remaining:
+            if self._tier != "EXACT" or self._exact_keys is None:
+                # Overflowed into another tier during this batch.
+                for key in remaining:
+                    self._add_locked(key)
+                return
+
+            existing = self._exact_keys
+            room = self.max_exact_keys - len(existing)
+            if room <= 0:
+                self._transition_to_lru()
+                continue
+
+            if len(existing) == 0:
+                # Empty EXACT tier: the incoming set is already deduplicated,
+                # so avoid copying it element-by-element.
+                if len(remaining) <= room:
+                    self._exact_keys = remaining
+                    self._unique_keys_seen += len(remaining)
+                    return
+                to_add = set(list(remaining)[:room])
+                self._exact_keys = to_add
+                self._unique_keys_seen += len(to_add)
+                remaining = remaining - to_add
+                self._transition_to_lru()
+                continue
+
+            fits = remaining - existing  # ignore keys already present
+            if len(fits) == 0:
+                return
+            if len(fits) <= room:
+                existing |= fits
+                self._unique_keys_seen += len(fits)
+                return
+            # Partial fit: fill EXACT to the limit, then transition.
+            to_add = set(list(fits)[:room])
+            existing |= to_add
+            self._unique_keys_seen += len(to_add)
+            remaining = fits - to_add
+            self._transition_to_lru()
+
+    def add_from_arrow(self, array: Any, num_components: int = 1) -> None:
+        """
+        Bulk-add merge keys from a PyArrow array.
+
+        Uses a vectorized fast path for single, non-nullable, non-floating
+        columns: the canonical key set is built in bulk without per-row
+        :func:`canonical_key` calls. Nullable, floating, or composite keys
+        fall back to per-row canonicalization so that null/NaN-safe semantics
+        are preserved.
+
+        Args:
+            array: A PyArrow ``(Chunked)Array`` of single-column keys, or a
+                ``StructArray`` of composite keys.
+            num_components: Number of key columns the array represents.
+        """
+        self.add_canonical_keys(_arrow_array_to_canonical_keys(array, num_components))
 
     def __contains__(self, key: Any) -> bool:
         """
@@ -315,3 +440,58 @@ class AdaptiveKeyTracker:
                     metrics["bloom_capacity"] = self._bloom_filter.capacity
 
             return metrics
+
+
+def _arrow_array_to_canonical_keys(array: Any, num_components: int) -> set:
+    """Convert a PyArrow key array to a set of canonical keys.
+
+    Single, non-nullable, non-floating columns take a vectorized fast path:
+    the canonical form for a uniformly-typed, hashable, non-null, non-NaN
+    value is ``(type(value).__qualname__, value)`` (matching
+    :func:`fsspeckit.core.merge.canonical_key_value`), so the whole column is
+    canonicalized via ``set(zip(repeat(tag), values))`` with no per-row Python
+    function calls. The ``(tag, value)`` tuples are built at C speed and
+    deduplicated as the set is constructed.
+
+    Nullable, floating, or composite keys fall back to per-row
+    :func:`~fsspeckit.core.merge.canonical_key` so null/NaN-safe semantics and
+    per-component canonicalization are preserved.
+
+    Args:
+        array: A PyArrow ``(Chunked)Array`` of single-column keys, or a
+            ``StructArray`` of composite keys.
+        num_components: Number of key columns the array represents.
+
+    Returns:
+        A set of canonical keys.
+    """
+    import pyarrow as pa
+
+    from fsspeckit.core.merge import canonical_key
+
+    # ChunkedArray (single or struct) -> a single contiguous array.
+    if isinstance(array, pa.ChunkedArray):
+        array = array.combine_chunks()
+
+    if num_components > 1:
+        # StructArray.to_pylist() yields one dict per row.
+        return {
+            canonical_key(tuple(d.values()), num_components)
+            for d in array.to_pylist()
+        }
+
+    pa_type = array.type
+    if array.null_count == 0 and not pa.types.is_floating(pa_type):
+        # Fast path: uniform type, no nulls, no NaNs. to_pylist() of a typed
+        # column always yields a single Python type, so the type tag is
+        # constant and matches canonical_key_value exactly. Building
+        # ``(tag, value)`` tuples via ``zip(repeat(tag), values)`` is done at
+        # C speed and is dramatically faster than a Python comprehension.
+        values = array.to_pylist()
+        if values:
+            tag = type(values[0]).__qualname__
+            return set(zip(repeat(tag), values))
+        return set()
+
+    # Slow path: nullable / floating -> null/NaN-safe canonicalization.
+    return {canonical_key(v, 1) for v in array.to_pylist()}
