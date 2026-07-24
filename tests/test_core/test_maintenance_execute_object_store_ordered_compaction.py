@@ -27,6 +27,7 @@ from fsspeckit.core.maintenance import (
     MaintenanceResult,
     OrderedCompactionPlan,
     OrderedCompactionResult,
+    SchemaOutcome,
     SortKey,
     ValidationLevel,
 )
@@ -153,6 +154,50 @@ class TestOrderedCompactionSuccess:
         assert result.actual_metrics.row_count == 5
         assert result.recovery is None
         assert not fs.exists(result.staging_prefix)
+
+    def test_ordered_compaction_reconciles_string_large_string(self):
+        """Ordered compaction casts each input before concatenation (#65)."""
+        fs = MemoryFileSystem()
+        root = _root()
+        _write(
+            fs,
+            f"{root}/region=US/a.parquet",
+            pa.table(
+                {
+                    "id": [3, 1],
+                    "region": ["US", "US"],
+                    "v": pa.array(["c", "a"], type=pa.string()),
+                }
+            ),
+        )
+        _write(
+            fs,
+            f"{root}/region=US/b.parquet",
+            pa.table(
+                {
+                    "id": [2, 4],
+                    "region": ["US", "US"],
+                    "v": pa.array(["b", "d"], type=pa.large_string()),
+                }
+            ),
+        )
+
+        plan, result = _run_plan(fs, root, target_rows_per_file=5)
+
+        assert plan.schema_outcome == SchemaOutcome.LOSSLESS_PROMOTED
+        assert result.succeeded, result.error
+        assert result.publication is not None
+        live_keys = sorted(result.publication.published_files)
+        assert live_keys
+        # Every output file carries the reconciled large_string schema.
+        for key in live_keys:
+            schema = pq.ParquetFile(BytesIO(fs.cat(key))).schema_arrow
+            assert schema.field("v").type == pa.large_string()
+        ids: list[int] = []
+        for key in live_keys:
+            ids.extend(_read(fs, key).column("id").to_pylist())
+        # Sorted ascending by id, all rows preserved.
+        assert ids == [1, 2, 3, 4]
 
     def test_descending_order_via_typed_sort_key(self):
         fs = MemoryFileSystem()

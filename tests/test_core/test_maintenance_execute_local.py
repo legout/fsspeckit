@@ -28,6 +28,7 @@ from fsspeckit.core.maintenance import (
     MaintenanceResult,
     PartitionScopeType,
     PublicationOutcome,
+    SchemaOutcome,
     ValidationOutcome,
     _BoundedAdvisoryLock,
     _check_source_drift,
@@ -96,6 +97,47 @@ class TestAtomicLocalCompactionHappyPath:
         assert combined.num_rows == 10
         assert set(combined["a"].to_pylist()) == set(range(10))
 
+    def test_compaction_reconciles_string_large_string(self, tmp_path):
+        """Compatible string/large_string schemas compact to large_string (#65).
+
+        Before reconciliation the mixed schemas failed at concat time. Now
+        planning reports LOSSLESS_PROMOTED and execution preserves every row
+        while writing files whose physical schema matches the plan target.
+        """
+        _write_parquet(
+            str(tmp_path / "a.parquet"),
+            pa.table({"v": pa.array(["a", "b"], type=pa.string())}),
+        )
+        _write_parquet(
+            str(tmp_path / "b.parquet"),
+            pa.table({"v": pa.array(["c"], type=pa.large_string())}),
+        )
+
+        fs = __import__("fsspec").filesystem("file")
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_compaction(str(tmp_path), fs, target_rows_per_file=100)
+
+        assert plan.schema_outcome == SchemaOutcome.LOSSLESS_PROMOTED
+        assert plan.schema is not None
+        target = plan.schema
+        assert target.field("v").type == pa.large_string()
+
+        result = coordinator.execute(plan)
+
+        assert result.succeeded
+        assert result.actual_metrics is not None
+        assert result.actual_metrics.row_count == 3
+
+        output_files = _list_parquet(str(tmp_path))
+        assert len(output_files) >= 1
+        for path in output_files:
+            assert pq.ParquetFile(path).schema_arrow.field("v").type == (
+                pa.large_string()
+            )
+        combined = pa.concat_tables([_read_parquet(f) for f in output_files])
+        assert combined.num_rows == 3
+        assert set(combined["v"].to_pylist()) == {"a", "b", "c"}
+
     def test_max_rows_per_file_hard_bound(self, tmp_path):
         """Output files never exceed max_rows_per_file rows."""
         table = pa.table({"x": list(range(30))})
@@ -148,7 +190,6 @@ class TestAtomicLocalCompactionHappyPath:
         table = pa.table({"n": [10, 20, 30]})
         _write_parquet(str(tmp_path / "x.parquet"), table)
         _write_parquet(str(tmp_path / "y.parquet"), table)
-
         fs = __import__("fsspec").filesystem("file")
         coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
         plan = coordinator.plan_compaction(str(tmp_path), fs, target_rows_per_file=100)

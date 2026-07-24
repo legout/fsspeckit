@@ -31,6 +31,7 @@ from fsspeckit.core.maintenance import (
     GuaranteeLevel,
     MaintenanceBackend,
     MaintenanceResult,
+    SchemaOutcome,
     _revalidate_source_token,
     _split_table_by_rows,
 )
@@ -220,6 +221,43 @@ class TestBestEffortCompactionSuccess:
             assert fs.exists(live_key), f"Live key missing: {live_key}"
             table = _read_parquet(fs, live_key)
             assert table.num_rows > 0
+
+    def test_compaction_reconciles_string_large_string(self):
+        """Best-effort compaction supports compatible string schemas (#65)."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        _write_parquet(
+            fs,
+            f"{root}/a.parquet",
+            pa.table({"v": pa.array(["a", "b"], type=pa.string())}),
+        )
+        _write_parquet(
+            fs,
+            f"{root}/b.parquet",
+            pa.table({"v": pa.array(["c"], type=pa.large_string())}),
+        )
+
+        coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
+        plan = coordinator.plan_compaction(root, fs, target_rows_per_file=100)
+        assert plan.schema_outcome == SchemaOutcome.LOSSLESS_PROMOTED
+
+        result = coordinator.execute(plan, filesystem=fs)
+
+        assert result.succeeded, result.error
+        assert result.guarantee_level == GuaranteeLevel.BEST_EFFORT_OBJECT_STORE
+        assert result.actual_metrics is not None
+        assert result.actual_metrics.row_count == 3
+        # Every published live key carries the reconciled large_string schema.
+        for live_key in result.copied_live_keys:
+            schema = pq.ParquetFile(fs.open(live_key, "rb")).schema_arrow
+            assert schema.field("v").type == pa.large_string()
+        # Sources were deleted; output preserves all values.
+        assert not fs.exists(f"{root}/a.parquet")
+        assert not fs.exists(f"{root}/b.parquet")
+        total = sum(
+            _row_count(fs, key) for key in result.copied_live_keys
+        )
+        assert total == 3
 
     def test_partitioned_compaction_preserves_hive_layout(self):
         """Best-effort compaction stays partition-local and keeps hive metadata (#54)."""

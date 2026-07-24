@@ -392,6 +392,205 @@ class TestSchemaReconciliation:
         with pytest.raises(ValueError, match="Schema reconciliation required"):
             coordinator.plan_compaction(root, fs, target_rows_per_file=10)
 
+    def test_plan_schema_promotes_string_to_large_string(self):
+        """``string`` plus ``large_string`` reconcile to ``large_string``."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        fs.pipe(
+            f"{root}/a.parquet",
+            _parquet_bytes(
+                pa.table({"value": pa.array(["a"], type=pa.string())})
+            ),
+        )
+        fs.pipe(
+            f"{root}/b.parquet",
+            _parquet_bytes(
+                pa.table({"value": pa.array(["b"], type=pa.large_string())})
+            ),
+        )
+
+        plan = DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+            root, fs, target_rows_per_file=10
+        )
+
+        assert plan.schema_outcome == SchemaOutcome.LOSSLESS_PROMOTED
+        assert plan.schema is not None
+        target = plan.schema
+        assert target.field("value").type == pa.large_string()
+
+    def test_plan_schema_promotes_binary_to_large_binary(self):
+        """``binary`` plus ``large_binary`` reconcile to ``large_binary``."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        fs.pipe(
+            f"{root}/a.parquet",
+            _parquet_bytes(
+                pa.table({"value": pa.array([b"a"], type=pa.binary())})
+            ),
+        )
+        fs.pipe(
+            f"{root}/b.parquet",
+            _parquet_bytes(
+                pa.table({"value": pa.array([b"b"], type=pa.large_binary())})
+            ),
+        )
+
+        plan = DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+            root, fs, target_rows_per_file=10
+        )
+
+        assert plan.schema_outcome == SchemaOutcome.LOSSLESS_PROMOTED
+        assert plan.schema is not None
+        target = plan.schema
+        assert target.field("value").type == pa.large_binary()
+
+    def test_plan_schema_promotes_nested_list_string(self):
+        """Offset-width promotion recurses into nested list item types."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        fs.pipe(
+            f"{root}/a.parquet",
+            _parquet_bytes(
+                pa.table(
+                    {"value": pa.array([["a"]], type=pa.list_(pa.string()))}
+                )
+            ),
+        )
+        fs.pipe(
+            f"{root}/b.parquet",
+            _parquet_bytes(
+                pa.table(
+                    {
+                        "value": pa.array(
+                            [["b"]],
+                            type=pa.large_list(pa.large_string()),
+                        )
+                    }
+                )
+            ),
+        )
+
+        plan = DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+            root, fs, target_rows_per_file=10
+        )
+
+        assert plan.schema_outcome == SchemaOutcome.LOSSLESS_PROMOTED
+        assert plan.schema is not None
+        target = plan.schema
+        assert target.field("value").type == pa.large_list(pa.large_string())
+
+    def test_plan_schema_promotes_integer_widening(self):
+        """Same-signed integer width differences promote to the wider type."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        fs.pipe(
+            f"{root}/a.parquet",
+            _parquet_bytes(pa.table({"value": pa.array([1], type=pa.int32())})),
+        )
+        fs.pipe(
+            f"{root}/b.parquet",
+            _parquet_bytes(pa.table({"value": pa.array([2], type=pa.int64())})),
+        )
+
+        plan = DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+            root, fs, target_rows_per_file=10
+        )
+
+        assert plan.schema_outcome == SchemaOutcome.LOSSLESS_PROMOTED
+        assert plan.schema is not None
+        target = plan.schema
+        assert target.field("value").type == pa.int64()
+
+    def test_plan_schema_incompatible_types_still_reject(self):
+        """Genuinely incompatible types invalidate the plan before mutation."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        fs.pipe(
+            f"{root}/a.parquet",
+            _parquet_bytes(pa.table({"value": pa.array([1], type=pa.int64())})),
+        )
+        fs.pipe(
+            f"{root}/b.parquet",
+            _parquet_bytes(pa.table({"value": pa.array(["x"], type=pa.string())})),
+        )
+
+        coordinator = DatasetMaintenanceCoordinator("pyarrow")
+        with pytest.raises(ValueError, match="Schema reconciliation required"):
+            coordinator.plan_compaction(root, fs, target_rows_per_file=10)
+
+    def test_plan_schema_rejects_metadata_conflict(self):
+        """Field metadata conflicts invalidate the plan."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        base = pa.table(
+            {"value": pa.array(["a"], type=pa.string())},
+        )
+        with_meta = base.replace_schema_metadata(
+            None
+        ).cast(
+            pa.schema([pa.field("value", pa.string(), metadata={b"k": b"v"})])
+        )
+        fs.pipe(f"{root}/a.parquet", _parquet_bytes(base))
+        fs.pipe(f"{root}/b.parquet", _parquet_bytes(with_meta))
+
+        coordinator = DatasetMaintenanceCoordinator("pyarrow")
+        with pytest.raises(ValueError, match="Schema reconciliation required"):
+            coordinator.plan_compaction(root, fs, target_rows_per_file=10)
+
+    def test_plan_schema_rejects_nested_struct_metadata_conflict(self):
+        """Nested struct field metadata conflicts invalidate the plan."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        matching_meta = pa.field("nested", pa.string(), metadata={b"k": b"v"})
+        conflicting_meta = pa.field("nested", pa.string(), metadata={b"k": b"x"})
+        fs.pipe(
+            f"{root}/a.parquet",
+            _parquet_bytes(
+                pa.table(
+                    {"nested": pa.array([["a"]], type=pa.list_(matching_meta))}
+                )
+            ),
+        )
+        fs.pipe(
+            f"{root}/b.parquet",
+            _parquet_bytes(
+                pa.table(
+                    {
+                        "nested": pa.array(
+                            [["b"]], type=pa.large_list(conflicting_meta)
+                        )
+                    }
+                )
+            ),
+        )
+
+        coordinator = DatasetMaintenanceCoordinator("pyarrow")
+        with pytest.raises(ValueError, match="Schema reconciliation required"):
+            coordinator.plan_compaction(root, fs, target_rows_per_file=10)
+
+    def test_plan_schema_rejects_nullability_mismatch(self):
+        """Nullability differences invalidate the plan (order-independent)."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        fs.pipe(
+            f"{root}/a.parquet",
+            _parquet_bytes(
+                pa.table(
+                    {"value": pa.array(["a"], type=pa.string())}
+                ).cast(
+                    pa.schema([pa.field("value", pa.string(), nullable=False)])
+                )
+            ),
+        )
+        fs.pipe(
+            f"{root}/b.parquet",
+            _parquet_bytes(pa.table({"value": pa.array(["b"], type=pa.large_string())})),
+        )
+
+        coordinator = DatasetMaintenanceCoordinator("pyarrow")
+        with pytest.raises(ValueError, match="Schema reconciliation required"):
+            coordinator.plan_compaction(root, fs, target_rows_per_file=10)
+
     def test_partition_local_deduplication_respects_boundaries(self, sample_table):
         """Partition-local deduplication plans separate groups per partition."""
         root = _memory_root()

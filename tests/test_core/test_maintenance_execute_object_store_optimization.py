@@ -32,6 +32,7 @@ from fsspeckit.core.maintenance import (
     GuaranteeLevel,
     MaintenanceBackend,
     MaintenanceResult,
+    SchemaOutcome,
 )
 
 
@@ -153,6 +154,48 @@ class TestCoordinatedOptimizationSuccess:
         assert result.actual_metrics is not None
         assert result.actual_metrics.row_count == 4
         assert _total_rows(fs, root) == 4
+
+    def test_coordinated_optimization_reconciles_string_large_string(self):
+        """Coordinated dedup+compaction supports compatible schemas (#65)."""
+        fs = MemoryFileSystem()
+        root = _root()
+        # Two files with a shared duplicate key but offset-width string types.
+        _write(
+            fs,
+            f"{root}/f1.parquet",
+            pa.table(
+                {
+                    "id": [1, 2],
+                    "v": pa.array(["a", "b"], type=pa.string()),
+                }
+            ),
+        )
+        _write(
+            fs,
+            f"{root}/f2.parquet",
+            pa.table(
+                {
+                    "id": [1, 3],
+                    "v": pa.array(["a2", "c"], type=pa.large_string()),
+                }
+            ),
+        )
+
+        plan, result = _run_plan(fs, root, dedup_key_columns=["id"])
+
+        assert plan.schema_outcome == SchemaOutcome.LOSSLESS_PROMOTED
+        assert result.succeeded
+        assert result.dedup_phase_executed
+        assert result.dedup_rows_removed == 1  # duplicate key id=1 removed
+
+        # 3 unique rows survive, all written as large_string.
+        assert result.actual_metrics is not None
+        assert result.actual_metrics.row_count == 3
+        assert _total_rows(fs, root) == 3
+        for path in fs.find(root):
+            if path.endswith(".parquet"):
+                schema = pq.ParquetFile(fs.open(path, "rb")).schema_arrow
+                assert schema.field("v").type == pa.large_string()
 
     def test_compaction_only_skips_dedup_phase(self):
         fs = MemoryFileSystem()

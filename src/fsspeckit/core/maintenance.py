@@ -1015,9 +1015,18 @@ class ValidationLevel(str, Enum):
 
 
 class SchemaOutcome(str, Enum):
-    """Outcome of schema reconciliation during maintenance."""
+    """Outcome of schema reconciliation during maintenance.
+
+    - :attr:`LOSSLESS_PRESERVED`: every source file shared one exact schema.
+    - :attr:`LOSSLESS_PROMOTED`: source schemas differed but reconciled to a
+      defined lossless common target (e.g. ``string`` plus ``large_string``
+      promote to ``large_string``); the target schema is stored on the plan.
+    - :attr:`RECONCILIATION_REQUIRED`: the schemas are incompatible or
+      ambiguous and the plan cannot be created without a separate migration.
+    """
 
     LOSSLESS_PRESERVED = "lossless_preserved"
+    LOSSLESS_PROMOTED = "lossless_promoted"
     RECONCILIATION_REQUIRED = "reconciliation_required"
 
 
@@ -1493,6 +1502,180 @@ def _coerce_backend(value: str | MaintenanceBackend) -> str:
     return value
 
 
+_SIGNED_INT_RANK: dict[Any, int] = {
+    pa.int8(): 8,
+    pa.int16(): 16,
+    pa.int32(): 32,
+    pa.int64(): 64,
+}
+_UNSIGNED_INT_RANK: dict[Any, int] = {
+    pa.uint8(): 8,
+    pa.uint16(): 16,
+    pa.uint32(): 32,
+    pa.uint64(): 64,
+}
+_FLOAT_RANK: dict[Any, int] = {
+    pa.float16(): 16,
+    pa.float32(): 32,
+    pa.float64(): 64,
+}
+_WIDTH_TO_SIGNED_INT: dict[int, Any] = {v: k for k, v in _SIGNED_INT_RANK.items()}
+_WIDTH_TO_UNSIGNED_INT: dict[int, Any] = {v: k for k, v in _UNSIGNED_INT_RANK.items()}
+_RANK_TO_FLOAT: dict[int, Any] = {v: k for k, v in _FLOAT_RANK.items()}
+
+
+def _lossless_common_type(left: Any, right: Any) -> Any | None:
+    """Return a lossless common Arrow type for two compatible types.
+
+    Reconciliation is constrained to *defined* lossless promotions; anything
+    ambiguous (mixed signedness, differing decimal precision/scale, timezone
+    mismatches, distinct nested shapes) returns ``None`` so the caller can
+    invalidate the plan. Dtype inference is never invoked here.
+    """
+    if left.equals(right):
+        return left
+
+    # Offset-width string / binary promote toward the wider representation.
+    left_is_string = pa.types.is_string(left)
+    right_is_string = pa.types.is_string(right)
+    left_is_large_string = pa.types.is_large_string(left)
+    right_is_large_string = pa.types.is_large_string(right)
+    if {left_is_string, right_is_large_string} == {True} or {
+        left_is_large_string,
+        right_is_string,
+    } == {True}:
+        return pa.large_string()
+    left_is_binary = pa.types.is_binary(left)
+    right_is_binary = pa.types.is_binary(right)
+    left_is_large_binary = pa.types.is_large_binary(left)
+    right_is_large_binary = pa.types.is_large_binary(right)
+    if {left_is_binary, right_is_large_binary} == {True} or {
+        left_is_large_binary,
+        right_is_binary,
+    } == {True}:
+        return pa.large_binary()
+
+    # Integer widening within the same signedness family.
+    left_int = _SIGNED_INT_RANK.get(left) or _UNSIGNED_INT_RANK.get(left)
+    right_int = _SIGNED_INT_RANK.get(right) or _UNSIGNED_INT_RANK.get(right)
+    if left_int is not None and right_int is not None:
+        left_signed = left in _SIGNED_INT_RANK
+        right_signed = right in _SIGNED_INT_RANK
+        if left_signed == right_signed:
+            width = max(left_int, right_int)
+            return (
+                _WIDTH_TO_SIGNED_INT[width]
+                if left_signed
+                else _WIDTH_TO_UNSIGNED_INT[width]
+            )
+        return None
+
+    # Float widening (half < single < double).
+    left_float = _FLOAT_RANK.get(left)
+    right_float = _FLOAT_RANK.get(right)
+    if left_float is not None and right_float is not None:
+        return _RANK_TO_FLOAT[max(left_float, right_float)]
+
+    # Nested list / large_list: promote the offset width and recurse items.
+    # Reconcile the child *field* (not just its type) so nested metadata and
+    # nullability are validated rather than silently discarded.
+    left_list = pa.types.is_list(left)
+    right_list = pa.types.is_list(right)
+    left_large_list = pa.types.is_large_list(left)
+    right_large_list = pa.types.is_large_list(right)
+    if (left_list or left_large_list) and (right_list or right_large_list):
+        common_value_field = _lossless_common_field(
+            left.value_field, right.value_field
+        )
+        if common_value_field is None:
+            return None
+        # Prefer the large variant when either side is large_list, matching
+        # the offset-width promotion policy.
+        use_large = left_large_list or right_large_list
+        builder = pa.large_list if use_large else pa.list_
+        return builder(common_value_field)
+
+    # Fixed-size lists of equal length: recurse the child field.
+    if pa.types.is_fixed_size_list(left) and pa.types.is_fixed_size_list(right):
+        if left.list_size == right.list_size:
+            common_value_field = _lossless_common_field(
+                left.value_field, right.value_field
+            )
+            if common_value_field is not None:
+                return pa.list_(common_value_field.type, left.list_size)
+        return None
+
+    # Structs with matching field names/order: recurse each field through the
+    # field-level reconciler so metadata and nullability are preserved.
+    if pa.types.is_struct(left) and pa.types.is_struct(right):
+        if len(left) != len(right):
+            return None
+        fields: list[Any] = []
+        for lf, rf in zip(left, right, strict=True):
+            common_field = _lossless_common_field(lf, rf)
+            if common_field is None:
+                return None
+            fields.append(common_field)
+        return pa.struct(fields)
+
+    return None
+
+
+def _lossless_common_field(left: Any, right: Any) -> Any | None:
+    """Return a lossless common field, or ``None`` if incompatible.
+
+    The policy is metadata-preserving and order-independent:
+    * field names must match;
+    * schema/field metadata must be identical (a conflict invalidates the
+      plan rather than being silently dropped or unioned);
+    * nullability must be identical — promoting a nullable field to
+      non-nullable could drop nulls, and is an ambiguous change the caller
+      should resolve via schema rewrite, not silent reconciliation.
+    The returned field carries the reconciled type with the shared metadata.
+    """
+    if left.name != right.name:
+        return None
+    if left.metadata != right.metadata:
+        return None
+    if left.nullable != right.nullable:
+        return None
+    common_type = _lossless_common_type(left.type, right.type)
+    if common_type is None:
+        return None
+    return pa.field(
+        left.name, common_type, nullable=left.nullable, metadata=left.metadata
+    )
+
+
+def _lossless_common_schema(schemas: list[Any]) -> Any | None:
+    """Compute a lossless common schema across compatible raw schemas.
+
+    Returns ``None`` when the schemas are structurally incompatible, when a
+    field type has no defined lossless promotion, or when schema/field
+    metadata conflicts. Identical schemas are handled by the caller's
+    fast path.
+    """
+    base = schemas[0]
+    names = base.names
+    metadata = base.metadata
+    for other in schemas[1:]:
+        if other.names != names:
+            return None
+        if other.metadata != metadata:
+            return None
+    fields: list[Any] = []
+    for index in range(len(base)):
+        # Accumulate a widening across all schemas at this field position so
+        # more than two inputs compose into one target type.
+        accumulated = base.field(index)
+        for other in schemas[1:]:
+            accumulated = _lossless_common_field(accumulated, other.field(index))
+            if accumulated is None:
+                return None
+        fields.append(accumulated)
+    return pa.schema(fields, metadata=metadata)
+
+
 def _reconcile_schema(
     filesystem: AbstractFileSystem,
     file_stats: list[dict[str, Any]],
@@ -1500,8 +1683,15 @@ def _reconcile_schema(
     """Reconcile source schemas across all discovered files.
 
     Planning is lock-free and reads only metadata; it does not rewrite files.
-    If any file cannot be read or its schema differs from the first file, the
-    outcome is ``RECONCILIATION_REQUIRED``.
+
+    * Identical schemas (including metadata) take the exact-schema fast path
+      and return :attr:`SchemaOutcome.LOSSLESS_PRESERVED`.
+    * Compatible schemas with a defined lossless common representation
+      (e.g. ``string`` plus ``large_string``) return
+      :attr:`SchemaOutcome.LOSSLESS_PROMOTED` with the reconciled target
+      schema.
+    * Unreadable files, structural mismatches, ambiguous type conflicts, or
+      metadata conflicts return :attr:`SchemaOutcome.RECONCILIATION_REQUIRED`.
     """
     if not file_stats:
         return SchemaOutcome.LOSSLESS_PRESERVED, None
@@ -1511,20 +1701,43 @@ def _reconcile_schema(
         with filesystem.open(path, "rb") as fh:
             return pq.ParquetFile(fh).schema_arrow
 
-    try:
-        base_schema = _read_schema(file_stats[0]["path"])
-    except Exception:
-        return SchemaOutcome.RECONCILIATION_REQUIRED, None
-
-    for fi in file_stats[1:]:
+    schemas: list[Any] = []
+    for fi in file_stats:
         try:
-            other_schema = _read_schema(fi["path"])
+            schemas.append(_read_schema(fi["path"]))
         except Exception:
             return SchemaOutcome.RECONCILIATION_REQUIRED, None
-        if not base_schema.equals(other_schema, check_metadata=True):
-            return SchemaOutcome.RECONCILIATION_REQUIRED, None
 
-    return SchemaOutcome.LOSSLESS_PRESERVED, base_schema
+    # Exact-schema fast path (metadata-aware).
+    base_schema = schemas[0]
+    if all(
+        base_schema.equals(other_schema, check_metadata=True)
+        for other_schema in schemas[1:]
+    ):
+        return SchemaOutcome.LOSSLESS_PRESERVED, base_schema
+
+    # Lossless promotion path.
+    target_schema = _lossless_common_schema(schemas)
+    if target_schema is None:
+        return SchemaOutcome.RECONCILIATION_REQUIRED, None
+    return SchemaOutcome.LOSSLESS_PROMOTED, target_schema
+
+
+def _read_input_table(file_handle: Any, target_schema: Any | None) -> Any:
+    """Read a Parquet source table cast to the planned target schema.
+
+    Casting each input *before* concatenation guarantees that compatible raw
+    schemas (e.g. ``string`` plus ``large_string``) concatenate into one table
+    that exactly matches the reconciled ``plan.schema``. Lossless promotions
+    use PyArrow's safe cast; an input that cannot be safely cast raises before
+    any concatenation occurs.
+    """
+    import pyarrow.parquet as pq
+
+    table = pq.read_table(file_handle)
+    if target_schema is not None and not table.schema.equals(target_schema):
+        table = table.cast(target_schema)
+    return table
 
 
 def _prepare_plan_inputs(
@@ -2219,7 +2432,7 @@ def _execute_atomic_local_compaction(
             tables = []
             for fi in group.files:
                 with open(fi.path, "rb") as fh:
-                    tables.append(pq.read_table(fh))
+                    tables.append(_read_input_table(fh, plan.schema))
 
             combined = pa.concat_tables(tables)
             if plan.schema is not None:
@@ -2780,7 +2993,7 @@ def _execute_atomic_local_partition_local_deduplication(
             tables: list[pa.Table] = []
             for source in partition_sources:
                 with open(source.absolute_path, "rb") as fh:
-                    tables.append(pq.read_table(fh))
+                    tables.append(_read_input_table(fh, plan.schema))
             combined = pa.concat_tables(tables) if len(tables) > 1 else tables[0]
             deduplicated = _deduplicate_partition_table(
                 combined, plan.dedup_key_columns, plan.dedup_order_by
@@ -3069,7 +3282,7 @@ def _execute_atomic_local_global_repartition_deduplication(
         tables: list[pa.Table] = []
         for source in sorted_sources:
             with open(source.absolute_path, "rb") as fh:
-                tables.append(pq.read_table(fh))
+                tables.append(_read_input_table(fh, plan.schema))
         combined = pa.concat_tables(tables) if len(tables) > 1 else tables[0]
         deduplicated = _deduplicate_partition_table(
             combined, plan.dedup_key_columns, plan.dedup_order_by
@@ -3460,7 +3673,7 @@ def _execute_atomic_local_repartition(
         tables: list[pa.Table] = []
         for source in sorted_sources:
             with open(source.absolute_path, "rb") as fh:
-                tables.append(pq.read_table(fh))
+                tables.append(_read_input_table(fh, plan.schema))
         combined = pa.concat_tables(tables) if len(tables) > 1 else tables[0]
         if plan.schema is not None:
             combined = combined.cast(plan.schema)
@@ -3793,7 +4006,7 @@ def _execute_atomic_local_ordered_compaction(
             source_tables: list[pa.Table] = []
             for fi in sorted_files:
                 with open(fi.path, "rb") as fh:
-                    source_tables.append(pq.read_table(fh))
+                    source_tables.append(_read_input_table(fh, plan.schema))
             expected_rows += sum(t.num_rows for t in source_tables)
             combined = (
                 pa.concat_tables(source_tables)
@@ -4089,7 +4302,7 @@ def _execute_atomic_local_coordinated_optimization(
         tables = []
         for source in group.files:
             with open(source.path, "rb") as fh:
-                tables.append(pq.read_table(fh))
+                tables.append(_read_input_table(fh, plan.schema))
         combined = pa.concat_tables(tables) if len(tables) > 1 else tables[0]
         return combined, _group_partition_dir(group, dataset_root)
 
@@ -5616,7 +5829,7 @@ def _execute_best_effort_compaction(
             tables = []
             for fi in group.files:
                 with filesystem.open(fi.path, "rb") as fh:
-                    tables.append(pq.read_table(fh))
+                    tables.append(_read_input_table(fh, plan.schema))
 
             combined = pa.concat_tables(tables)
             if plan.schema is not None:
@@ -6086,7 +6299,7 @@ def _execute_best_effort_partition_local_deduplication(
             tables: list[pa.Table] = []
             for source in sources_by_partition[partition]:
                 with filesystem.open(source.absolute_path, "rb") as fh:
-                    tables.append(pq.read_table(fh))
+                    tables.append(_read_input_table(fh, plan.schema))
             deduplicated = _deduplicate_partition_table(
                 pa.concat_tables(tables),
                 plan.dedup_key_columns,
@@ -6371,7 +6584,7 @@ def _execute_best_effort_global_repartition_deduplication(
         )
         for source in source_files:
             with filesystem.open(source.absolute_path, "rb") as fh:
-                tables.append(pq.read_table(fh))
+                tables.append(_read_input_table(fh, plan.schema))
         if not tables:
             raise ValueError("Global deduplication requires at least one source table")
         combined = pa.concat_tables(tables)
@@ -6793,7 +7006,7 @@ def _execute_best_effort_repartition(
         )
         for source in source_files:
             with filesystem.open(source.absolute_path, "rb") as fh:
-                tables.append(pq.read_table(fh))
+                tables.append(_read_input_table(fh, plan.schema))
         if not tables:
             raise ValueError("Pure repartition requires at least one source table")
         combined = pa.concat_tables(tables)
@@ -7210,7 +7423,7 @@ def _execute_best_effort_ordered_compaction(
             source_tables: list[pa.Table] = []
             for fi in sorted_files:
                 with filesystem.open(fi.path, "rb") as handle:
-                    source_tables.append(pq.read_table(handle))
+                    source_tables.append(_read_input_table(handle, plan.schema))
             expected_rows += sum(t.num_rows for t in source_tables)
             combined = (
                 pa.concat_tables(source_tables)
@@ -7651,7 +7864,7 @@ def _execute_best_effort_coordinated_optimization(
                 tables: list[pa.Table] = []
                 for fi in group.files:
                     with filesystem.open(fi.path, "rb") as fh:
-                        tables.append(pq.read_table(fh))
+                        tables.append(_read_input_table(fh, plan.schema))
                 combined = pa.concat_tables(tables)
                 total_input_rows += combined.num_rows
                 deduped = _deduplicate_partition_table(
@@ -7680,7 +7893,7 @@ def _execute_best_effort_coordinated_optimization(
             tables = []
             for fi in group.files:
                 with filesystem.open(fi.path, "rb") as fh:
-                    tables.append(pq.read_table(fh))
+                    tables.append(_read_input_table(fh, plan.schema))
             combined = pa.concat_tables(tables)
             partition_dir = posixpath.dirname(
                 _relative_file_path(group.files[0].path, dataset_root)
