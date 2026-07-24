@@ -5,11 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.27.1] - 2026-07-24
+## [0.27.2] - 2026-07-24
 
 ### Fixed
 
 - Maintenance reconciles compatible Parquet schemas during compaction, coordinated optimization, and best-effort execution: `string`/`large_string` and other offset-width, integer-widening, and float-widening variants now promote to a lossless common target schema (`SchemaOutcome.LOSSLESS_PROMOTED`) instead of rejecting the plan, with each input cast to the target schema before concatenation. Genuinely incompatible types and schema/field metadata conflicts still invalidate the plan before any file is mutated. (#65)
+
+## [0.27.1] - 2026-07-23
+
+### Added
+
+- Null-safe (`IS NOT DISTINCT FROM`) equality for nullable merge key columns across the PyArrow and DuckDB backends: NULL matches NULL, NULL never matches a non-null value, and composite keys match only when every component matches; native typed fast paths for non-null keys are unchanged, and the former null-key rejection helpers are now backward-compatible no-ops. (#64)
+
+### Fixed
+
+- Null-safe merge key edge cases.
 
 ## [0.27.0] - 2026-07-20
 
