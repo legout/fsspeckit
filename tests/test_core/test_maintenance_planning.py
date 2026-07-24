@@ -24,6 +24,10 @@ from fsspeckit.core.maintenance import (
     PartitionScopeType,
     SchemaOutcome,
     ValidationLevel,
+    _collect_dataset_stats,
+    _parquet_codecs,
+    _reconcile_schema,
+    collect_dataset_stats,
 )
 
 
@@ -620,3 +624,106 @@ class TestPlanImmutability:
             group.files = ()  # type: ignore[misc]
         with pytest.raises(FrozenInstanceError):
             group.files[0].size_bytes = 0  # type: ignore[misc]
+
+
+class TestFooterReadConsolidation:
+    """Issue #66: planning reads each Parquet footer exactly once.
+
+    ``collect_dataset_stats`` captures ``schema_arrow`` and the codec set in
+    the single footer open it already performs for ``num_rows``; the schema
+    and codec consumers reuse that cache instead of re-opening each footer.
+    """
+
+    def test_planning_opens_each_footer_once(self, sample_table, tmp_path, monkeypatch):
+        """A codec-aware planning pass opens each footer once, not three times.
+
+        Before the fix each in-scope file was opened three times during
+        planning (rows + schema + codecs). ``collect_dataset_stats`` now
+        harvests all three from a single open, so the whole pass opens each
+        footer exactly once.
+        """
+        fs = fsspec_filesystem("file")
+        for name in ("a", "b", "c"):
+            pq.write_table(sample_table, str(tmp_path / f"{name}.parquet"))
+
+        original_parquet_file = pq.ParquetFile
+        footer_opens = {"count": 0}
+
+        def counting_parquet_file(*args, **kwargs):
+            footer_opens["count"] += 1
+            return original_parquet_file(*args, **kwargs)
+
+        monkeypatch.setattr(pq, "ParquetFile", counting_parquet_file)
+
+        coordinator = DatasetMaintenanceCoordinator("pyarrow")
+        plan = coordinator.plan_compaction(
+            str(tmp_path), fs, target_rows_per_file=100, codec="zstd"
+        )
+
+        # Three files, one footer open each during the whole planning pass —
+        # down from three per file before consolidation.
+        assert footer_opens["count"] == 3
+        assert len(plan.source_snapshot.files) == 3
+
+    def test_planning_stats_capture_footer_metadata(
+        self, sample_table, tmp_path
+    ):
+        """Planning captures schema + codecs from the single footer open."""
+        fs = fsspec_filesystem("file")
+        path = tmp_path / "gzip.parquet"
+        pq.write_table(sample_table, str(path), compression="gzip")
+
+        result = _collect_dataset_stats(
+            fs, str(tmp_path), None, capture_footer_metadata=True
+        )
+        file_info = result["files"][0]
+
+        assert file_info["num_rows"] == sample_table.num_rows
+        # Cached schema matches a direct footer read.
+        expected_schema = pq.ParquetFile(str(path)).schema_arrow
+        assert file_info["schema_arrow"].equals(expected_schema)
+        # Cached codec set matches a direct footer read.
+        assert file_info["codecs"] == frozenset({"gzip"})
+
+    def test_public_collect_dataset_stats_contract_unchanged(
+        self, sample_table, tmp_path
+    ):
+        """The public stats dict exposes only path/size/num_rows (no footer objects)."""
+        fs = fsspec_filesystem("file")
+        pq.write_table(sample_table, str(tmp_path / "a.parquet"))
+
+        stats = collect_dataset_stats(str(tmp_path), fs)
+        file_info = stats["files"][0]
+
+        # No pyarrow schema/frozenset leaks through the supported public surface.
+        assert set(file_info.keys()) == {"path", "size_bytes", "num_rows"}
+        assert stats["total_rows"] == sample_table.num_rows
+
+    def test_parquet_codecs_uses_cache_without_opening(self):
+        """A cached codec set is returned directly, ignoring the filesystem."""
+        cached = frozenset({"zstd"})
+        assert _parquet_codecs(MemoryFileSystem(), "/ignored.parquet", cached) == cached
+
+    def test_parquet_codecs_falls_back_to_opening(self, sample_table, tmp_path):
+        """Without a cache, _parquet_codecs opens the footer (backwards-compat)."""
+        fs = fsspec_filesystem("file")
+        path = tmp_path / "snappy.parquet"
+        pq.write_table(sample_table, str(path), compression="snappy")
+        assert _parquet_codecs(fs, str(path)) == frozenset({"snappy"})
+
+    def test_reconcile_schema_falls_back_without_cache(self, tmp_path):
+        """file_stats lacking the cached schema still reconcile by opening."""
+        fs = fsspec_filesystem("file")
+        table = pa.table({"a": [1]})
+        a = tmp_path / "a.parquet"
+        b = tmp_path / "b.parquet"
+        pq.write_table(table, str(a))
+        pq.write_table(table, str(b))
+        # file_stats lack the cached "schema_arrow" key, like older callers.
+        file_stats = [
+            {"path": str(a), "size_bytes": 10, "num_rows": 1},
+            {"path": str(b), "size_bytes": 10, "num_rows": 1},
+        ]
+        outcome, schema = _reconcile_schema(fs, file_stats)
+        assert outcome == SchemaOutcome.LOSSLESS_PRESERVED
+        assert schema is not None

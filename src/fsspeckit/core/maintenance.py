@@ -217,6 +217,169 @@ class CompactionGroup:
         return [f.path for f in self.files]
 
 
+def _footer_codecs(metadata: Any) -> frozenset[str]:
+    """Return the normalized per-column compression codecs from a Parquet footer.
+
+    Each column's compression is lower-cased so callers can compare against a
+    normalized target codec (e.g. ``"snappy"``, ``"uncompressed"``).
+    """
+    return frozenset(
+        metadata.row_group(row_group).column(column).compression.lower()
+        for row_group in range(metadata.num_row_groups)
+        for column in range(metadata.num_columns)
+    )
+
+
+def _discover_parquet_files(
+    fs: AbstractFileSystem,
+    path: str,
+    partition_filter: list[str] | None,
+) -> list[str]:
+    """Discover parquet files under *path*, honoring optional partition filters.
+
+    A manual stack walk is used so partition filters apply to the logical
+    relative path. Raises ``FileNotFoundError`` when *path* is missing or no
+    parquet files match the filter.
+    """
+    if not fs.exists(path):
+        raise FileNotFoundError(f"Dataset path '{path}' does not exist")
+
+    root = Path(path)
+    files: list[str] = []
+    stack: list[str] = [path]
+    while stack:
+        current_dir = stack.pop()
+        try:
+            entries = fs.ls(current_dir, detail=False)
+        except (OSError, PermissionError) as e:
+            logger.warning("Failed to list directory '%s': %s", current_dir, e)
+            continue
+
+        for entry in entries:
+            if entry.endswith(".parquet"):
+                files.append(entry)
+            else:
+                try:
+                    if fs.isdir(entry):
+                        stack.append(entry)
+                except (OSError, PermissionError) as e:
+                    logger.warning(
+                        "Failed to check if entry '%s' is a directory: %s", entry, e
+                    )
+                    continue
+
+    if partition_filter:
+        normalized_filters = [p.rstrip("/") for p in partition_filter]
+        files = [
+            filename
+            for filename in files
+            if any(
+                Path(filename).relative_to(root).as_posix().startswith(prefix)
+                for prefix in normalized_filters
+            )
+        ]
+
+    if not files:
+        raise FileNotFoundError(
+            f"No parquet files found under '{path}' matching filter"
+        )
+    return files
+
+
+def _file_size_bytes(fs: AbstractFileSystem, filename: str) -> int:
+    """Best-effort file size in bytes (0 when the filesystem cannot report it)."""
+    try:
+        info = fs.info(filename)
+        if isinstance(info, dict):
+            return int(info.get("size", 0))
+    except (OSError, PermissionError) as e:
+        logger.warning("Failed to get file info for '%s': %s", filename, e)
+    return 0
+
+
+def _read_parquet_footer(
+    fs: AbstractFileSystem,
+    filename: str,
+    *,
+    capture_metadata: bool,
+) -> tuple[int, Any, frozenset[str] | None]:
+    """Read a parquet footer once; return ``(num_rows, schema_arrow, codecs)``.
+
+    The row count, the Arrow schema, and the per-column codecs all come from a
+    single footer open (#66). *schema_arrow* and *codecs* are populated only
+    when *capture_metadata* is true and the footer is readable; otherwise they
+    are ``None`` and a ``read_table`` fallback still recovers the row count.
+    Consumers fall back to opening the footer themselves when the cache is
+    absent.
+    """
+    import pyarrow.parquet as pq
+
+    try:
+        with fs.open(filename, "rb") as fh:
+            parquet_file = pq.ParquetFile(fh)
+            metadata = parquet_file.metadata
+            num_rows = metadata.num_rows
+            if capture_metadata:
+                return num_rows, parquet_file.schema_arrow, _footer_codecs(metadata)
+            return num_rows, None, None
+    except (OSError, PermissionError, RuntimeError, ValueError) as e:
+        # As a fallback, attempt a minimal table read to estimate rows.
+        logger.debug(
+            "Failed to read parquet metadata from '%s', trying fallback: %s",
+            filename,
+            e,
+        )
+        try:
+            with fs.open(filename, "rb") as fh:
+                return pq.read_table(fh).num_rows, None, None
+        except (OSError, PermissionError, RuntimeError, ValueError) as e:
+            logger.debug("Fallback table read failed for '%s': %s", filename, e)
+            return 0, None, None
+
+
+def _collect_dataset_stats(
+    fs: AbstractFileSystem,
+    path: str,
+    partition_filter: list[str] | None,
+    *,
+    capture_footer_metadata: bool,
+) -> dict[str, Any]:
+    """Internal dataset-stats core shared by the public stats and planning paths.
+
+    When *capture_footer_metadata* is true, each file dict additionally carries
+    ``schema_arrow`` and ``codecs`` harvested from the single footer open, so
+    the schema-reconciliation and codec consumers (#66) need not re-open it;
+    otherwise those keys are ``None`` and only the row count is read.
+    """
+    files = _discover_parquet_files(fs, path, partition_filter)
+    file_infos: list[dict[str, Any]] = []
+    total_bytes = 0
+    total_rows = 0
+
+    for filename in files:
+        size_bytes = _file_size_bytes(fs, filename)
+        num_rows, schema_arrow, codecs = _read_parquet_footer(
+            fs, filename, capture_metadata=capture_footer_metadata
+        )
+        total_bytes += size_bytes
+        total_rows += num_rows
+        file_infos.append(
+            {
+                "path": filename,
+                "size_bytes": size_bytes,
+                "num_rows": num_rows,
+                "schema_arrow": schema_arrow,
+                "codecs": codecs,
+            }
+        )
+
+    return {
+        "files": file_infos,
+        "total_bytes": total_bytes,
+        "total_rows": total_rows,
+    }
+
+
 def collect_dataset_stats(
     path: str,
     filesystem: AbstractFileSystem | None = None,
@@ -246,95 +409,25 @@ def collect_dataset_stats(
         FileNotFoundError: If the path does not exist or no parquet files
             match the optional partition filter.
     """
-    import pyarrow.parquet as pq
-
     fs = filesystem or fsspec_filesystem("file")
-
-    if not fs.exists(path):
-        raise FileNotFoundError(f"Dataset path '{path}' does not exist")
-
-    root = Path(path)
-
-    # Discover parquet files recursively via a manual stack walk so we can
-    # respect partition_filter prefixes on the logical relative path.
-    files: list[str] = []
-    stack: list[str] = [path]
-    while stack:
-        current_dir = stack.pop()
-        try:
-            entries = fs.ls(current_dir, detail=False)
-        except (OSError, PermissionError) as e:
-            logger.warning("Failed to list directory '%s': %s", current_dir, e)
-            continue
-
-        for entry in entries:
-            if entry.endswith(".parquet"):
-                files.append(entry)
-            else:
-                try:
-                    if fs.isdir(entry):
-                        stack.append(entry)
-                except (OSError, PermissionError) as e:
-                    logger.warning(
-                        "Failed to check if entry '%s' is a directory: %s", entry, e
-                    )
-                    continue
-
-    if partition_filter:
-        normalized_filters = [p.rstrip("/") for p in partition_filter]
-        filtered_files: list[str] = []
-        for filename in files:
-            rel = Path(filename).relative_to(root).as_posix()
-            if any(rel.startswith(prefix) for prefix in normalized_filters):
-                filtered_files.append(filename)
-        files = filtered_files
-
-    if not files:
-        raise FileNotFoundError(
-            f"No parquet files found under '{path}' matching filter"
-        )
-
-    file_infos: list[dict[str, Any]] = []
-    total_bytes = 0
-    total_rows = 0
-
-    for filename in files:
-        size_bytes = 0
-        try:
-            info = fs.info(filename)
-            if isinstance(info, dict):
-                size_bytes = int(info.get("size", 0))
-        except (OSError, PermissionError) as e:
-            logger.warning("Failed to get file info for '%s': %s", filename, e)
-            size_bytes = 0
-
-        num_rows = 0
-        try:
-            with fs.open(filename, "rb") as fh:
-                pf = pq.ParquetFile(fh)
-                num_rows = pf.metadata.num_rows
-        except (OSError, PermissionError, RuntimeError, ValueError) as e:
-            # As a fallback, attempt a minimal table read to estimate rows.
-            logger.debug(
-                "Failed to read parquet metadata from '%s', trying fallback: %s",
-                filename,
-                e,
-            )
-            try:
-                with fs.open(filename, "rb") as fh:
-                    table = pq.read_table(fh)
-                num_rows = table.num_rows
-            except (OSError, PermissionError, RuntimeError, ValueError) as e:
-                logger.debug("Fallback table read failed for '%s': %s", filename, e)
-                num_rows = 0
-
-        total_bytes += size_bytes
-        total_rows += num_rows
-        file_infos.append(
-            {"path": filename, "size_bytes": size_bytes, "num_rows": num_rows}
-        )
-
-    return {"files": file_infos, "total_bytes": total_bytes, "total_rows": total_rows}
+    result = _collect_dataset_stats(
+        fs, path, partition_filter, capture_footer_metadata=False
+    )
+    # The public contract exposes only path/size/rows per file. Footer schema
+    # and codec metadata are an internal planning cache (#66) and are stripped
+    # here so the supported stats surface stays unchanged.
+    return {
+        "files": [
+            {
+                "path": file_info["path"],
+                "size_bytes": file_info["size_bytes"],
+                "num_rows": file_info["num_rows"],
+            }
+            for file_info in result["files"]
+        ],
+        "total_bytes": result["total_bytes"],
+        "total_rows": result["total_rows"],
+    }
 
 
 def plan_compaction_groups(
@@ -1701,8 +1794,14 @@ def _reconcile_schema(
 
     schemas: list[Any] = []
     for fi in file_stats:
+        # Reuse the schema captured during dataset-stats collection (#66) and
+        # only re-open the footer when that cache is absent.
+        cached_schema = fi.get("schema_arrow")
         try:
-            schemas.append(_read_schema(fi["path"]))
+            if cached_schema is not None:
+                schemas.append(cached_schema)
+            else:
+                schemas.append(_read_schema(fi["path"]))
         except Exception:
             return SchemaOutcome.RECONCILIATION_REQUIRED, None
 
@@ -1762,8 +1861,8 @@ def _prepare_plan_inputs(
     if target_mb_per_file is not None and target_mb_per_file <= 0:
         raise ValueError("target_mb_per_file must be > 0")
     fs = filesystem or fsspec_filesystem("file")
-    file_stats = collect_dataset_stats(
-        dataset_path, fs, partition_filter=partition_filter
+    file_stats = _collect_dataset_stats(
+        fs, dataset_path, partition_filter, capture_footer_metadata=True
     )["files"]
     snapshot = _capture_source_snapshot(fs, dataset_path, file_stats)
     schema_outcome, schema = _reconcile_schema(fs, file_stats)
@@ -1879,18 +1978,20 @@ def _plan_partition_local_compaction_groups(
 def _parquet_codecs(
     filesystem: AbstractFileSystem,
     path: str,
+    cached_codecs: frozenset[str] | None = None,
 ) -> frozenset[str]:
-    """Read normalized compression codecs from a Parquet footer."""
+    """Read normalized compression codecs from a Parquet footer.
+
+    When *cached_codecs* is supplied (captured during dataset-stats
+    collection), it is returned directly without re-opening the footer; the
+    footer is opened only when the cache is absent (#66).
+    """
+    if cached_codecs is not None:
+        return cached_codecs
     import pyarrow.parquet as pq  # noqa: PLC0415
 
     with filesystem.open(path, "rb") as fh:
-        parquet_file = pq.ParquetFile(fh)
-        metadata = parquet_file.metadata
-        return frozenset(
-            metadata.row_group(row_group).column(column).compression.lower()
-            for row_group in range(metadata.num_row_groups)
-            for column in range(metadata.num_columns)
-        )
+        return _footer_codecs(pq.ParquetFile(fh).metadata)
 
 
 # --------------------------------------------------------------------------- #
@@ -8622,7 +8723,10 @@ class DatasetMaintenanceCoordinator:
             force_rewrite_paths = {
                 file_stat["path"]
                 for file_stat in file_stats
-                if _parquet_codecs(fs, file_stat["path"]) != {target_codec}
+                if _parquet_codecs(
+                    fs, file_stat["path"], file_stat.get("codecs")
+                )
+                != {target_codec}
             }
         compaction_groups, skipped_files = _plan_partition_local_compaction(
             file_stats,
