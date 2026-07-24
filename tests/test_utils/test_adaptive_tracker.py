@@ -12,9 +12,8 @@ Tests cover all requirements from openspec fix-pyarrow-streaming-memory-bounds:
 import pytest
 import threading
 import gc
-import os
 from unittest.mock import Mock, patch
-from typing import Any, Dict
+from typing import Any
 
 
 # Mock Bloom Filter implementations for testing when pybloom-live is not available
@@ -658,6 +657,26 @@ class TestBulkIngestion:
 
         for v in (1, 2, 3, 4):
             assert canonical_key_value(v) in tracker
+
+    def test_add_from_arrow_list_typed_column_no_crash(self):
+        """Nested (list) key columns fall back to per-row canonicalization.
+
+        A non-null, non-floating list-typed column must not hit the
+        ``set(zip(...))`` fast path (unhashable lists) -- it falls through to
+        the slow path and produces the same canonical keys as ``canonical_key``.
+        """
+        import pyarrow as pa
+
+        from fsspeckit.core.merge import canonical_key
+        from fsspeckit.datasets.pyarrow.adaptive_tracker import AdaptiveKeyTracker
+
+        arr = pa.array([[1, 2], [3, 4]], type=pa.list_(pa.int64()))
+        tracker = AdaptiveKeyTracker()
+        tracker.add_from_arrow(arr, num_components=1)  # must not raise
+
+        assert canonical_key([1, 2], 1) in tracker
+        assert canonical_key([3, 4], 1) in tracker
+        assert tracker._unique_keys_seen == 2
 
     def test_add_canonical_keys_within_limit(self):
         """Bulk add within the limit stays in EXACT and dedups."""

@@ -6,7 +6,7 @@ Provides tiered storage from exact sets to probabilistic Bloom filters.
 from fsspeckit.common.logging import get_logger
 import threading
 import sys
-from typing import Any, Dict, Iterable, Optional, Set, Tuple, Union
+from typing import Any, Dict, Iterable, Optional, Set
 from collections import OrderedDict
 from itertools import repeat
 
@@ -490,8 +490,15 @@ def _arrow_array_to_canonical_keys(array: Any, num_components: int) -> set:
         values = array.to_pylist()
         if values:
             tag = type(values[0]).__qualname__
-            return set(zip(repeat(tag), values))
-        return set()
+            try:
+                return set(zip(repeat(tag), values))
+            except TypeError:
+                # Unhashable elements (list / struct / nested-typed key
+                # columns) cannot occupy a set; fall through to the per-row
+                # path, which canonicalizes them into hashable tuples.
+                pass
+        else:
+            return set()
 
-    # Slow path: nullable / floating -> null/NaN-safe canonicalization.
+    # Slow path: nullable / floating / nested -> null/NaN-safe canonicalization.
     return {canonical_key(v, 1) for v in array.to_pylist()}
