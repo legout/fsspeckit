@@ -1510,7 +1510,17 @@ def _capture_source_snapshot(
     dataset_path: str,
     file_stats: list[dict[str, Any]],
 ) -> SourceSnapshot:
-    """Capture a lock-free source snapshot for drift detection."""
+    """Capture a lock-free source snapshot for drift detection.
+
+    The snapshot records the *true on-disk file size* reported by
+    ``filesystem.info`` so that drift detection (which re-stats each file at
+    execution time) compares like for like. Pre-collected file stats (#67)
+    may carry an *advisory* size (e.g. a sidecar's compressed
+    ``total_byte_size``) used only for grouping; that advisory size is never
+    trusted for drift. When ``fs.info`` cannot report a size, the supplied
+    size is used as a best-effort fallback (matching the walk path, where the
+    two are identical).
+    """
     root = _resolve_dataset_root(filesystem, dataset_path)
     source_files: list[SourceFileInfo] = []
     total_bytes = 0
@@ -1526,18 +1536,24 @@ def _capture_source_snapshot(
             info = filesystem.info(absolute_path)
         except Exception:
             info = {}
-        token = _content_token(info, size_bytes)
+        # The filesystem's reported size is authoritative for drift; the
+        # caller's advisory size (pre-collected stats) is for grouping only.
+        reported_size = info.get("size", info.get("Size"))
+        snapshot_size = (
+            int(reported_size) if reported_size is not None else size_bytes
+        )
+        token = _content_token(info, snapshot_size)
 
         source_files.append(
             SourceFileInfo(
                 relative_path=relative_path,
                 absolute_path=absolute_path,
-                size_bytes=size_bytes,
+                size_bytes=snapshot_size,
                 num_rows=num_rows,
                 content_token=token,
             )
         )
-        total_bytes += size_bytes
+        total_bytes += snapshot_size
         total_rows += num_rows
 
     return SourceSnapshot(
@@ -1837,6 +1853,91 @@ def _read_input_table(file_handle: Any, target_schema: Any | None) -> Any:
     return table
 
 
+def _normalize_precollected_file_stats(
+    file_stats: list[dict[str, Any]] | list[FileInfo] | None,
+) -> list[dict[str, Any]]:
+    """Validate and normalize caller-supplied file stats into the planning format.
+
+    Each entry must carry the required ``path``, ``size_bytes`` and
+    ``num_rows`` keys (or be a :class:`FileInfo`); an optional
+    ``schema_arrow`` and ``codecs`` snapshot may be supplied so that schema
+    reconciliation and codec selection skip the footer scan (#67). The
+    returned dicts always expose the five internal keys
+    (``schema_arrow``/``codecs`` default to ``None`` when absent).
+    """
+    if file_stats is None:
+        return []
+    normalized: list[dict[str, Any]] = []
+    for entry in file_stats:
+        if isinstance(entry, FileInfo):
+            path = entry.path
+            size_bytes = entry.size_bytes
+            num_rows = entry.num_rows
+            schema_arrow = None
+            codecs = None
+        elif isinstance(entry, dict):
+            missing = {"path", "size_bytes", "num_rows"} - entry.keys()
+            if missing:
+                raise ValueError(
+                    "file_stats entries must include path, size_bytes and "
+                    f"num_rows; missing required key(s): {sorted(missing)}"
+                )
+            path = entry["path"]
+            size_bytes = entry["size_bytes"]
+            num_rows = entry["num_rows"]
+            schema_arrow = entry.get("schema_arrow")
+            codecs = entry.get("codecs")
+        else:
+            raise TypeError(
+                "file_stats entries must be dicts or FileInfo, got "
+                f"{type(entry).__name__}"
+            )
+        if not isinstance(path, str) or not path:
+            raise ValueError("file_stats entries must have a non-empty 'path'")
+        if isinstance(size_bytes, bool) or not isinstance(size_bytes, int) or size_bytes < 0:
+            raise ValueError("file_stats 'size_bytes' must be a non-negative int")
+        if isinstance(num_rows, bool) or not isinstance(num_rows, int) or num_rows < 0:
+            raise ValueError("file_stats 'num_rows' must be a non-negative int")
+        normalized.append(
+            {
+                "path": path,
+                "size_bytes": size_bytes,
+                "num_rows": num_rows,
+                "schema_arrow": schema_arrow,
+                "codecs": codecs,
+            }
+        )
+    return normalized
+
+
+def _apply_partition_filter_to_stats(
+    file_stats: list[dict[str, Any]],
+    partition_filter: list[str] | None,
+    dataset_root: str,
+) -> list[dict[str, Any]]:
+    """Restrict pre-collected file stats to the partition-filter scope.
+
+    Mirrors the relative-path prefix matching performed by
+    :func:`_discover_parquet_files` so that pre-collected stats (#67) honor
+    the same partition-filter semantics as the walked path. Paths outside the
+    dataset root are excluded entirely, matching the walk which only ever
+    yields files under the root.
+    """
+    if not partition_filter:
+        return file_stats
+    normalized_filters = [p.rstrip("/") for p in partition_filter]
+    result: list[dict[str, Any]] = []
+    for file_stat in file_stats:
+        rel = _relative_file_path(file_stat["path"], dataset_root)
+        # _relative_file_path falls back to a basename for paths outside the
+        # root; exclude those so an external file can never match a filter.
+        if rel.startswith(".."):
+            continue
+        if any(rel.startswith(prefix) for prefix in normalized_filters):
+            result.append(file_stat)
+    return result
+
+
 def _prepare_plan_inputs(
     operation: MaintenanceOperation,
     dataset_path: str,
@@ -1846,6 +1947,7 @@ def _prepare_plan_inputs(
     target_mb_per_file: int | None,
     validation_level: ValidationLevel | str | None,
     codec: str | None,
+    file_stats: list[dict[str, Any]] | list[FileInfo] | None = None,
 ) -> tuple[
     AbstractFileSystem,
     list[dict[str, Any]],
@@ -1857,21 +1959,48 @@ def _prepare_plan_inputs(
     int | None,
     ValidationLevel,
 ]:
-    """Collect the common, lock-free planning inputs shared by all operations."""
+    """Collect the common, lock-free planning inputs shared by all operations.
+
+    When *file_stats* is supplied (issue #67), the filesystem walk
+    (:func:`_discover_parquet_files`) and the footer scan
+    (:func:`_collect_dataset_stats`) are skipped entirely: the caller's
+    pre-collected per-file ``{path, size_bytes, num_rows}`` (plus an optional
+    ``schema_arrow``/``codecs`` snapshot) is normalized and used directly.
+    The partition filter, source-snapshot capture, schema reconciliation and
+    grouping still run. Planning performs **zero** footer reads only when the
+    caller also supplies a ``schema_arrow`` (and, for codec-aware compaction,
+    ``codecs``) snapshot; without it, schema reconciliation falls back to
+    opening footers. The source snapshot records the true on-disk size via
+    ``fs.info`` so an advisory sidecar size never breaks drift detection.
+    """
     if target_mb_per_file is not None and target_mb_per_file <= 0:
         raise ValueError("target_mb_per_file must be > 0")
     fs = filesystem or fsspec_filesystem("file")
-    file_stats = _collect_dataset_stats(
-        fs, dataset_path, partition_filter, capture_footer_metadata=True
-    )["files"]
-    snapshot = _capture_source_snapshot(fs, dataset_path, file_stats)
-    schema_outcome, schema = _reconcile_schema(fs, file_stats)
+    if file_stats is not None:
+        # Pre-collected stats skip the fs.ls walk and the footer scan (#67).
+        collected = _normalize_precollected_file_stats(file_stats)
+        if not collected:
+            raise ValueError("file_stats must be a non-empty list")
+        dataset_root = _resolve_dataset_root(fs, dataset_path)
+        collected = _apply_partition_filter_to_stats(
+            collected, partition_filter, dataset_root
+        )
+        if not collected:
+            raise FileNotFoundError(
+                "No parquet files found matching the partition filter"
+            )
+    else:
+        collected = _collect_dataset_stats(
+            fs, dataset_path, partition_filter, capture_footer_metadata=True
+        )["files"]
+    snapshot = _capture_source_snapshot(fs, dataset_path, collected)
+    schema_outcome, schema = _reconcile_schema(fs, collected)
     if schema_outcome == SchemaOutcome.RECONCILIATION_REQUIRED:
         raise ValueError(
             "Schema reconciliation required; the dataset contains incompatible schemas. "
             "Maintenance cannot proceed without a lossless reconciliation."
         )
-    partition_paths = _partition_paths(file_stats, snapshot.dataset_path)
+    partition_paths = _partition_paths(collected, snapshot.dataset_path)
     scope = _partition_scope(
         operation, partition_filter, partition_columns, partition_paths
     )
@@ -1880,7 +2009,7 @@ def _prepare_plan_inputs(
     validation = _coerce_validation_level(validation_level)
     return (
         fs,
-        file_stats,
+        collected,
         snapshot,
         scope,
         schema_outcome,
@@ -8657,6 +8786,7 @@ class DatasetMaintenanceCoordinator:
         target_mb_per_file: int | None,
         validation_level: ValidationLevel | str | None,
         codec: str | None,
+        file_stats: list[dict[str, Any]] | list[FileInfo] | None = None,
     ) -> tuple[
         AbstractFileSystem,
         list[dict[str, Any]],
@@ -8678,6 +8808,7 @@ class DatasetMaintenanceCoordinator:
             target_mb_per_file,
             validation_level,
             codec,
+            file_stats,
         )
 
     def plan_compaction(
@@ -8689,8 +8820,19 @@ class DatasetMaintenanceCoordinator:
         partition_filter: list[str] | None = None,
         validation_level: ValidationLevel | str | None = None,
         codec: str | None = None,
+        file_stats: list[dict[str, Any]] | list[FileInfo] | None = None,
     ) -> CompactionPlan:
-        """Create an immutable compaction plan without modifying files."""
+        """Create an immutable compaction plan without modifying files.
+
+        *file_stats* optionally supplies pre-collected per-file
+        ``{path, size_bytes, num_rows}`` (plus an optional
+        ``schema_arrow``/``codecs`` snapshot) so callers with a Parquet
+        ``_metadata`` sidecar can skip the filesystem walk and footer scan
+        (#67). The partition filter, source-snapshot capture, schema
+        reconciliation and grouping still run. Planning is footer-free only
+        when a schema/codec snapshot is supplied; the source snapshot records
+        the true on-disk size so advisory sizes do not break drift detection.
+        """
         if target_rows_per_file is not None and target_rows_per_file <= 0:
             raise ValueError("target_rows_per_file must be > 0")
         (
@@ -8711,6 +8853,7 @@ class DatasetMaintenanceCoordinator:
             target_mb_per_file,
             validation_level,
             codec,
+            file_stats,
         )
         # Compaction is partition-local for every guarantee level. Cross-
         # partition/global compaction must be an explicit future operation.
@@ -8761,6 +8904,7 @@ class DatasetMaintenanceCoordinator:
         partition_filter: list[str] | None = None,
         validation_level: ValidationLevel | str | None = None,
         codec: str | None = None,
+        file_stats: list[dict[str, Any]] | list[FileInfo] | None = None,
     ) -> PartitionLocalDeduplicationPlan:
         """Create an immutable partition-local deduplication plan."""
         if target_rows_per_file is not None and target_rows_per_file <= 0:
@@ -8783,6 +8927,7 @@ class DatasetMaintenanceCoordinator:
             target_mb_per_file,
             validation_level,
             codec,
+            file_stats,
         )
         normalized_key_columns, normalized_dedup_order_by = (
             validate_deduplication_inputs(key_columns, dedup_order_by)
@@ -8823,6 +8968,7 @@ class DatasetMaintenanceCoordinator:
         codec: str | None = None,
         derived_partition_columns: dict[str, tuple[str, ...]] | None = None,
         partition_timezone: str = "UTC",
+        file_stats: list[dict[str, Any]] | list[FileInfo] | None = None,
     ) -> GlobalRepartitionDeduplicationPlan:
         """Create an immutable global-repartitioning deduplication plan."""
         if target_rows_per_file is not None and target_rows_per_file <= 0:
@@ -8854,6 +9000,7 @@ class DatasetMaintenanceCoordinator:
             target_mb_per_file,
             validation_level,
             codec,
+            file_stats,
         )
         if schema is None:
             raise ValueError("Global repartitioning requires a readable source schema")
@@ -8927,6 +9074,7 @@ class DatasetMaintenanceCoordinator:
         derived_partition_columns: dict[str, tuple[str, ...]] | None = None,
         partition_timezone: str = "UTC",
         memory_budget_mb: int | None = None,
+        file_stats: list[dict[str, Any]] | list[FileInfo] | None = None,
     ) -> RepartitionPlan:
         """Create an immutable pure full-dataset repartition plan (#60).
 
@@ -8990,6 +9138,7 @@ class DatasetMaintenanceCoordinator:
             target_mb_per_file,
             validation_level,
             codec,
+            file_stats,
         )
         if schema is None:
             raise ValueError("Pure repartition requires a readable source schema")
@@ -9055,6 +9204,7 @@ class DatasetMaintenanceCoordinator:
         codec: str | None = None,
         memory_budget_mb: int | None = None,
         spill_directory: str | None = None,
+        file_stats: list[dict[str, Any]] | list[FileInfo] | None = None,
     ) -> OrderedCompactionPlan:
         """Create an immutable partition-ordered compaction plan (#61).
 
@@ -9113,6 +9263,7 @@ class DatasetMaintenanceCoordinator:
             target_mb_per_file,
             validation_level,
             codec,
+            file_stats,
         )
         if schema is None:
             raise ValueError("Ordered compaction requires a readable source schema")
@@ -9163,6 +9314,7 @@ class DatasetMaintenanceCoordinator:
         partition_filter: list[str] | None = None,
         validation_level: ValidationLevel | str | None = None,
         codec: str | None = None,
+        file_stats: list[dict[str, Any]] | list[FileInfo] | None = None,
     ) -> CoordinatedOptimizationPlan:
         """Create an immutable coordinated optimization plan.
 
@@ -9190,6 +9342,7 @@ class DatasetMaintenanceCoordinator:
             target_mb_per_file,
             validation_level,
             codec,
+            file_stats,
         )
         if dedup_key_columns is not None:
             normalized_key_columns, normalized_dedup_order_by = (
@@ -9239,6 +9392,7 @@ class DatasetMaintenanceCoordinator:
         validation_level: ValidationLevel | str | None = None,
         codec: str | None = None,
         memory_budget_mb: int | None = None,
+        file_stats: list[dict[str, Any]] | list[FileInfo] | None = None,
     ) -> SchemaRewritePlan:
         """Create an immutable caller-directed schema rewrite plan (#62).
 
@@ -9290,6 +9444,7 @@ class DatasetMaintenanceCoordinator:
             target_mb_per_file,
             validation_level,
             codec,
+            file_stats,
         )
         if schema is None:
             raise ValueError(

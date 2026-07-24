@@ -17,6 +17,7 @@ from fsspeckit.core.maintenance import (
     CompactionSkipReason,
     CoordinatedOptimizationPlan,
     DatasetMaintenanceCoordinator,
+    FileInfo,
     GlobalRepartitionDeduplicationPlan,
     GuaranteeLevel,
     MaintenanceBackend,
@@ -91,7 +92,7 @@ class TestCoordinatorPlanning:
             str(tmp_path), fs, target_rows_per_file=100
         )
 
-        assert plan.compaction_groups == ()
+        assert not plan.compaction_groups
         assert len(plan.skipped_files) == 1
         assert plan.skipped_files[0].reason == CompactionSkipReason.SINGLETON_PARTITION
         assert plan.skipped_files[0].file.path.endswith("healthy.parquet")
@@ -112,7 +113,7 @@ class TestCoordinatorPlanning:
         )
 
         assert len(plan.compaction_groups) == 1
-        assert plan.skipped_files == ()
+        assert not plan.skipped_files
         result = coordinator.execute(plan)
         assert result.succeeded, result.error
 
@@ -665,9 +666,7 @@ class TestFooterReadConsolidation:
         assert footer_opens["count"] == 3
         assert len(plan.source_snapshot.files) == 3
 
-    def test_planning_stats_capture_footer_metadata(
-        self, sample_table, tmp_path
-    ):
+    def test_planning_stats_capture_footer_metadata(self, sample_table, tmp_path):
         """Planning captures schema + codecs from the single footer open."""
         fs = fsspec_filesystem("file")
         path = tmp_path / "gzip.parquet"
@@ -727,3 +726,386 @@ class TestFooterReadConsolidation:
         outcome, schema = _reconcile_schema(fs, file_stats)
         assert outcome == SchemaOutcome.LOSSLESS_PRESERVED
         assert schema is not None
+
+
+class TestPrecollectedFileStats:
+    """Issue #67: planning accepts pre-collected file stats to skip the footer scan.
+
+    Callers that maintain a Parquet ``_metadata`` sidecar (e.g. pydala2) can
+    hand per-file ``{path, size_bytes, num_rows}`` plus an optional
+    schema/codec snapshot to the planner. When supplied, planning skips the
+    ``fs.ls`` walk and the footer scan while still applying the partition
+    filter, source-snapshot capture, schema reconciliation, and grouping.
+    """
+
+    def test_planning_skips_walk_and_footer_scan(
+        self, sample_table, tmp_path, monkeypatch
+    ):
+        """Supplying file_stats performs zero fs.ls walks and zero footer opens."""
+        fs = fsspec_filesystem("file")
+        for name in ("a", "b"):
+            pq.write_table(sample_table, str(tmp_path / f"{name}.parquet"))
+
+        # Capture a real schema from one file to simulate a sidecar snapshot.
+        schema = pq.ParquetFile(str(tmp_path / "a.parquet")).schema_arrow
+        file_stats = [
+            {
+                "path": str(tmp_path / "a.parquet"),
+                "size_bytes": (tmp_path / "a.parquet").stat().st_size,
+                "num_rows": sample_table.num_rows,
+                "schema_arrow": schema,
+                "codecs": frozenset({"snappy"}),
+            },
+            {
+                "path": str(tmp_path / "b.parquet"),
+                "size_bytes": (tmp_path / "b.parquet").stat().st_size,
+                "num_rows": sample_table.num_rows,
+                "schema_arrow": schema,
+                "codecs": frozenset({"snappy"}),
+            },
+        ]
+
+        original_parquet_file = pq.ParquetFile
+        footer_opens = {"count": 0}
+
+        def counting_parquet_file(*args, **kwargs):
+            footer_opens["count"] += 1
+            return original_parquet_file(*args, **kwargs)
+
+        import fsspeckit.core.maintenance as maint
+
+        walk_calls = {"count": 0}
+        original_discover = maint._discover_parquet_files
+
+        def counting_discover(*args, **kwargs):
+            walk_calls["count"] += 1
+            return original_discover(*args, **kwargs)
+
+        monkeypatch.setattr(pq, "ParquetFile", counting_parquet_file)
+        monkeypatch.setattr(maint, "_discover_parquet_files", counting_discover)
+
+        coordinator = DatasetMaintenanceCoordinator("pyarrow")
+        plan = coordinator.plan_compaction(
+            str(tmp_path), fs, target_rows_per_file=100, file_stats=file_stats
+        )
+
+        # Zero footer opens and zero directory walks — the whole win of #67.
+        assert footer_opens["count"] == 0
+        assert walk_calls["count"] == 0
+        assert len(plan.source_snapshot.files) == 2
+        assert plan.source_snapshot.total_rows == sample_table.num_rows * 2
+        assert plan.schema_outcome == SchemaOutcome.LOSSLESS_PRESERVED
+
+    def test_planning_still_applies_partition_filter(self, sample_table, tmp_path):
+        """partition_filter restricts pre-collected stats to matching partitions."""
+        fs = fsspec_filesystem("file")
+        (tmp_path / "date=2025-01-01").mkdir()
+        (tmp_path / "date=2025-01-02").mkdir()
+        pq.write_table(
+            sample_table, str(tmp_path / "date=2025-01-01" / "a.parquet")
+        )
+        pq.write_table(
+            sample_table, str(tmp_path / "date=2025-01-02" / "b.parquet")
+        )
+
+        file_stats = [
+            {
+                "path": str(tmp_path / "date=2025-01-01" / "a.parquet"),
+                "size_bytes": 10,
+                "num_rows": sample_table.num_rows,
+            },
+            {
+                "path": str(tmp_path / "date=2025-01-02" / "b.parquet"),
+                "size_bytes": 10,
+                "num_rows": sample_table.num_rows,
+            },
+        ]
+
+        plan = DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+            str(tmp_path),
+            fs,
+            target_rows_per_file=100,
+            partition_filter=["date=2025-01-01"],
+            file_stats=file_stats,
+        )
+
+        scoped_paths = {f.absolute_path for f in plan.source_snapshot.files}
+        assert len(scoped_paths) == 1
+        assert str(tmp_path / "date=2025-01-01" / "a.parquet") in scoped_paths
+        assert plan.partition_scope.scope_type == PartitionScopeType.FILTERED
+
+    def test_planning_uses_supplied_schema_without_footer_reads(
+        self, sample_table, tmp_path
+    ):
+        """A supplied schema_arrow makes schema reconciliation footer-free."""
+        fs = fsspec_filesystem("file")
+        pq.write_table(sample_table, str(tmp_path / "a.parquet"))
+        schema = pq.ParquetFile(str(tmp_path / "a.parquet")).schema_arrow
+
+        file_stats = [
+            {
+                "path": str(tmp_path / "a.parquet"),
+                "size_bytes": 10,
+                "num_rows": sample_table.num_rows,
+                "schema_arrow": schema,
+            }
+        ]
+
+        footer_opens = {"count": 0}
+        original_parquet_file = pq.ParquetFile
+
+        def counting_parquet_file(*args, **kwargs):
+            footer_opens["count"] += 1
+            return original_parquet_file(*args, **kwargs)
+
+        pq.ParquetFile = counting_parquet_file
+        try:
+            plan = DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+                str(tmp_path), fs, target_rows_per_file=100, file_stats=file_stats
+            )
+        finally:
+            pq.ParquetFile = original_parquet_file
+
+        assert footer_opens["count"] == 0
+        assert plan.schema is not None
+        assert plan.schema.equals(schema)
+
+    def test_codec_aware_planning_uses_supplied_codecs(self, sample_table, tmp_path):
+        """Supplied codecs drive force-rewrite without reopening the footer."""
+        fs = fsspec_filesystem("file")
+        pq.write_table(sample_table, str(tmp_path / "a.parquet"))
+        schema = pq.ParquetFile(str(tmp_path / "a.parquet")).schema_arrow
+
+        file_stats = [
+            {
+                "path": str(tmp_path / "a.parquet"),
+                "size_bytes": 10,
+                "num_rows": sample_table.num_rows,
+                "schema_arrow": schema,
+                "codecs": frozenset({"gzip"}),
+            }
+        ]
+
+        footer_opens = {"count": 0}
+        original_parquet_file = pq.ParquetFile
+
+        def counting_parquet_file(*args, **kwargs):
+            footer_opens["count"] += 1
+            return original_parquet_file(*args, **kwargs)
+
+        pq.ParquetFile = counting_parquet_file
+        try:
+            plan = DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+                str(tmp_path),
+                fs,
+                target_rows_per_file=100,
+                codec="zstd",
+                file_stats=file_stats,
+            )
+        finally:
+            pq.ParquetFile = original_parquet_file
+
+        # The mismatched cached codec forces the singleton into a rewrite group.
+        assert footer_opens["count"] == 0
+        assert len(plan.compaction_groups) == 1
+
+    def test_file_stats_accepts_fileinfo_objects(self, sample_table, tmp_path):
+        """FileInfo objects are accepted alongside dicts."""
+        fs = fsspec_filesystem("file")
+        pq.write_table(sample_table, str(tmp_path / "a.parquet"))
+
+        file_stats = [
+            FileInfo(
+                path=str(tmp_path / "a.parquet"),
+                size_bytes=10,
+                num_rows=sample_table.num_rows,
+            )
+        ]
+
+        plan = DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+            str(tmp_path), fs, target_rows_per_file=100, file_stats=file_stats
+        )
+        assert len(plan.source_snapshot.files) == 1
+
+    def test_empty_after_partition_filter_raises(self, sample_table, tmp_path):
+        """Stats matching no partition filter raise FileNotFoundError."""
+        fs = fsspec_filesystem("file")
+        file_stats = [
+            {
+                "path": str(tmp_path / "date=2025-01-01" / "a.parquet"),
+                "size_bytes": 10,
+                "num_rows": 1,
+            }
+        ]
+        with pytest.raises(FileNotFoundError):
+            DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+                str(tmp_path),
+                fs,
+                partition_filter=["date=2099-01-01"],
+                file_stats=file_stats,
+            )
+
+    def test_empty_file_stats_list_raises(self, sample_table, tmp_path):
+        """An explicitly empty file_stats list is a ValueError, not a walk."""
+        fs = fsspec_filesystem("file")
+        with pytest.raises(ValueError, match="non-empty"):
+            DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+                str(tmp_path), fs, file_stats=[]
+            )
+
+    @pytest.mark.parametrize("missing", ["size_bytes", "num_rows"])
+    def test_missing_required_key_raises(self, sample_table, tmp_path, missing):
+        """Each entry must carry path, size_bytes and num_rows."""
+        fs = fsspec_filesystem("file")
+        entry = {"path": str(tmp_path / "a.parquet"), "size_bytes": 1, "num_rows": 1}
+        entry.pop(missing)
+        with pytest.raises(ValueError, match="must include"):
+            DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+                str(tmp_path), fs, file_stats=[entry]
+            )
+
+    def test_negative_values_raise(self, sample_table, tmp_path):
+        """Negative size_bytes or num_rows are rejected."""
+        fs = fsspec_filesystem("file")
+        entry = {
+            "path": str(tmp_path / "a.parquet"),
+            "size_bytes": -1,
+            "num_rows": 1,
+        }
+        with pytest.raises(ValueError, match="non-negative"):
+            DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+                str(tmp_path), fs, file_stats=[entry]
+            )
+
+    def test_repartition_threads_file_stats(self, sample_table, tmp_path):
+        """file_stats is threaded through plan_repartition (no partition_filter)."""
+        fs = fsspec_filesystem("file")
+        for name in ("a", "b"):
+            pq.write_table(
+                pa.table({"id": [1, 2], "region": ["eu", "us"]}),
+                str(tmp_path / f"{name}.parquet"),
+            )
+        schema = pq.ParquetFile(str(tmp_path / "a.parquet")).schema_arrow
+        file_stats = [
+            {
+                "path": str(tmp_path / "a.parquet"),
+                "size_bytes": 10,
+                "num_rows": 2,
+                "schema_arrow": schema,
+            },
+            {
+                "path": str(tmp_path / "b.parquet"),
+                "size_bytes": 10,
+                "num_rows": 2,
+                "schema_arrow": schema,
+            },
+        ]
+        from fsspeckit.core.maintenance import RepartitionPlan
+
+        plan = DatasetMaintenanceCoordinator("pyarrow").plan_repartition(
+            str(tmp_path),
+            partition_columns=["region"],
+            filesystem=fs,
+            file_stats=file_stats,
+        )
+        assert isinstance(plan, RepartitionPlan)
+        assert len(plan.source_snapshot.files) == 2
+
+    def test_execute_plan_from_advisory_sizes_no_false_drift(
+        self, sample_table, tmp_path
+    ):
+        """A plan built from advisory sizes executes without false drift.
+
+        The source snapshot records the true on-disk size (via fs.info), so
+        an advisory sidecar ``size_bytes`` used only for grouping never trips
+        drift detection at execution time (#67).
+        """
+        fs = fsspec_filesystem("file")
+        for name in ("a", "b"):
+            pq.write_table(sample_table, str(tmp_path / f"{name}.parquet"))
+        schema = pq.ParquetFile(str(tmp_path / "a.parquet")).schema_arrow
+
+        # Advisory size_bytes deliberately wrong (1) vs the real on-disk size.
+        file_stats = [
+            {
+                "path": str(tmp_path / "a.parquet"),
+                "size_bytes": 1,
+                "num_rows": sample_table.num_rows,
+                "schema_arrow": schema,
+                "codecs": frozenset({"snappy"}),
+            },
+            {
+                "path": str(tmp_path / "b.parquet"),
+                "size_bytes": 1,
+                "num_rows": sample_table.num_rows,
+                "schema_arrow": schema,
+                "codecs": frozenset({"snappy"}),
+            },
+        ]
+        coordinator = DatasetMaintenanceCoordinator("pyarrow")
+        plan = coordinator.plan_compaction(
+            str(tmp_path), fs, target_rows_per_file=100, file_stats=file_stats
+        )
+        # The snapshot size is the real on-disk size, not the advisory 1.
+        assert all(f.size_bytes > 1 for f in plan.source_snapshot.files)
+        result = coordinator.execute(plan)  # nosec B608 - not a SQL sink
+        assert result.succeeded, result.error
+
+    def test_three_key_only_stats_still_open_footer_for_schema(
+        self, sample_table, tmp_path
+    ):
+        """Without a supplied schema, reconciliation falls back to the footer.
+
+        The required three keys {path, size_bytes, num_rows} skip the walk but
+        not the schema read; zero-footer planning needs the optional snapshot.
+        """
+        fs = fsspec_filesystem("file")
+        pq.write_table(sample_table, str(tmp_path / "a.parquet"))
+        file_stats = [
+            {
+                "path": str(tmp_path / "a.parquet"),
+                "size_bytes": (tmp_path / "a.parquet").stat().st_size,
+                "num_rows": sample_table.num_rows,
+            }
+        ]
+        footer_opens = {"count": 0}
+        original_parquet_file = pq.ParquetFile
+
+        def counting_parquet_file(*args, **kwargs):
+            footer_opens["count"] += 1
+            return original_parquet_file(*args, **kwargs)
+
+        pq.ParquetFile = counting_parquet_file
+        try:
+            DatasetMaintenanceCoordinator("pyarrow").plan_compaction(
+                str(tmp_path), fs, target_rows_per_file=100, file_stats=file_stats
+            )
+        finally:
+            pq.ParquetFile = original_parquet_file
+        # Schema reconciliation opened the footer (no snapshot was supplied).
+        assert footer_opens["count"] >= 1
+
+    def test_file_stats_threaded_through_dedup_and_ordered(self, sample_table, tmp_path):
+        """file_stats threads through deduplication and ordered-compaction too."""
+        fs = fsspec_filesystem("file")
+        for name in ("a", "b"):
+            pq.write_table(sample_table, str(tmp_path / f"{name}.parquet"))
+        schema = pq.ParquetFile(str(tmp_path / "a.parquet")).schema_arrow
+        file_stats = [
+            {
+                "path": str(tmp_path / f"{name}.parquet"),
+                "size_bytes": (tmp_path / f"{name}.parquet").stat().st_size,
+                "num_rows": sample_table.num_rows,
+                "schema_arrow": schema,
+            }
+            for name in ("a", "b")
+        ]
+        coordinator = DatasetMaintenanceCoordinator("pyarrow")
+        dedup_plan = coordinator.plan_partition_local_deduplication(
+            str(tmp_path), fs, key_columns=["a"], file_stats=file_stats
+        )
+        assert len(dedup_plan.source_snapshot.files) == 2
+        ordered_plan = coordinator.plan_ordered_compaction(
+            str(tmp_path), sort_keys=["a"], filesystem=fs, file_stats=file_stats
+        )
+        assert len(ordered_plan.source_snapshot.files) == 2
