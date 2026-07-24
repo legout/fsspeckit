@@ -254,9 +254,7 @@ class TestBestEffortCompactionSuccess:
         # Sources were deleted; output preserves all values.
         assert not fs.exists(f"{root}/a.parquet")
         assert not fs.exists(f"{root}/b.parquet")
-        total = sum(
-            _row_count(fs, key) for key in result.copied_live_keys
-        )
+        total = sum(_row_count(fs, key) for key in result.copied_live_keys)
         assert total == 3
 
     def test_partitioned_compaction_preserves_hive_layout(self):

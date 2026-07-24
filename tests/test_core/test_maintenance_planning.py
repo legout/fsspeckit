@@ -398,9 +398,7 @@ class TestSchemaReconciliation:
         fs = MemoryFileSystem()
         fs.pipe(
             f"{root}/a.parquet",
-            _parquet_bytes(
-                pa.table({"value": pa.array(["a"], type=pa.string())})
-            ),
+            _parquet_bytes(pa.table({"value": pa.array(["a"], type=pa.string())})),
         )
         fs.pipe(
             f"{root}/b.parquet",
@@ -424,9 +422,7 @@ class TestSchemaReconciliation:
         fs = MemoryFileSystem()
         fs.pipe(
             f"{root}/a.parquet",
-            _parquet_bytes(
-                pa.table({"value": pa.array([b"a"], type=pa.binary())})
-            ),
+            _parquet_bytes(pa.table({"value": pa.array([b"a"], type=pa.binary())})),
         )
         fs.pipe(
             f"{root}/b.parquet",
@@ -451,9 +447,7 @@ class TestSchemaReconciliation:
         fs.pipe(
             f"{root}/a.parquet",
             _parquet_bytes(
-                pa.table(
-                    {"value": pa.array([["a"]], type=pa.list_(pa.string()))}
-                )
+                pa.table({"value": pa.array([["a"]], type=pa.list_(pa.string()))})
             ),
         )
         fs.pipe(
@@ -525,9 +519,7 @@ class TestSchemaReconciliation:
         base = pa.table(
             {"value": pa.array(["a"], type=pa.string())},
         )
-        with_meta = base.replace_schema_metadata(
-            None
-        ).cast(
+        with_meta = base.replace_schema_metadata(None).cast(
             pa.schema([pa.field("value", pa.string(), metadata={b"k": b"v"})])
         )
         fs.pipe(f"{root}/a.parquet", _parquet_bytes(base))
@@ -546,20 +538,14 @@ class TestSchemaReconciliation:
         fs.pipe(
             f"{root}/a.parquet",
             _parquet_bytes(
-                pa.table(
-                    {"nested": pa.array([["a"]], type=pa.list_(matching_meta))}
-                )
+                pa.table({"nested": pa.array([["a"]], type=pa.list_(matching_meta))})
             ),
         )
         fs.pipe(
             f"{root}/b.parquet",
             _parquet_bytes(
                 pa.table(
-                    {
-                        "nested": pa.array(
-                            [["b"]], type=pa.large_list(conflicting_meta)
-                        )
-                    }
+                    {"nested": pa.array([["b"]], type=pa.large_list(conflicting_meta))}
                 )
             ),
         )
@@ -575,16 +561,16 @@ class TestSchemaReconciliation:
         fs.pipe(
             f"{root}/a.parquet",
             _parquet_bytes(
-                pa.table(
-                    {"value": pa.array(["a"], type=pa.string())}
-                ).cast(
+                pa.table({"value": pa.array(["a"], type=pa.string())}).cast(
                     pa.schema([pa.field("value", pa.string(), nullable=False)])
                 )
             ),
         )
         fs.pipe(
             f"{root}/b.parquet",
-            _parquet_bytes(pa.table({"value": pa.array(["b"], type=pa.large_string())})),
+            _parquet_bytes(
+                pa.table({"value": pa.array(["b"], type=pa.large_string())})
+            ),
         )
 
         coordinator = DatasetMaintenanceCoordinator("pyarrow")

@@ -1584,9 +1584,7 @@ def _lossless_common_type(left: Any, right: Any) -> Any | None:
     left_large_list = pa.types.is_large_list(left)
     right_large_list = pa.types.is_large_list(right)
     if (left_list or left_large_list) and (right_list or right_large_list):
-        common_value_field = _lossless_common_field(
-            left.value_field, right.value_field
-        )
+        common_value_field = _lossless_common_field(left.value_field, right.value_field)
         if common_value_field is None:
             return None
         # Prefer the large variant when either side is large_list, matching
@@ -4572,9 +4570,7 @@ def _schema_rewrite_changed_fields(
     target_schema: pa.Schema,
 ) -> tuple[str, ...]:
     """Return the tuple of field names whose Arrow type changes."""
-    source_types: dict[str, pa.DataType] = {
-        f.name: f.type for f in source_schema
-    }
+    source_types: dict[str, pa.DataType] = {f.name: f.type for f in source_schema}
     changed: list[str] = []
     for f in target_schema:
         source_type = source_types.get(f.name)

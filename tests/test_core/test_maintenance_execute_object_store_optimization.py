@@ -296,7 +296,9 @@ class TestStagePhaseFailurePreventsDeletion:
         coordinator = DatasetMaintenanceCoordinator(MaintenanceBackend.PYARROW)
 
         # Patch pq.write_table to fail during staging
-        with patch("pyarrow.parquet.write_table", side_effect=RuntimeError("disk full")):
+        with patch(
+            "pyarrow.parquet.write_table", side_effect=RuntimeError("disk full")
+        ):
             result = coordinator.execute(plan, filesystem=fs)
 
         assert not result.succeeded
@@ -347,9 +349,7 @@ class TestDriftPreventsSourceDeletion:
         assert result.drift_detected
 
         # Drift check phase failed
-        drift_phase = next(
-            p for p in result.phase_outcomes if p.phase == "drift_check"
-        )
+        drift_phase = next(p for p in result.phase_outcomes if p.phase == "drift_check")
         assert not drift_phase.succeeded
         assert drift_phase.error is not None
 
@@ -389,9 +389,7 @@ class TestCopyFailurePreventsSourceDeletion:
         assert len(result.failed_copies) > 0
 
         # Publish phase failed
-        publish_phase = next(
-            p for p in result.phase_outcomes if p.phase == "publish"
-        )
+        publish_phase = next(p for p in result.phase_outcomes if p.phase == "publish")
         assert not publish_phase.succeeded
 
         # Staging retained as recovery artifact
@@ -574,9 +572,7 @@ class TestMaxRowsPerFileBound:
 
         assert result.succeeded
         # 5 rows / 2 per file = 3 files (2 + 2 + 1)
-        live_files = [
-            p for p in fs.find(root) if p.endswith(".parquet")
-        ]
+        live_files = [p for p in fs.find(root) if p.endswith(".parquet")]
         assert len(live_files) == 3
         for path in live_files:
             assert _row_count(fs, path) <= 2
