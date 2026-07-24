@@ -26,6 +26,7 @@ from fsspeckit.core.maintenance import (
     SchemaOutcome,
     ValidationLevel,
     _collect_dataset_stats,
+    _discover_parquet_files,
     _parquet_codecs,
     _reconcile_schema,
     collect_dataset_stats,
@@ -1107,3 +1108,230 @@ class TestPrecollectedFileStats:
             str(tmp_path), sort_keys=["a"], filesystem=fs, file_stats=file_stats
         )
         assert len(ordered_plan.source_snapshot.files) == 2
+
+
+class TestPartitionFilterScopedWalk:
+    """Issue #68: the directory walk is scoped to partition_filter subtrees."""
+
+    def _recording_fs(self, fs, listed):
+        original_ls = fs.ls
+
+        def recording_ls(path, *args, **kwargs):
+            listed.append(path)
+            return original_ls(path, *args, **kwargs)
+
+        fs.ls = recording_ls
+        return fs
+
+    def test_walk_skips_out_of_scope_partitions(self, sample_table):
+        """With a partition_filter, out-of-scope partition dirs are never listed."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        for part in ("part=1", "part=2", "part=3"):
+            fs.pipe(f"{root}/{part}/a.parquet", _parquet_bytes(sample_table))
+
+        listed: list[str] = []
+        self._recording_fs(fs, listed)
+
+        files = _discover_parquet_files(fs, root, partition_filter=["part=2"])
+
+        listed_rel = {posixpath.relpath(d, root) for d in listed}
+        # The dataset root is never listed, and sibling partitions are skipped.
+        assert "." not in listed_rel
+        assert "part=1" not in listed_rel
+        assert "part=3" not in listed_rel
+        assert "part=2" in listed_rel
+        # Only the in-scope file is returned (path, size_bytes) pair.
+        assert len(files) == 1
+        assert files[0][0].endswith("part=2/a.parquet")
+
+    def test_scoped_walk_with_multiple_filters(self, sample_table):
+        """Multiple partition filters list each matching subtree only."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        for part in ("part=1", "part=2", "part=3"):
+            fs.pipe(f"{root}/{part}/a.parquet", _parquet_bytes(sample_table))
+
+        listed: list[str] = []
+        self._recording_fs(fs, listed)
+
+        files = _discover_parquet_files(
+            fs, root, partition_filter=["part=1", "part=3"]
+        )
+
+        listed_rel = {posixpath.relpath(d, root) for d in listed}
+        assert "part=1" in listed_rel
+        assert "part=3" in listed_rel
+        assert "part=2" not in listed_rel
+        assert "." not in listed_rel
+        assert len(files) == 2
+        matched_parts = {posixpath.dirname(posixpath.relpath(p, root)) for p, _ in files}
+        assert matched_parts == {"part=1", "part=3"}
+
+    def test_scoped_walk_descends_nested_partition(self, sample_table):
+        """A nested partition prefix scopes to that nested subtree."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        fs.pipe(f"{root}/region=emea/year=2024/a.parquet", _parquet_bytes(sample_table))
+        fs.pipe(f"{root}/region=emea/year=2025/b.parquet", _parquet_bytes(sample_table))
+        fs.pipe(f"{root}/region=us/year=2024/c.parquet", _parquet_bytes(sample_table))
+
+        listed: list[str] = []
+        self._recording_fs(fs, listed)
+
+        files = _discover_parquet_files(
+            fs, root, partition_filter=["region=emea/year=2024"]
+        )
+
+        listed_rel = {posixpath.relpath(d, root) for d in listed}
+        assert "region=emea/year=2024" in listed_rel
+        assert "region=emea/year=2025" not in listed_rel
+        assert "region=us/year=2024" not in listed_rel
+        assert len(files) == 1
+        assert files[0][0].endswith("region=emea/year=2024/a.parquet")
+
+    def test_full_walk_without_filter(self, sample_table):
+        """Without a filter the walk starts from the dataset root."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        fs.pipe(f"{root}/part=1/a.parquet", _parquet_bytes(sample_table))
+        fs.pipe(f"{root}/part=2/b.parquet", _parquet_bytes(sample_table))
+
+        listed: list[str] = []
+        self._recording_fs(fs, listed)
+
+        files = _discover_parquet_files(fs, root, partition_filter=None)
+        assert root in listed
+        assert len(files) == 2
+
+    def test_fallback_full_walk_when_filter_not_existing_dir(self, sample_table):
+        """A filter that is not an existing directory falls back to a full walk."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        fs.pipe(f"{root}/part=1/a.parquet", _parquet_bytes(sample_table))
+        fs.pipe(f"{root}/part=2/b.parquet", _parquet_bytes(sample_table))
+
+        listed: list[str] = []
+        self._recording_fs(fs, listed)
+
+        # 'part=99' is not a directory → full walk + string prefix filter,
+        # which matches nothing → FileNotFoundError.
+        with pytest.raises(FileNotFoundError):
+            _discover_parquet_files(fs, root, partition_filter=["part=99"])
+        # The full walk DID list the dataset root (fallback path taken).
+        assert root in listed
+
+    def test_scoped_walk_returns_sizes(self, sample_table):
+        """The scoped walk reports per-file sizes alongside paths."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        payload = _parquet_bytes(sample_table)
+        fs.pipe(f"{root}/part=1/a.parquet", payload)
+        fs.pipe(f"{root}/part=1/b.parquet", payload)
+        fs.pipe(f"{root}/part=2/c.parquet", payload)
+
+        files = _discover_parquet_files(fs, root, partition_filter=["part=1"])
+        assert len(files) == 2
+        for _path, size_bytes in files:
+            assert size_bytes == len(payload)
+
+
+class TestStatsRoundTrips:
+    """Issue #69: fewer per-file remote round-trips during planning."""
+
+    def test_sizes_come_from_listing_not_fs_info(self, sample_table):
+        """File sizes come from the listing; fs.info is not called per file.
+
+        Per-file ``fs.info`` round-trips are gone (#69 part 1): sizes are read
+        from the ``fs.ls(detail=True)`` listing. The only remaining ``fs.info``
+        call is the single ``fs.exists`` existence check, so the count is O(1)
+        regardless of how many files are collected.
+        """
+        payload = _parquet_bytes(sample_table)
+
+        def count_info_calls(n_files):
+            root = _memory_root()
+            fs = MemoryFileSystem()
+            for i in range(n_files):
+                fs.pipe(f"{root}/f{i}.parquet", payload)
+
+            info_calls = {"count": 0}
+            original_info = fs.info
+
+            def counting_info(path, *args, **kwargs):
+                info_calls["count"] += 1
+                return original_info(path, *args, **kwargs)
+
+            fs.info = counting_info
+            result = _collect_dataset_stats(
+                fs, root, None, capture_footer_metadata=False
+            )
+            return info_calls["count"], result
+
+        count2, result2 = count_info_calls(2)
+        count4, result4 = count_info_calls(4)
+
+        # fs.info is O(1): the single existence check, not one call per file.
+        assert count2 == count4
+        assert count2 <= 1
+        # Sizes were populated from the listing for every file.
+        assert all(f["size_bytes"] == len(payload) for f in result2["files"])
+        assert all(f["size_bytes"] == len(payload) for f in result4["files"])
+        assert result2["total_bytes"] == len(payload) * 2
+        assert result4["total_bytes"] == len(payload) * 4
+
+    def test_parallel_footer_reads_match_serial(self, sample_table, monkeypatch):
+        """Parallel footer reads produce identical stats to a serial pass."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        payload = _parquet_bytes(sample_table)
+        for part in ("part=1", "part=2", "part=3", "part=4"):
+            fs.pipe(f"{root}/{part}/a.parquet", payload)
+
+        import fsspeckit.core.maintenance as maint
+
+        def comparable(result):
+            return [
+                (f["path"], f["size_bytes"], f["num_rows"], f["codecs"])
+                for f in result["files"]
+            ]
+
+        parallel_result = _collect_dataset_stats(
+            fs, root, None, capture_footer_metadata=True
+        )
+
+        # Force a serial footer pass and compare every field.
+        original_run_parallel = maint.run_parallel
+
+        def serial_run_parallel(func, *args, **kwargs):
+            kwargs = {**kwargs, "n_jobs": 1, "backend": "sequential", "verbose": False}
+            return original_run_parallel(func, *args, **kwargs)
+
+        monkeypatch.setattr(maint, "run_parallel", serial_run_parallel)
+        serial_result = _collect_dataset_stats(
+            fs, root, None, capture_footer_metadata=True
+        )
+
+        # Same per-file records in the same order, and identical aggregates.
+        assert comparable(parallel_result) == comparable(serial_result)
+        assert [f["path"] for f in parallel_result["files"]] == [
+            f["path"] for f in serial_result["files"]
+        ]
+        assert len(parallel_result["files"]) == 4
+        assert parallel_result["total_rows"] == sample_table.num_rows * 4
+        assert parallel_result["total_bytes"] == sum(
+            f["size_bytes"] for f in parallel_result["files"]
+        )
+
+    def test_collect_stats_with_partition_filter_scope(self, sample_table):
+        """collect_dataset_stats honors the scoped walk end-to-end."""
+        root = _memory_root()
+        fs = MemoryFileSystem()
+        fs.pipe(f"{root}/part=1/a.parquet", _parquet_bytes(sample_table))
+        fs.pipe(f"{root}/part=2/b.parquet", _parquet_bytes(sample_table))
+
+        result = _collect_dataset_stats(
+            fs, root, partition_filter=["part=1"], capture_footer_metadata=False
+        )
+        assert len(result["files"]) == 1
+        assert result["files"][0]["path"].endswith("part=1/a.parquet")

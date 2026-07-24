@@ -52,6 +52,7 @@ from fsspec import AbstractFileSystem
 from fsspec import filesystem as fsspec_filesystem
 
 from fsspeckit.common.logging import get_logger
+from fsspeckit.common.parallel import run_parallel
 
 logger: Any = get_logger(__name__)
 
@@ -230,60 +231,134 @@ def _footer_codecs(metadata: Any) -> frozenset[str]:
     )
 
 
+def _partition_subtree_seeds(
+    fs: AbstractFileSystem,
+    path: str,
+    partition_filter: list[str] | None,
+) -> tuple[list[str], bool]:
+    """Resolve the walk seed directories for a (possibly scoped) partition walk.
+
+    When every *partition_filter* entry names a partition directory that exists
+    under *path* (e.g. ``["region=emea", "year=2024"]`` or a nested prefix such
+    as ``"region=emea/year=2024"``), those directory paths are returned with
+    ``scoped=True`` so the walk only descends into in-scope partition subtrees
+    (#68). Otherwise -- no filter supplied, or a filter that is not
+    prefix-shaped (an entry that is not an existing directory) -- ``([path],
+    False)`` is returned for a full recursive walk, preserving the path-prefix
+    matching semantics exactly.
+    """
+    if not partition_filter:
+        return [path], False
+    seeds: list[str] = []
+    for prefix in partition_filter:
+        cleaned = prefix.strip("/")
+        if not cleaned:
+            return [path], False
+        subtree = posixpath.join(path, cleaned)
+        try:
+            if not fs.isdir(subtree):
+                return [path], False
+        except (OSError, PermissionError) as e:
+            logger.warning("Failed to stat partition subtree '%s': %s", subtree, e)
+            return [path], False
+        seeds.append(subtree)
+    return seeds, True
+
+
+def _listing_size_bytes(entry: dict[str, Any]) -> int | None:
+    """Best-effort file size from a detailed ``fs.ls`` listing entry.
+
+    Returns ``None`` when the listing does not carry a size, so callers can
+    fall back to ``fs.info`` for that single file.
+    """
+    size = entry.get("size", entry.get("Size"))
+    try:
+        return int(size) if size is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _discover_parquet_files(
     fs: AbstractFileSystem,
     path: str,
     partition_filter: list[str] | None,
-) -> list[str]:
+) -> list[tuple[str, int]]:
     """Discover parquet files under *path*, honoring optional partition filters.
 
+    Returns a list of ``(absolute_path, size_bytes)`` pairs. Sizes are read
+    from the detailed directory listing (``fs.ls(detail=True)``) so the walk
+    does not issue a separate ``fs.info`` per file (#69); entries whose listing
+    lacks a reported size fall back to ``fs.info`` for that file alone.
+
     A manual stack walk is used so partition filters apply to the logical
-    relative path. Raises ``FileNotFoundError`` when *path* is missing or no
-    parquet files match the filter.
+    relative path. When *partition_filter* entries are partition-directory
+    prefixes that exist under *path*, the walk is scoped to those subtrees so
+    out-of-scope partitions are never listed (#68); otherwise a full recursive
+    walk from *path* is performed. The partition filter (a path-prefix match
+    relative to *path*) is applied to the collected files in both cases, so the
+    result for partition-directory filters matches the legacy
+    full-walk-then-filter path.
+
+    Raises ``FileNotFoundError`` when *path* is missing or no parquet files
+    match the filter.
     """
     if not fs.exists(path):
         raise FileNotFoundError(f"Dataset path '{path}' does not exist")
 
     root = Path(path)
-    files: list[str] = []
-    stack: list[str] = [path]
+    seed_dirs, _scoped = _partition_subtree_seeds(fs, path, partition_filter)
+    discovered: list[tuple[str, int]] = []
+    stack: list[str] = list(seed_dirs)
     while stack:
         current_dir = stack.pop()
         try:
-            entries = fs.ls(current_dir, detail=False)
+            entries = fs.ls(current_dir, detail=True)
         except (OSError, PermissionError) as e:
             logger.warning("Failed to list directory '%s': %s", current_dir, e)
             continue
 
         for entry in entries:
-            if entry.endswith(".parquet"):
-                files.append(entry)
+            if isinstance(entry, dict):
+                name = str(entry.get("name", ""))
+                if not name:
+                    continue
+            else:
+                name = str(entry)
+            if name.endswith(".parquet"):
+                size = (
+                    _listing_size_bytes(entry) if isinstance(entry, dict) else None
+                )
+                if size is None:
+                    size = _file_size_bytes(fs, name)
+                discovered.append((name, size))
             else:
                 try:
-                    if fs.isdir(entry):
-                        stack.append(entry)
+                    if fs.isdir(name):
+                        stack.append(name)
                 except (OSError, PermissionError) as e:
                     logger.warning(
-                        "Failed to check if entry '%s' is a directory: %s", entry, e
+                        "Failed to check if entry '%s' is a directory: %s",
+                        name,
+                        e,
                     )
                     continue
 
     if partition_filter:
         normalized_filters = [p.rstrip("/") for p in partition_filter]
-        files = [
-            filename
-            for filename in files
+        discovered = [
+            (filename, size_bytes)
+            for filename, size_bytes in discovered
             if any(
                 Path(filename).relative_to(root).as_posix().startswith(prefix)
                 for prefix in normalized_filters
             )
         ]
 
-    if not files:
+    if not discovered:
         raise FileNotFoundError(
             f"No parquet files found under '{path}' matching filter"
         )
-    return files
+    return discovered
 
 
 def _file_size_bytes(fs: AbstractFileSystem, filename: str) -> int:
@@ -346,21 +421,39 @@ def _collect_dataset_stats(
 ) -> dict[str, Any]:
     """Internal dataset-stats core shared by the public stats and planning paths.
 
-    When *capture_footer_metadata* is true, each file dict additionally carries
-    ``schema_arrow`` and ``codecs`` harvested from the single footer open, so
-    the schema-reconciliation and codec consumers (#66) need not re-open it;
-    otherwise those keys are ``None`` and only the row count is read.
+    File sizes come from the detailed directory listing (no per-file
+    ``fs.info`` round-trip, #69) and each footer is read once, concurrently,
+    via a thread pool (#66, #69). When *capture_footer_metadata* is true, each
+    file dict additionally carries ``schema_arrow`` and ``codecs`` harvested
+    from that single footer open, so the schema-reconciliation and codec
+    consumers (#66) need not re-open it; otherwise those keys are ``None`` and
+    only the row count is read.
     """
-    files = _discover_parquet_files(fs, path, partition_filter)
+    discovered = _discover_parquet_files(fs, path, partition_filter)
+    paths = [filename for filename, _ in discovered]
+    # Concurrent footer reads: each footer is still opened exactly once and
+    # returns (num_rows, schema_arrow, codecs) together (#66, #69). run_parallel
+    # preserves the input order, so the per-file records and aggregates are
+    # identical to a serial pass.
+    # ``fs`` is passed positionally and ``paths`` as the iterated ``filename``
+    # keyword: run_parallel unpacks iterables ahead of fixed positionals, so the
+    # file paths must reach ``_read_parquet_footer`` via its ``filename`` slot.
+    footer_results = run_parallel(
+        _read_parquet_footer,
+        fs,
+        filename=paths,
+        capture_metadata=capture_footer_metadata,
+        n_jobs=-1,
+        backend="threading",
+        verbose=False,
+    )
+
     file_infos: list[dict[str, Any]] = []
     total_bytes = 0
     total_rows = 0
-
-    for filename in files:
-        size_bytes = _file_size_bytes(fs, filename)
-        num_rows, schema_arrow, codecs = _read_parquet_footer(
-            fs, filename, capture_metadata=capture_footer_metadata
-        )
+    for (filename, size_bytes), (num_rows, schema_arrow, codecs) in zip(
+        discovered, footer_results
+    ):
         total_bytes += size_bytes
         total_rows += num_rows
         file_infos.append(
