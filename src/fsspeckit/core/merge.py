@@ -868,22 +868,21 @@ def _dedupe_source_last_wins_common(
         key_table,
         sort_keys=[(c, "ascending") for c in key_columns] + [(sentinel, "ascending")],
     )
-    ordered = key_table.take(order)
-    ordered_index = ordered.column(sentinel)
+    ordered_index = pc.take(row_index, order)
 
     # A position ends a key group when any key column differs from the next row
     # (null == null treated as equal). The final position always ends a group.
     m = n - 1
     same_group = None
     for column in key_columns:
-        values = ordered.column(column)
+        values = pc.take(table.column(column), order)
         current = values.slice(0, m)
         following = values.slice(1, m)
         both_null = pc.and_(pc.is_null(current), pc.is_null(following))
         # equal() yields null when either operand is null; fold those to False
-        # so the OR stays a plain boolean -- three-valued and_(False, null) is
-        # null, not False, which would otherwise leak nulls into the boundary
-        # mask and drop keepers.
+        # so the OR stays a plain boolean. pc.and_/pc.or_ propagate nulls
+        # rather than applying SQL/Kleene three-valued logic, so a leaked null
+        # would make pc.filter treat a keeper row as a non-match and drop it.
         equal_or_false = pc.fill_null(pc.equal(current, following), False)
         column_same = pc.or_(both_null, equal_or_false)
         # NaN == NaN contract (matches canonical_key_value / Arrow is_in): for
