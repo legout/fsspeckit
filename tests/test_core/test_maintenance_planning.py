@@ -801,12 +801,8 @@ class TestPrecollectedFileStats:
         fs = fsspec_filesystem("file")
         (tmp_path / "date=2025-01-01").mkdir()
         (tmp_path / "date=2025-01-02").mkdir()
-        pq.write_table(
-            sample_table, str(tmp_path / "date=2025-01-01" / "a.parquet")
-        )
-        pq.write_table(
-            sample_table, str(tmp_path / "date=2025-01-02" / "b.parquet")
-        )
+        pq.write_table(sample_table, str(tmp_path / "date=2025-01-01" / "a.parquet"))
+        pq.write_table(sample_table, str(tmp_path / "date=2025-01-02" / "b.parquet"))
 
         file_stats = [
             {
@@ -1085,7 +1081,9 @@ class TestPrecollectedFileStats:
         # Schema reconciliation opened the footer (no snapshot was supplied).
         assert footer_opens["count"] >= 1
 
-    def test_file_stats_threaded_through_dedup_and_ordered(self, sample_table, tmp_path):
+    def test_file_stats_threaded_through_dedup_and_ordered(
+        self, sample_table, tmp_path
+    ):
         """file_stats threads through deduplication and ordered-compaction too."""
         fs = fsspec_filesystem("file")
         for name in ("a", "b"):

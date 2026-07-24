@@ -1539,9 +1539,7 @@ def _capture_source_snapshot(
         # The filesystem's reported size is authoritative for drift; the
         # caller's advisory size (pre-collected stats) is for grouping only.
         reported_size = info.get("size", info.get("Size"))
-        snapshot_size = (
-            int(reported_size) if reported_size is not None else size_bytes
-        )
+        snapshot_size = int(reported_size) if reported_size is not None else size_bytes
         token = _content_token(info, snapshot_size)
 
         source_files.append(
@@ -1894,7 +1892,11 @@ def _normalize_precollected_file_stats(
             )
         if not isinstance(path, str) or not path:
             raise ValueError("file_stats entries must have a non-empty 'path'")
-        if isinstance(size_bytes, bool) or not isinstance(size_bytes, int) or size_bytes < 0:
+        if (
+            isinstance(size_bytes, bool)
+            or not isinstance(size_bytes, int)
+            or size_bytes < 0
+        ):
             raise ValueError("file_stats 'size_bytes' must be a non-negative int")
         if isinstance(num_rows, bool) or not isinstance(num_rows, int) or num_rows < 0:
             raise ValueError("file_stats 'num_rows' must be a non-negative int")
@@ -8866,9 +8868,7 @@ class DatasetMaintenanceCoordinator:
             force_rewrite_paths = {
                 file_stat["path"]
                 for file_stat in file_stats
-                if _parquet_codecs(
-                    fs, file_stat["path"], file_stat.get("codecs")
-                )
+                if _parquet_codecs(fs, file_stat["path"], file_stat.get("codecs"))
                 != {target_codec}
             }
         compaction_groups, skipped_files = _plan_partition_local_compaction(
