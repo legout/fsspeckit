@@ -6,6 +6,7 @@ maintaining parquet datasets using PyArrow's high-performance engine.
 
 from __future__ import annotations
 
+import functools
 from typing import TYPE_CHECKING, Any, Callable, Literal
 
 if TYPE_CHECKING:
@@ -89,6 +90,57 @@ def _dnf_tuples_to_expression(filters: list | tuple) -> Any:
             out = out | expr
         return out
     return conjunction(list(filters))
+
+
+def _best_effort_dirs_filesystem(fs: AbstractFileSystem) -> AbstractFileSystem:
+    """Return a write-safe view of ``fs`` with best-effort directory creation.
+
+    On object stores (S3, GCS, Azure, ...) "directories" are virtual: writing
+    into an existing bucket never requires creating the bucket. Accounts with
+    object-only credentials can neither create buckets nor always answer
+    ``HeadBucket``, so the unconditional ``mkdir``/``mkdirs`` calls issued by
+    PyArrow's ``dataset.write_dataset`` (see
+    ``pyarrow.fs.FSSpecHandler.create_dir``) -- and our own pre-write
+    ``mkdirs`` -- fail with ``PermissionError``/``OSError``.
+
+    The returned object is an instance of the *same class* as ``fs`` (so it
+    still satisfies ``isinstance(fs, fsspec.AbstractFileSystem)`` checks such
+    as PyArrow's) and shares ``fs``'s underlying connection, but its
+    ``mkdir``/``mkdirs``/``makedirs`` swallow ``(OSError, PermissionError)``.
+    The original ``fs`` is never mutated, so this is safe across concurrent
+    writers that share a filesystem.
+
+    If the view cannot be constructed, the original ``fs`` is returned.
+    """
+    cls = type(fs)
+    try:
+        view = cls.__new__(cls)
+        view.__dict__.update(fs.__dict__)
+    except (TypeError, AttributeError):
+        # ``__new__`` may reject exotic metaclasses (TypeError) and slot-only
+        # classes have no ``__dict__`` (AttributeError); fall back to the
+        # original filesystem so writes still work, just without best-effort dirs.
+        logger.warning("best_effort_dirs_view_unavailable", fs_type=cls.__name__)
+        return fs
+
+    def _swallow(fn: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(fn)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return fn(*args, **kwargs)
+            except (OSError, PermissionError):
+                logger.debug(
+                    "best_effort_dirs_ignored",
+                    op=getattr(fn, "__name__", "mkdir"),
+                )
+                return None
+
+        return wrapper
+
+    for _name in ("mkdir", "mkdirs", "makedirs"):
+        if hasattr(view, _name):
+            setattr(view, _name, _swallow(getattr(view, _name)))
+    return view
 
 
 class PyarrowDatasetIO(BaseDatasetHandler):
@@ -396,8 +448,12 @@ class PyarrowDatasetIO(BaseDatasetHandler):
 
             table = cast_schema(table, schema)
 
-        # Ensure dataset directory exists.
-        self._filesystem.mkdirs(path, exist_ok=True)
+        # Ensure dataset directory exists. Use a best-effort-dirs view so
+        # accounts without bucket-creation rights (object-only credentials on
+        # object stores) do not fail here; the same view is passed to PyArrow
+        # below, since FSSpecHandler.create_dir also calls mkdir.
+        write_fs = _best_effort_dirs_filesystem(self._filesystem)
+        write_fs.mkdirs(path, exist_ok=True)
 
         if mode == "overwrite":
             self._clear_dataset_parquet_only(path)
@@ -447,7 +503,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         pds.write_dataset(
             table,
             base_dir=path,
-            filesystem=self._filesystem,
+            filesystem=write_fs,
             format="parquet",
             file_options=file_options,
             file_visitor=written.append,
@@ -658,9 +714,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             source_key_array = source_key_table.column(0)
             # Bulk-ingest canonical keys; fast path avoids the per-row loop
             # (issue #73).
-            source_key_tracker.add_from_arrow(
-                source_key_array, _num_key_components
-            )
+            source_key_tracker.add_from_arrow(source_key_array, _num_key_components)
         else:
             # For multi-column keys, use vectorized conversion.
             source_key_array = None
@@ -674,7 +728,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
             return early_result
 
         if not target_exists:
-            self._filesystem.mkdirs(path, exist_ok=True)
+            _best_effort_dirs_filesystem(self._filesystem).mkdirs(path, exist_ok=True)
             write_res = self.write_dataset(
                 source_table,
                 path,
@@ -797,9 +851,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                     else:
                         # Use struct array for vectorized multi-key extraction
                         matched_struct = _make_struct_safe(matched_rows, key_cols)
-                        file_matched.add_from_arrow(
-                            matched_struct, _num_key_components
-                        )
+                        file_matched.add_from_arrow(matched_struct, _num_key_components)
                         matched_keys.add_from_arrow(matched_struct, _num_key_components)
                     matched_keys_by_file[file_path] = file_matched
             except (OSError, RuntimeError, ValueError) as e:
@@ -814,9 +866,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
                 matched_keys_by_file[file_path] = source_key_tracker
                 if len(key_cols) == 1:
                     assert source_key_array is not None
-                    matched_keys.add_from_arrow(
-                        source_key_array, _num_key_components
-                    )
+                    matched_keys.add_from_arrow(source_key_array, _num_key_components)
                 else:
                     matched_keys.add_from_arrow(
                         _make_struct_safe(source_key_table, key_cols),
@@ -839,10 +889,7 @@ class PyarrowDatasetIO(BaseDatasetHandler):
         # snapshot its underlying set to avoid per-row lock acquisition in the
         # membership check (issue #73); otherwise fall back to the tracker's
         # __contains__ (which acquires the lock per check).
-        if (
-            matched_keys._tier == "EXACT"
-            and matched_keys._exact_keys is not None
-        ):
+        if matched_keys._tier == "EXACT" and matched_keys._exact_keys is not None:
             matched_container: Any = matched_keys._exact_keys
         else:
             matched_container = matched_keys

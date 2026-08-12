@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- PyArrow I/O writes no longer fail on object stores when the credentials lack bucket-creation rights. `write_dataset`/`merge` now wrap the filesystem in a best-effort directory-creation view (same class, shared connection) so the unconditional `mkdir`/`mkdirs` calls -- our pre-write `mkdirs` and the one PyArrow's `FSSpecHandler.create_dir` issues internally during `dataset.write_dataset` -- swallow `(OSError, PermissionError)` instead of raising `IllegalLocationConstraintException`/`PermissionError`. Writes into an existing bucket never require creating it; a genuinely missing bucket still surfaces later as a clear `NoSuchBucket` error from the object write. The shared filesystem is never mutated, so this is safe across concurrent writers.
+
 ## [0.28.0] - 2026-07-24
 
 ### Added
